@@ -1,18 +1,17 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-# Create FastAPI instance
-app = FastAPI(
-    title="My FastAPI App",
-    version="1.0.0",
-    description="Basic template for first run."
+app = FastAPI()
+
+# Allow frontend to call the API in dev (5173) and prod (8080 if behind Nginx)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # can be specify ["http://localhost:5173"]
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Root route
-@app.get("/")
-def read_root():
-    return {"message": "Hello, FastAPI is running!"}
-
-# Example endpoint with path parameter
-@app.get("/items/{item_id}")
-def read_item(item_id: int, q: str | None = None):
-    return {"item_id": item_id, "query": q}
+@app.get("/api/health")
+def health():
+    """Simple health-check endpoint."""
+    return {"ok": True, "service": "FastAPI backend"}

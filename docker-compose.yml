@@ -1,5 +1,5 @@
 services:
-  frontenc:
+  frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -10,9 +10,8 @@ services:
     volumes:
       - .:/frontend/app
       - /app/node_modules
-    environment:
-      - NODE_ENV=development
-
+    depends_on:
+      - api
   api:
     build:
       context: ./backend

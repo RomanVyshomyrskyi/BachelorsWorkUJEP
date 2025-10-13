@@ -1,0 +1,8 @@
+{
+    "apiAddress": "",
+    "apiKey": "",
+    "timeoutMs": 10000,
+    "enableLogging": true,
+    "defaultLocale": "en-US",
+    "retryCount": 3
+}

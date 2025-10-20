@@ -1,10 +1,10 @@
 from fastapi import APIRouter, HTTPException, Depends
-from passlib.hash import bcrypt
 from sqlmodel import select
 from core.config_store import load_config, save_config
 from core.db import init_engine, init_db, get_session
 from models import User, Settings
 from schemas.setup import TestDBRequest, InitRequest
+from passlib.hash import bcrypt_sha256
 
 
 # Router for setup-related endpoints (configuration and DB initialization)
@@ -65,9 +65,9 @@ def initialize(body: InitRequest, session=Depends(get_session)):
     if not existing:
         # store hashed password, mark as admin
         session.add(User(
-            email=str(body.admin_email),
-            password_hash=bcrypt.hash(body.admin_password),
-            is_admin=True
+            email = str(body.admin_email),
+            password_hash = bcrypt_sha256.hash(body.admin_password),
+            is_admin = True
         ))
     # Always add initial Settings row (could be extended to check existence)
     session.add(Settings(site_name=body.site_name))

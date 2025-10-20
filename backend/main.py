@@ -12,7 +12,7 @@ app.add_middleware(
     allow_origins=["http://localhost:5173","http://localhost:8080", "*"],  # can be specify ["http://localhost:5173"]
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_credentials=True
+    allow_credentials=True #Test chenges for gemini
 )
 
 # bootstrap from saved config if present

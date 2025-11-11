@@ -1,0 +1,2 @@
+docker-compose exec superset_prod superset fab create-admin
+docker-compose exec superset_dev superset fab create-admin

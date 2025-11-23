@@ -1,3 +1,35 @@
+# Existing entries
 superset/
 'superset copy'
 .env
+
+# Byte-code files
+*.pyc
+__pycache__/
+*.so
+*.egg
+*.egg-info/
+.eggs/
+
+# Distribution / packaging
+.Python
+build/
+dist/
+venv/
+.venv/
+env/
+
+# Editors
+.vscode/
+
+# IDEs
+.idea/
+
+# OS generated files
+.DS_Store
+.Trashes
+Thumbs.db
+
+# Logs and DB files
+*.log
+*.sqlite3

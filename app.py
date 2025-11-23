@@ -1,102 +1,74 @@
-# main_loader.py
-import importlib
-import json
-import logging
-import sys
-from pathlib import Path
-from typing import Any, Callable, Dict
+import os
+import importlib.util
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
-# --- Configuration ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# --- Core Application Setup ---
+app = FastAPI(
+    title="FastMCP Server",
+    description="A modular server that dynamically loads tools from modules.",
+    version="1.0.0"
+)
 
-# This maps the 'type' from config.json to the Python module
-# that contains the 'main(config)' function.
-MCP_MAPPINGS: Dict[str, str] = {
-    "ASMCP": "SupersetMCP.main_SupersetMCP",
-    "DAMCP": "DataAnalysesMCP.main_DataAnalyses",
-    # Add new MCPs here
-}
-# --- End Configuration ---
-
-
-def load_config(path: Path) -> Dict[str, Any]:
-    """Loads the configuration file from the given path."""
-    if not path.exists():
-        logger.error("Config file not found: %s", path)
-        raise FileNotFoundError(f"Config file not found: {path}")
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def find_config_path(config_path_arg: str | None) -> Path:
-    """Finds the config file path."""
-    if config_path_arg:
-        return Path(config_path_arg)
-
-    cwd_path = Path.cwd() / "config.json"
-    if cwd_path.exists():
-        return cwd_path
-
-    script_dir_path = Path(__file__).resolve().parent / "config.json"
-    if script_dir_path.exists():
-        return script_dir_path
-
-    raise FileNotFoundError("Could not find 'config.json'.")
-
-
-def main(config_path: str | None = None) -> None:
+# --- Dynamic Module Loading ---
+def load_modules(app: FastAPI):
     """
-    Main entry point.
-    Loads config, finds the correct MCP, and executes its main function.
+    Dynamically finds and loads modules from the 'modules' directory.
+    
+    A module is a directory within 'modules' that contains a 'main.py' file.
+    The 'main.py' is expected to have a FastAPI APIRouter instance named 'router'.
     """
-    try:
-        # 1. Find and load the configuration
-        cfg_path_arg = config_path or (sys.argv[1] if len(sys.argv) > 1 else None)
-        cfg_path = find_config_path(cfg_path_arg)
-        config = load_config(cfg_path)
+    modules_dir = "modules"
+    loaded_modules = []
+    
+    if not os.path.exists(modules_dir):
+        return loaded_modules
 
-        # 2. Get the strategy type from the config
-        strategy_type = config.get("type")
-        if not strategy_type:
-            raise KeyError("Config must contain a 'type' field indicating the strategy.")
+    for module_name in os.listdir(modules_dir):
+        module_path = os.path.join(modules_dir, module_name)
+        if os.path.isdir(module_path):
+            main_file_path = os.path.join(module_path, "main.py")
+            if os.path.isfile(main_file_path):
+                try:
+                    # Import the module's main.py
+                    spec = importlib.util.spec_from_file_location(f"modules.{module_name}.main", main_file_path)
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    
+                    # Look for the 'router' object and register it
+                    if hasattr(module, "router"):
+                        # Use the module name as a prefix for all its routes
+                        app.include_router(module.router, prefix=f"/{module_name}")
+                        loaded_modules.append(module_name)
+                        print(f"Successfully loaded module: {module_name}")
+                    else:
+                        print(f"Warning: Module '{module_name}' has a main.py but no 'router' object.")
 
-        # 3. Find the module to run from our mapping
-        module_name = MCP_MAPPINGS.get(strategy_type)
-        if not module_name:
-            raise ValueError(
-                f"Unknown strategy type: {strategy_type}. "
-                f"Available types: {list(MCP_MAPPINGS.keys())}"
-            )
+                except Exception as e:
+                    print(f"Error loading module '{module_name}': {e}")
+    
+    return loaded_modules
 
-        logger.info("Using MCP type '%s' from config %s", strategy_type, cfg_path)
-        logger.info("Loading module: %s", module_name)
+# --- Application Startup ---
+loaded_modules = load_modules(app)
 
-        # 4. Dynamically import *only* the module we need
-        try:
-            module = importlib.import_module(module_name)
-        except ImportError as e:
-            logger.error(
-                "Failed to import module '%s'. Error: %s",
-                module_name, e
-            )
-            sys.exit(1)
+# --- Core API Endpoints ---
+@app.get("/", tags=["Core"])
+async def read_root():
+    """
+    Root endpoint that provides basic server information.
+    """
+    return {
+        "message": "Welcome to the FastMCP Server",
+        "loaded_modules": loaded_modules
+    }
 
-        # 5. Find the 'main' function within that module
-        main_fn = getattr(module, "main", None)
-        if not callable(main_fn):
-            raise AttributeError(
-                f"Module {module_name} does not have a "
-                "callable 'main(config)' function."
-            )
+@app.get("/health", tags=["Core"])
+async def health_check():
+    """
+    Health check endpoint.
+    """
+    return JSONResponse(content={"status": "ok"})
 
-        # 6. Run the selected MCP's main function
-        main_fn(config)
-
-    except Exception as e:
-        logger.error("A critical error occurred: %s", e, exc_info=True)
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
+# To run this app for local development, use the following command:
+# uvicorn app:app --reload

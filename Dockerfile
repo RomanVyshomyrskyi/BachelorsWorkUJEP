@@ -1,0 +1,23 @@
+# Use an official Python runtime as a parent image
+FROM python:3.11-slim-bullseye
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Copy the dependencies file to the working directory
+COPY requirements.txt .
+
+# Install any needed packages specified in requirements.txt
+# --no-cache-dir: Disables the cache, which reduces the image size.
+# --trusted-host pypi.python.org: Can help in environments with network issues.
+RUN pip install --no-cache-dir --trusted-host pypi.python.org -r requirements.txt
+
+# Copy the rest of the application's code to the working directory
+COPY . .
+
+# Expose port 8000 to allow external traffic to the container
+EXPOSE 8000
+
+# Define the command to run your app using uvicorn
+# --host 0.0.0.0 makes the server accessible from outside the container.
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

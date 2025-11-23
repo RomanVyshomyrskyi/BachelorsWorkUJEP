@@ -155,7 +155,7 @@ class MSSQLStrategy(DatabaseStrategy):
     def connect(self):
         try:
             conn_str = (
-                f"DRIVER={{ODBC Driver 17 for SQL Server}} প্রশিক্ষক
+                f"DRIVER={{ODBC Driver 17 for SQL Server}} ;"
                 f"SERVER={self.connection_details['host']};"
                 f"DATABASE={self.connection_details['dbname']};"
                 f"UID={self.connection_details['user']};"

@@ -15,6 +15,14 @@ RUN pip install --no-cache-dir --trusted-host pypi.python.org -r requirements.tx
 # Copy the rest of the application's code to the working directory
 COPY . .
 
+# Install module-specific dependencies
+RUN for d in /app/modules/*/ ; do \
+      if [ -f "${d}requirements.txt" ]; then \
+        echo ">>> Installing dependencies for $(basename ${d})"; \
+        pip install --no-cache-dir --trusted-host pypi.python.org -r "${d}requirements.txt"; \
+      fi; \
+    done
+
 # Expose port 8000 to allow external traffic to the container
 EXPOSE 8000
 

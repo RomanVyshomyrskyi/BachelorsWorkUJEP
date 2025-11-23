@@ -1,0 +1,11 @@
+# This file contains dependencies specific to the DBAnalysis module.
+# These will be installed by the Dockerfile.
+
+# Driver for PostgreSQL
+psycopg2-binary
+
+# Driver for MariaDB / MySQL
+mysql-connector-python
+
+# Driver for Microsoft SQL Server
+pyodbc

@@ -79,6 +79,13 @@ My `app.py` has been refactored into a **modular (plugin) architecture** using F
     *   The core server then includes this `router` into the main FastAPI application.
     *   To ensure unique endpoint paths and avoid conflicts, all routes defined within a module's router are automatically prefixed with the module's folder name. For example, if a `hello_world` module has a `/hello` endpoint, it will be accessible via `/hello_world/hello`.
 
+### Available Modules
+
+The server automatically loads all modules found in the `modules` directory. Each module may have its own `README.md` file with more detailed documentation.
+
+*   **`hello_world`**: A simple example module with basic "hello world" endpoints.
+*   **`DBAnalysis`**: An advanced module for analyzing database schemas for normalization issues. It supports PostgreSQL, MariaDB, and MSSQL.
+
 ### How to Create a New Module
 
 Adding new functionality (a "tool") to the FastMCP server is straightforward:
@@ -143,3 +150,71 @@ Even though the primary deployment is via Docker, you can easily run and test yo
     The `--reload` flag is convenient for development as it automatically restarts the server when you make code changes.
 
 Access the interactive API documentation at `http://127.0.0.1:8000/docs` to see all loaded modules and their endpoints.
+
+---
+
+# Full Testing Environment with Docker Compose
+
+For a complete integration testing environment, I have created a `docker-compose.yml` file that launches the FastMCP server along with instances of PostgreSQL, MariaDB, and MSSQL. This allows for end-to-end testing of modules like `DBAnalysis`.
+
+The credentials for these databases are managed in the `.env` file for security and flexibility.
+
+### How to Use the Testing Environment
+
+1.  **Start the Environment**:
+    From the project root, run the following command. This will build the FastMCP server image and start all four services in the background.
+    ```bash
+    docker-compose up --build
+    ```
+    The first time you run this, Docker will download the database images, which may take some time.
+
+2.  **Test the Application**:
+    Your FastMCP server will be available at `http://localhost:8000`. You can test the `DBAnalysis` module by sending requests to the `/DBAnalysis/analyze` endpoint. Use the database service names (`postgres-db`, `mariadb-db`, `mssql-db`) as the `host` in the connection details.
+
+    **PostgreSQL Example:**
+    ```json
+    {
+      "db_type": "postgres",
+      "connection_details": {
+        "host": "postgres-db",
+        "user": "admin",
+        "password": "adminpass",
+        "dbname": "test_db",
+        "port": 5432
+      }
+    }
+    ```
+
+    **MariaDB Example:**
+    ```json
+    {
+      "db_type": "mariadb",
+      "connection_details": {
+        "host": "mariadb-db",
+        "user": "root",
+        "password": "rootpass",
+        "dbname": "test_db",
+        "port": 3306
+      }
+    }
+    ```
+
+    **MSSQL Example:**
+    ```json
+    {
+      "db_type": "mssql",
+      "connection_details": {
+        "host": "mssql-db",
+        "user": "sa",
+        "password": "Your_strong_P@ssw0rd!",
+        "dbname": "master",
+        "port": 1433
+      }
+    }
+    ```
+
+3.  **Shut Down the Environment**:
+    To stop all running services and remove the containers, press `Ctrl+C` in the terminal where the services are running, or run the following command from the project root in another terminal:
+    ```bash
+    docker-compose down
+    ```

@@ -52,7 +52,7 @@ class PostgresStrategy(DatabaseStrategy):
             raise ConnectionError("Not connected to the database.")
 
         with self.connection.cursor() as cursor:
-            # Get tables and columns
+            # Get tables and columns (ЦЕЙ ЗАПИТ ПРАВИЛЬНИЙ)
             cursor.execute("""
                 SELECT
                     t.table_name,
@@ -70,7 +70,8 @@ class PostgresStrategy(DatabaseStrategy):
             """)
             tables_and_columns = cursor.fetchall()
             
-            # Get foreign key relationships
+            # --- ВИПРАВЛЕНО: Використовуємо information_schema для FK ---
+            # Оригінальний запит був некоректний для сучасних версій Postgres
             cursor.execute("""
                 SELECT
                     kcu.table_name AS foreign_table,
@@ -82,7 +83,7 @@ class PostgresStrategy(DatabaseStrategy):
                 JOIN information_schema.key_column_usage AS kcu
                     ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
                 JOIN information_schema.constraint_column_usage AS ccu
-                    ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+                    ON ccu.constraint_name = tc.unique_constraint_name AND ccu.table_schema = tc.table_schema
                 WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public';
             """)
             relationships = cursor.fetchall()

@@ -1,32 +1,36 @@
-# Use an official Python runtime as a parent image
-FROM python:3.11-slim-bullseye
+# Використовуємо офіційний Python 3.12 на базі Debian 12 (bookworm)
+FROM python:3.12-slim-bookworm
 
-# Set the working directory in the container
+# --- КРИТИЧНО ДЛЯ MCP: Забезпечує вивід логів у stderr і взаємодію через stdin/stdout ---
+ENV PYTHONUNBUFFERED=1
+
+# Встановлюємо робочу директорію
 WORKDIR /app
 
-# Install system dependencies required for pyodbc (MSSQL driver)
-# python:3.11-slim-bullseye is Debian-based, so use apt.
-RUN apt-get update && apt-get install -y \
+# Встановлюємо системні залежності для драйверів баз даних
+# netcat-openbsd доданий для діагностики TCP-з'єднань всередині контейнера
+RUN apt-get update && apt-get install -y --no-install-recommends \
     unixodbc-dev \
     gcc \
-    # Clean up apt cache to keep image size small
+    libpq-dev \
+    g++ \
+    netcat-openbsd \
+    # Очищуємо кеш apt для зменшення розміру образу
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the dependencies file to the working directory
+# Копіюємо файл залежностей
 COPY requirements.txt .
 
-# Install any needed packages specified in requirements.txt
-# --no-cache-dir: Disables the cache, which reduces the image size.
-# --trusted-host pypi.python.org: Can help in environments with network issues.
+# Встановлюємо пакети Python
 RUN pip install --no-cache-dir --trusted-host pypi.python.org -r requirements.txt
 
-# Copy the rest of the application's code to the working directory
+# Копіюємо решту коду застосунку
 COPY . .
 
-# --- DEBUG: List all copied files to verify contents ---
+# Виводимо список файлів для діагностики
 RUN ls -R /app
 
-# Install module-specific dependencies
+# Встановлюємо залежності для окремих модулів (якщо вони існують)
 RUN for d in /app/modules/*/ ; do \
       if [ -f "${d}requirements.txt" ]; then \
         echo ">>> Installing dependencies for $(basename ${d})"; \
@@ -34,9 +38,5 @@ RUN for d in /app/modules/*/ ; do \
       fi; \
     done
 
-# Expose port 8000 to allow external traffic to the container
-EXPOSE 8000
-
-# Define the command to run your app using uvicorn
-# --host 0.0.0.0 makes the server accessible from outside the container.
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Визначаємо точку входу (запуск головного скрипта)
+ENTRYPOINT ["python", "main.py"]

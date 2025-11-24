@@ -4,15 +4,21 @@ services:
   fast-mcp:
     build: .
     container_name: fast-mcp-server
-    ports:
-      - "8000:8000"
+    # КРИТИЧНО: Використовуємо мережу хоста
+    network_mode: "host"
     env_file:
       - .env
     depends_on:
-      - postgres-db
-      - mariadb-db
-      - mssql-db
-    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+      postgres-db:
+        condition: service_healthy 
+      mariadb-db:
+        condition: service_started
+      mssql-db:
+        condition: service_started
+    volumes:
+      - .:/app
+    stdin_open: true 
+    tty: true
 
   postgres-db:
     image: postgres:14-alpine
@@ -23,28 +29,41 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
     ports:
       - "5432:5432"
+    command:
+      [
+        "postgres",
+        "-c", "listen_addresses=*",
+        "-c", "hba_file=/var/lib/postgresql/data/pg_hba.conf"
+      ]
+
     volumes:
+      - ./pg_hba.conf:/var/lib/postgresql/data/pg_hba.conf
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
 
   mariadb-db:
     image: mariadb:10.8
     container_name: mariadb-test-db
+    #network_mode: "host"
     environment:
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
       - MARIADB_DATABASE=${MARIADB_DATABASE}
-    ports:
-      - "3306:3306"
     volumes:
       - mariadb_data:/var/lib/mysql
 
   mssql-db:
     image: mcr.microsoft.com/mssql/server:2019-latest
     container_name: mssql-test-db
+    #network_mode: "host"
     environment:
       - ACCEPT_EULA=${ACCEPT_EULA}
       - SA_PASSWORD=${MSSQL_SA_PASSWORD}
-    ports:
-      - "1433:1433"
     volumes:
       - mssql_data:/var/opt/mssql
 

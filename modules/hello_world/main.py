@@ -1,17 +1,14 @@
-from fastapi import APIRouter
+from fastmcp import FastMCP
 
-router = APIRouter()
+def register(mcp: FastMCP):
+    """
+    Реєструє інструменти модуля Hello World.
+    """
 
-@router.get("/hello", tags=["Hello World"])
-async def read_hello():
-    """
-    Returns a simple hello world message.
-    """
-    return {"message": "Hello from the hello_world module!"}
-
-@router.get("/tools", tags=["Hello World"])
-async def list_tools():
-    """
-    Lists the tools available in this module.
-    """
-    return {"tools": ["/hello", "/tools"]}
+    @mcp.tool(name="say_hello")
+    def say_hello() -> str:
+        """
+        Returns a simple hello world message. 
+        Use this tool to test if the server is responding or just to greet the user.
+        """
+        return "Hello from the hello_world module!"

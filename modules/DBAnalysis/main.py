@@ -1,34 +1,26 @@
-# modules/DBAnalysis/main.py
-
 import os
-from fastapi import APIRouter, HTTPException, Body
+from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 from typing import Literal
 
+# Імпортуємо вашу існуючу логіку стратегій
+# (Припускаємо, що файл strategies.py знаходиться поруч)
 from .strategies import get_db_strategy
 
-# The router instance MUST be named 'router'
-router = APIRouter()
-
-# --- Pydantic Models for API Data Validation ---
+# --- Pydantic Models (Залишаємо для валідації всередині логіки) ---
 
 class ConnectionDetails(BaseModel):
-    """Defines the structure for database connection details."""
-    host: str = Field(..., example="localhost")
-    user: str = Field(..., example="admin")
-    password: str
-    dbname: str = Field(..., example="mydatabase")
-    port: int | None = Field(None, example=5432)
+    host: str = Field(..., description="Database host, e.g., localhost")
+    user: str = Field(..., description="Database user")
+    password: str = Field(..., description="Database password")
+    dbname: str = Field(..., description="Database name")
+    port: int | None = Field(None, description="Database port, e.g., 5432")
 
-class AnalysisRequest(BaseModel):
-    """Defines the request body for the analysis endpoint."""
-    db_type: Literal["postgres", "mariadb", "mssql"]
-    connection_details: ConnectionDetails
-
-# --- Helper Function to Load Rules ---
+# --- Helper Functions ---
 
 def get_normalization_rules() -> str:
     """Loads the normalization rules from the markdown file."""
+    # Використовуємо абсолютний шлях відносно поточного файлу
     rules_path = os.path.join(os.path.dirname(__file__), "normalization_rules.md")
     try:
         with open(rules_path, "r") as f:
@@ -36,68 +28,81 @@ def get_normalization_rules() -> str:
     except FileNotFoundError:
         return "Error: Normalization rules file not found."
 
-# --- API Endpoint ---
+# --- MCP Registration ---
 
-@router.post("/analyze", tags=["Database Analysis"])
-async def analyze_database(request: AnalysisRequest = Body(...)):
+def register(mcp: FastMCP):
     """
-    Analyzes a database's schema for normalization and suggests improvements.
-    
-    This endpoint uses the Strategy pattern to connect to a database,
-    extract its schema, and then (conceptually) uses an LLM with a set of
-    normalization rules to provide suggestions.
-    
-    **Note:** This implementation uses placeholder logic and does not
-    make a real database connection.
+    Реєструє інструменти цього модуля у головному сервері.
     """
-    try:
-        # 1. Select the appropriate strategy based on the request
-        strategy = get_db_strategy(request.db_type, request.connection_details.dict())
 
-        # 2. Use the strategy to connect and get the schema
-        # The 'with' statement ensures connect() and disconnect() are called.
-        with strategy as db_context:
-            schema_representation = db_context.get_schema_representation()
-
-        # 3. Load the normalization rules
-        rules = get_normalization_rules()
-
-        # 4. (Conceptual) Prepare a prompt for an LLM and get suggestions
-        # In a real application, you would send the schema and rules to an LLM API.
-        llm_prompt = f"""
-        Here is a set of database normalization rules:
-        ---
-        {rules}
-        ---
-        
-        Here is the schema of a database:
-        ---
-        {schema_representation}
-        ---
-        
-        Based on the rules provided, please analyze this database schema for potential
-        violations of 1NF, 2NF, and 3NF. For each violation you find,
-        describe the issue and suggest a specific, corrected schema structure.
+    @mcp.tool(name="get_normalization_rules")
+    def tool_get_rules() -> str:
         """
+        Retrieves the current database normalization rules/standards.
+        Use this to understand what rules to apply when analyzing a schema.
+        """
+        return get_normalization_rules()
 
-        # 5. Return a simulated response
-        return {
-            "status": "analysis_complete",
-            "db_type": request.db_type,
-            "suggestions": "This is a placeholder response. In a real implementation, this field would contain AI-generated suggestions for improving your database normalization.",
-            "llm_prompt_for_debugging": llm_prompt
-        }
+    @mcp.tool(name="analyze_database_schema")
+    def tool_analyze_db(
+        db_type: Literal["postgres", "mariadb", "mssql"],
+        host: str,
+        user: str,
+        password: str,
+        dbname: str,
+        port: int = 5432
+    ) -> str:
+        """
+        Connects to a database, extracts its schema, and returns it alongside normalization rules.
+        
+        ARGS:
+        - db_type: Type of database (postgres, mariadb, mssql)
+        - host: Host address
+        - user: Username
+        - password: Password
+        - dbname: Name of the database
+        - port: Port number (default 5432)
+        """
+        
+        # 1. Формуємо об'єкт connection_details (як було в оригіналі)
+        # Ми "розгорнули" аргументи у функції, щоб LLM було легше їх заповнювати,
+        # але всередині збираємо їх назад у модель.
+        try:
+            conn_details = ConnectionDetails(
+                host=host, user=user, password=password, dbname=dbname, port=port
+            )
+            
+            # 2. Отримуємо стратегію
+            strategy = get_db_strategy(db_type, conn_details.dict())
 
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except ConnectionError as e:
-        raise HTTPException(status_code=503, detail=f"Database connection failed: {e}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
+            # 3. Виконуємо підключення та отримуємо схему
+            with strategy as db_context:
+                schema_representation = db_context.get_schema_representation()
 
-@router.get("/rules", tags=["Database Analysis"])
-async def get_rules():
-    """
-    Retrieves the content of the normalization rules file.
-    """
-    return {"rules": get_normalization_rules()}
+            # 4. Отримуємо правила
+            rules = get_normalization_rules()
+
+            # 5. ПОВЕРТАЄМО КОНТЕКСТ (Схема + Правила)
+            # На відміну від API, тут ми не повертаємо "placeholder".
+            # Ми повертаємо сирі дані, щоб Клод (або інша модель) міг зробити аналіз.
+            result = f"""
+ANALYSIS DATA RETRIEVED SUCCESSFULLY.
+
+--- NORMALIZATION RULES ---
+{rules}
+
+--- DATABASE SCHEMA ({db_type}) ---
+{schema_representation}
+
+--- INSTRUCTIONS FOR AI ---
+Please analyze the schema above based on the normalization rules provided.
+Identify violations of 1NF, 2NF, and 3NF. Suggest specific SQL corrections.
+            """
+            return result
+
+        except ValueError as e:
+            return f"Validation Error: {str(e)}"
+        except ConnectionError as e:
+            return f"Database Connection Failed: {e}"
+        except Exception as e:
+            return f"Unexpected Error: {e}"

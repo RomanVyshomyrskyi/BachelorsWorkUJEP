@@ -9,3 +9,5 @@ mysql-connector-python
 
 # Driver for Microsoft SQL Server
 pyodbc
+pandas
+matplotlib

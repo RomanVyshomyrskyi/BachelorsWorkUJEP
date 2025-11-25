@@ -69,8 +69,7 @@ class PostgresStrategy(DatabaseStrategy):
             """)
             tables_and_columns = cursor.fetchall()
             
-            # 2. Get Foreign Keys (ВИПРАВЛЕНИЙ ЗАПИТ)
-            # Ми використовуємо referential_constraints для зв'язку FK та PK
+            # 2. Get Foreign Keys (using information_schema)
             cursor.execute("""
                 SELECT
                     kcu.table_name AS foreign_table,
@@ -91,6 +90,24 @@ class PostgresStrategy(DatabaseStrategy):
             relationships = cursor.fetchall()
 
         return format_schema(self.connection_details['dbname'], "PostgreSQL", tables_and_columns, relationships)
+
+    def execute_query(self, query: str) -> list[dict]:
+        if not self.connection:
+            raise ConnectionError("Not connected to the database.")
+        
+        # Basic security check
+        if not query.strip().upper().startswith("SELECT"):
+             raise ValueError("Security violation: Only SELECT queries are allowed.")
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(query)
+            if cursor.description:
+                columns = [desc[0] for desc in cursor.description]
+                results = []
+                for row in cursor.fetchall():
+                    results.append(dict(zip(columns, row)))
+                return results
+            return []
 
 
 class MariaDBStrategy(DatabaseStrategy):
@@ -150,6 +167,23 @@ class MariaDBStrategy(DatabaseStrategy):
             relationships = cursor.fetchall()
 
         return format_schema(db_name, "MariaDB", tables_and_columns, relationships)
+
+    def execute_query(self, query: str) -> list[dict]:
+        if not self.connection:
+            raise ConnectionError("Not connected to the database.")
+        
+        if not query.strip().upper().startswith("SELECT"):
+             raise ValueError("Security violation: Only SELECT queries are allowed.")
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(query)
+            if cursor.description:
+                columns = [desc[0] for desc in cursor.description]
+                results = []
+                for row in cursor.fetchall():
+                    results.append(dict(zip(columns, row)))
+                return results
+            return []
 
 
 class MSSQLStrategy(DatabaseStrategy):
@@ -226,11 +260,26 @@ class MSSQLStrategy(DatabaseStrategy):
         
         return format_schema(self.connection_details['dbname'], "MSSQL", tables_and_columns, relationships)
 
+    def execute_query(self, query: str) -> list[dict]:
+        if not self.connection:
+            raise ConnectionError("Not connected to the database.")
+        
+        if not query.strip().upper().startswith("SELECT"):
+             raise ValueError("Security violation: Only SELECT queries are allowed.")
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(query)
+            if cursor.description:
+                columns = [desc[0] for desc in cursor.description]
+                results = []
+                for row in cursor.fetchall():
+                    # MSSQL via pyodbc sometimes returns rows as tuples that need clean conversion
+                    results.append(dict(zip(columns, row)))
+                return results
+            return []
+
 
 def get_db_strategy(db_type: str, connection_details: dict) -> DatabaseStrategy:
-    """
-    Factory function to select the appropriate database strategy.
-    """
     if db_type == "postgres":
         return PostgresStrategy(connection_details)
     elif db_type == "mariadb":

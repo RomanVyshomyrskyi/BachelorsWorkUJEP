@@ -1,4 +1,3 @@
-# modules/DBAnalysis/interfaces.py
 from abc import ABC, abstractmethod
 
 class DatabaseStrategy(ABC):
@@ -43,6 +42,16 @@ class DatabaseStrategy(ABC):
         - Foreign key relationships
         
         :return: A string detailing the database schema.
+        """
+        pass
+
+    @abstractmethod
+    def execute_query(self, query: str) -> list[dict]:
+        """
+        Executes a raw SQL query (expected to be read-only) and returns results.
+        
+        :param query: The SQL SELECT query to execute.
+        :return: A list of dictionaries, where each dictionary represents a row.
         """
         pass
 

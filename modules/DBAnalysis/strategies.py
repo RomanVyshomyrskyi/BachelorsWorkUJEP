@@ -1,4 +1,3 @@
-# modules/DBAnalysis/strategies.py
 import psycopg2
 import mysql.connector
 import pyodbc
@@ -52,7 +51,7 @@ class PostgresStrategy(DatabaseStrategy):
             raise ConnectionError("Not connected to the database.")
 
         with self.connection.cursor() as cursor:
-            # Get tables and columns (ЦЕЙ ЗАПИТ ПРАВИЛЬНИЙ)
+            # 1. Get tables and columns
             cursor.execute("""
                 SELECT
                     t.table_name,
@@ -70,8 +69,8 @@ class PostgresStrategy(DatabaseStrategy):
             """)
             tables_and_columns = cursor.fetchall()
             
-            # --- ВИПРАВЛЕНО: Використовуємо information_schema для FK ---
-            # Оригінальний запит був некоректний для сучасних версій Postgres
+            # 2. Get Foreign Keys (ВИПРАВЛЕНИЙ ЗАПИТ)
+            # Ми використовуємо referential_constraints для зв'язку FK та PK
             cursor.execute("""
                 SELECT
                     kcu.table_name AS foreign_table,
@@ -79,12 +78,15 @@ class PostgresStrategy(DatabaseStrategy):
                     ccu.table_name AS primary_table,
                     ccu.column_name AS primary_column
                 FROM
-                    information_schema.table_constraints AS tc
-                JOIN information_schema.key_column_usage AS kcu
-                    ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+                    information_schema.key_column_usage AS kcu
+                JOIN information_schema.referential_constraints AS rc
+                    ON kcu.constraint_name = rc.constraint_name
+                    AND kcu.constraint_schema = rc.constraint_schema
                 JOIN information_schema.constraint_column_usage AS ccu
-                    ON ccu.constraint_name = tc.unique_constraint_name AND ccu.table_schema = tc.table_schema
-                WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public';
+                    ON rc.unique_constraint_name = ccu.constraint_name
+                    AND rc.unique_constraint_schema = ccu.constraint_schema
+                WHERE
+                    kcu.table_schema = 'public';
             """)
             relationships = cursor.fetchall()
 

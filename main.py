@@ -2,6 +2,7 @@ import os
 import sys
 import importlib.util
 from fastmcp import FastMCP
+import logging
 
 # --- Core Application Setup ---
 # Примітка: dependencies у конструкторі можуть викликати DeprecationWarning,
@@ -35,12 +36,12 @@ def load_modules(mcp_server: FastMCP):
                         module.register(mcp_server)
                         loaded_modules.append(module_name)
                         # ВАЖЛИВО: file=sys.stderr (щоб не ламати MCP протокол)
-                        print(f"Successfully loaded module: {module_name}", file=sys.stderr)
+                        logging.info(f"Successfully loaded module: {module_name}", file=sys.stderr)
                     else:
-                        print(f"Warning: Module '{module_name}' has no 'register(mcp)' function.", file=sys.stderr)
+                        logging.info(f"Warning: Module '{module_name}' has no 'register(mcp)' function.", file=sys.stderr)
 
                 except Exception as e:
-                    print(f"Error loading module '{module_name}': {e}", file=sys.stderr)
+                    logging.info(f"Error loading module '{module_name}': {e}", file=sys.stderr)
     
     return loaded_modules
 

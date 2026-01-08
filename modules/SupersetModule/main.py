@@ -122,6 +122,8 @@ class ConnectionManager:
             logger.error(f"Error loading servers: {e}")
 
     def get_context(self, server_id: str) -> Optional[SupersetContext]:
+        if not self._contexts:
+            self.load_servers()
         return self._contexts.get(server_id)
 
     async def close_all(self):
@@ -143,11 +145,13 @@ async def _get_csrf_token(ctx: SupersetContext):
     except Exception as e:
         logger.warning(f"Failed to fetch CSRF token for {ctx.server_id}: {e}")
 
-async def authenticate(ctx: SupersetContext):
-    """Authenticates the context based on configuration."""
+async def get_access_token(ctx: SupersetContext) -> Optional[str]:
+    """
+    Performs the authentication request to the provider and returns the access token.
+    Only applies to 'db' and 'keycloak' auth methods.
+    """
     config = ctx.config
     
-    # 1. DB Auth
     if config.auth_method == "db":
         if not config.username or not config.password:
             raise ValueError(f"Username and password required for 'db' auth on {ctx.server_id}")
@@ -159,29 +163,8 @@ async def authenticate(ctx: SupersetContext):
             "refresh": True
         })
         resp.raise_for_status()
-        token = resp.json().get("access_token")
-        ctx.access_token = token
-        ctx.client.headers.update({"Authorization": f"Bearer {token}"})
-        await _get_csrf_token(ctx)
+        return resp.json().get("access_token")
 
-    # 2. Cookie Auth
-    elif config.auth_method in ["cookie", "cookie_http_auth"]:
-        # HTTP Basic Auth header if needed
-        if config.http_username:
-            creds = f"{config.http_username}:{config.http_password}"
-            b64_creds = base64.b64encode(creds.encode()).decode()
-            ctx.client.headers.update({"Authorization": f"Basic {b64_creds}"})
-        
-        if config.cookie_file_path and os.path.exists(config.cookie_file_path):
-            with open(config.cookie_file_path, 'r') as f:
-                cookie = f.read().strip()
-            ctx.session_cookie = cookie
-            ctx.client.headers.update({"Cookie": f"session={cookie}"})
-            await _get_csrf_token(ctx)
-        else:
-            raise ValueError(f"Cookie file not found for {ctx.server_id}")
-
-    # 3. Keycloak (Simplified)
     elif config.auth_method == "keycloak":
         token_url = config.token_url
         if config.token_url_env:
@@ -205,15 +188,70 @@ async def authenticate(ctx: SupersetContext):
                 "scope": "openid offline_access"
             })
             resp.raise_for_status()
-            token = resp.json().get("access_token")
+            return resp.json().get("access_token")
+            
+    return None
+
+async def authenticate(ctx: SupersetContext):
+    """Authenticates the context based on configuration."""
+    config = ctx.config
+    
+    # 1. DB & Keycloak (Token based)
+    if config.auth_method in ["db", "keycloak"]:
+        token = await get_access_token(ctx)
+        if token:
             ctx.access_token = token
             ctx.client.headers.update({"Authorization": f"Bearer {token}"})
+            
+            # Save access token if present
+            if ctx.token_path:
+                try:
+                    with open(ctx.token_path, 'w') as f:
+                        f.write(token)
+                    logger.info(f"Saved access token for {ctx.server_id} to disk.")
+                except Exception as e:
+                    logger.warning(f"Failed to save token for {ctx.server_id}: {e}")
+            
             await _get_csrf_token(ctx)
+
+    # 2. Cookie Auth
+    elif config.auth_method in ["cookie", "cookie_http_auth"]:
+        # HTTP Basic Auth header if needed
+        if config.http_username:
+            creds = f"{config.http_username}:{config.http_password}"
+            b64_creds = base64.b64encode(creds.encode()).decode()
+            ctx.client.headers.update({"Authorization": f"Basic {b64_creds}"})
+        
+        if config.cookie_file_path and os.path.exists(config.cookie_file_path):
+            with open(config.cookie_file_path, 'r') as f:
+                cookie = f.read().strip()
+            ctx.session_cookie = cookie
+            ctx.client.headers.update({"Cookie": f"session={cookie}"})
+            await _get_csrf_token(ctx)
+        else:
+            raise ValueError(f"Cookie file not found for {ctx.server_id}")
 
 async def ensure_auth(ctx: SupersetContext):
     """Ensures authentication headers are present, re-authenticates if necessary."""
-    if not ctx.access_token and not ctx.session_cookie:
-        await authenticate(ctx)
+    if ctx.access_token or ctx.session_cookie:
+        return
+
+    # Try loading token from disk
+    if ctx.token_path and os.path.exists(ctx.token_path):
+        try:
+            with open(ctx.token_path, 'r') as f:
+                token = f.read().strip()
+            if token:
+                ctx.access_token = token
+                ctx.client.headers.update({"Authorization": f"Bearer {token}"})
+                logger.info(f"Loaded access token for {ctx.server_id} from disk.")
+                # Refresh CSRF
+                await _get_csrf_token(ctx)
+                return
+        except Exception as e:
+            logger.warning(f"Failed to load token from disk for {ctx.server_id}: {e}")
+
+    await authenticate(ctx)
 
 
 # --- API Logic ---
@@ -275,12 +313,55 @@ def register(mcp: FastMCP):
     @mcp.tool(name="list_superset_servers")
     def tool_list_servers() -> str:
         """Lists all configured Superset servers."""
+        # Reload config if empty (hot-reload fix)
+        if not manager._contexts:
+            manager.load_servers()
+
         servers = []
         for sid, ctx in manager._contexts.items():
             servers.append(f"- {sid}: {ctx.config.base_url} (Auth: {ctx.config.auth_method})")
+        
         if not servers:
-            return "No servers configured."
+            # Deep Debugging
+            debug_info = []
+            config_path = os.path.join(manager._config_dir, "servers.json")
+            debug_info.append(f"Config Path: {config_path}")
+            if os.path.exists(config_path):
+                debug_info.append("File exists.")
+                try:
+                    with open(config_path, 'r') as f:
+                        content = f.read()
+                        debug_info.append(f"Content length: {len(content)}")
+                        json.loads(content)
+                        debug_info.append("JSON parsing successful.")
+                except Exception as e:
+                    debug_info.append(f"JSON Error: {e}")
+            else:
+                debug_info.append("File does NOT exist.")
+            
+            return f"No servers configured. Debug Info:\n" + "\n".join(debug_info)
+            
         return "Configured Superset Servers:\n" + "\n".join(servers)
+
+    @mcp.tool(name="superset_server_status")
+    async def tool_server_status(server_id: str) -> str:
+        """
+        Checks the status and connectivity of a specific Superset server.
+        """
+        ctx = manager.get_context(server_id)
+        if not ctx:
+            return f"Error: Server '{server_id}' not found."
+        
+        try:
+            await ensure_auth(ctx)
+            resp = await ctx.client.get("/api/v1/me/")
+            if resp.status_code == 200:
+                user_data = resp.json().get("result", {})
+                return f"Server '{server_id}' is ONLINE. Authenticated as: {user_data.get('username')}"
+            else:
+                return f"Server '{server_id}' is REACHABLE but returned status {resp.status_code}: {resp.text}"
+        except Exception as e:
+            return f"Server '{server_id}' is OFFLINE or error occurred: {e}"
 
     @mcp.tool(name="superset_available_resource_types")
     def tool_list_resource_types() -> str:
@@ -291,26 +372,13 @@ def register(mcp: FastMCP):
         keys = sorted(list(RESOURCE_ENDPOINTS.keys()))
         return "Available Resource Types:\n" + "\n".join(f"- {k}" for k in keys)
 
-    @mcp.tool(name="superset_api_request")
-    async def tool_superset_api(
+    async def _impl_superset_api(
         server_id: str,
         method: str,
         endpoint: str,
         json_body: Optional[str] = None,
         params: Optional[str] = None
     ) -> str:
-        """
-        Executes a raw API request against a Superset server.
-        Use this to access GET, POST, or PUT methods from the Superset API.
-        DELETE operations are strictly forbidden via this tool.
-        
-        Args:
-            server_id: The ID of the configured server.
-            method: GET, POST, or PUT.
-            endpoint: The API endpoint (e.g., '/api/v1/chart/' or '/api/v1/dashboard/1').
-            json_body: Optional JSON string for the request body.
-            params: Optional JSON string for query parameters.
-        """
         if method.upper() == "DELETE":
             return "Error: DELETE method is forbidden for safety reasons. 'YOLO mode' is not supported."
 
@@ -344,14 +412,55 @@ def register(mcp: FastMCP):
         except Exception as e:
             return f"Error executing request: {e}"
 
+    @mcp.tool(name="superset_api_request")
+    async def tool_superset_api(
+        server_id: str,
+        method: str,
+        endpoint: str,
+        json_body: Optional[str] = None,
+        params: Optional[str] = None
+    ) -> str:
+        """
+        Executes a raw API request against a Superset server.
+        Use this to access GET, POST, or PUT methods from the Superset API.
+        DELETE operations are strictly forbidden via this tool.
+        
+        Args:
+            server_id: The ID of the configured server.
+            method: GET, POST, or PUT.
+            endpoint: The API endpoint (e.g., '/api/v1/chart/' or '/api/v1/dashboard/1').
+            json_body: Optional JSON string for the request body.
+            params: Optional JSON string for query parameters.
+        """
+        return await _impl_superset_api(server_id, method, endpoint, json_body, params)
+
+    async def _impl_list_resources(server_id: str, resource_type: str) -> str:
+        base = RESOURCE_ENDPOINTS.get(resource_type, f"/api/v1/{resource_type}")
+        return await _impl_superset_api(server_id, "GET", base)
+
     @mcp.tool(name="superset_list_resources")
     async def tool_list_resources(server_id: str, resource_type: str) -> str:
         """
         Lists resources of a specific type (e.g., 'dashboard', 'chart', 'database').
         Wrapper around GET /api/v1/{resource_type}/.
         """
+        return await _impl_list_resources(server_id, resource_type)
+
+    @mcp.tool(name="list_dashboards")
+    async def tool_list_dashboards(server_id: str) -> str:
+        """
+        Lists dashboards on a specific server to get their IDs.
+        """
+        return await _impl_list_resources(server_id, "dashboard")
+
+    async def _impl_get_resource(
+        server_id: str,
+        resource_type: str,
+        resource_id: Union[int, str]
+    ) -> str:
         base = RESOURCE_ENDPOINTS.get(resource_type, f"/api/v1/{resource_type}")
-        return await tool_superset_api(server_id, "GET", base)
+        endpoint = f"{base}/{resource_id}"
+        return await _impl_superset_api(server_id, "GET", endpoint)
 
     @mcp.tool(name="superset_get_resource")
     async def tool_get_resource(
@@ -363,26 +472,14 @@ def register(mcp: FastMCP):
         Gets details for a specific resource by ID.
         Wrapper around GET /api/v1/{resource_type}/{pk}.
         """
-        base = RESOURCE_ENDPOINTS.get(resource_type, f"/api/v1/{resource_type}")
-        endpoint = f"{base}/{resource_id}"
-        return await tool_superset_api(server_id, "GET", endpoint)
+        return await _impl_get_resource(server_id, resource_type, resource_id)
 
-    @mcp.tool(name="superset_transfer_item")
-    async def tool_transfer_item(
+    async def _impl_transfer_item(
         source_server_id: str,
         target_server_id: str,
         resource_type: str,
         item_id: Union[int, str]
     ) -> str:
-        """
-        Transfers a specific item (Chart, Dashboard, etc.) from one server to another.
-        
-        Args:
-            source_server_id: ID of source server.
-            target_server_id: ID of target server.
-            resource_type: Type of resource ('dashboard', 'chart', 'database', 'dataset', 'saved_query', 'annotation_layer', etc.)
-            item_id: The ID (pk) of the item to transfer.
-        """
         source_ctx = manager.get_context(source_server_id)
         target_ctx = manager.get_context(target_server_id)
 
@@ -459,3 +556,32 @@ def register(mcp: FastMCP):
 
         except Exception as e:
             return f"Transfer error: {e}"
+
+    @mcp.tool(name="transfer_dashboard")
+    async def tool_transfer_dashboard(
+        source_server_id: str,
+        target_server_id: str,
+        dashboard_id: int
+    ) -> str:
+        """
+        Transfers a Dashboard (and its charts) from a source Superset server to a target Superset server.
+        """
+        return await _impl_transfer_item(source_server_id, target_server_id, "dashboard", dashboard_id)
+
+    @mcp.tool(name="superset_transfer_item")
+    async def tool_transfer_item(
+        source_server_id: str,
+        target_server_id: str,
+        resource_type: str,
+        item_id: Union[int, str]
+    ) -> str:
+        """
+        Transfers a specific item (Chart, Dashboard, etc.) from one server to another.
+        
+        Args:
+            source_server_id: ID of source server.
+            target_server_id: ID of target server.
+            resource_type: Type of resource ('dashboard', 'chart', 'database', 'dataset', 'saved_query', 'annotation_layer', etc.)
+            item_id: The ID (pk) of the item to transfer.
+        """
+        return await _impl_transfer_item(source_server_id, target_server_id, resource_type, item_id)

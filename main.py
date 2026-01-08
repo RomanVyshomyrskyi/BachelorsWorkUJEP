@@ -31,17 +31,16 @@ def load_modules(mcp_server: FastMCP):
                     module = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(module)
                     
-                    # --- KEY CHANGE HERE ---
+                    
                     if hasattr(module, "register") and callable(module.register):
                         module.register(mcp_server)
                         loaded_modules.append(module_name)
-                        # ВАЖЛИВО: file=sys.stderr (щоб не ламати MCP протокол)
-                        logging.info(f"Successfully loaded module: {module_name}", file=sys.stderr)
+                        logging.info(f"Successfully loaded module: {module_name}")
                     else:
-                        logging.info(f"Warning: Module '{module_name}' has no 'register(mcp)' function.", file=sys.stderr)
+                        logging.info(f"Warning: Module '{module_name}' has no 'register(mcp)' function.")
 
                 except Exception as e:
-                    logging.info(f"Error loading module '{module_name}': {e}", file=sys.stderr)
+                    logging.info(f"Error loading module '{module_name}': {e}")
     
     return loaded_modules
 

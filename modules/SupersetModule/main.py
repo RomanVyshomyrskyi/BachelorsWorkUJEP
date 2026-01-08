@@ -6,13 +6,12 @@ import logging
 import httpx
 import asyncio
 from fastmcp import FastMCP
-from pydantic import BaseModel, Field
 from dataclasses import dataclass
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from urllib.parse import urlparse, urlunparse
 
 # --- Logging ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', stream=sys.stdout)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', stream=sys.stderr)
 logger = logging.getLogger(__name__)
 
 # --- Dataclasses & Models ---
@@ -184,11 +183,6 @@ async def authenticate(ctx: SupersetContext):
 
     # 3. Keycloak (Simplified)
     elif config.auth_method == "keycloak":
-        # Note: Ideally implementation should be full OpenID connect flow, 
-        # but here we reuse the logic from the example if possible or just warn.
-        # For brevity, assuming token is retrieved externally or implemented similar to example.
-        # This implementation mirrors the example's password grant logic.
-        
         token_url = config.token_url
         if config.token_url_env:
             token_url = os.getenv(config.token_url_env)
@@ -218,166 +212,250 @@ async def authenticate(ctx: SupersetContext):
 
 async def ensure_auth(ctx: SupersetContext):
     """Ensures authentication headers are present, re-authenticates if necessary."""
-    # Simple check: if we have tokens/cookies, assume they might be valid, 
-    # but strictly speaking we should just authenticate if missing.
     if not ctx.access_token and not ctx.session_cookie:
         await authenticate(ctx)
+
+
+# --- API Logic ---
+
+# Map simplified resource names to their API endpoint base
+RESOURCE_ENDPOINTS = {
+    "advanced_data_type": "/api/v1/advanced_data_type",
+    "annotation_layer": "/api/v1/annotation_layer",
+    "assets": "/api/v1/assets",
+    "async_event": "/api/v1/async_event",
+    "available_domains": "/api/v1/available_domains",
+    "cachekey": "/api/v1/cachekey",
+    "chart": "/api/v1/chart",
+    "css_template": "/api/v1/css_template",
+    "dashboard": "/api/v1/dashboard",
+    "database": "/api/v1/database",
+    "dataset": "/api/v1/dataset",
+    "datasource": "/api/v1/datasource",
+    "embedded_dashboard": "/api/v1/embedded_dashboard",
+    "explore": "/api/v1/explore",
+    "log": "/api/v1/log",
+    "query": "/api/v1/query",
+    "saved_query": "/api/v1/saved_query",
+    "report": "/api/v1/report",
+    "rowlevelsecurity": "/api/v1/rowlevelsecurity",
+    "security": "/api/v1/security",
+    "sqllab": "/api/v1/sqllab",
+    "tag": "/api/v1/tag",
+    "user": "/api/v1/user",
+}
+
+# Transfer Strategies
+# "export_import": Uses /export/ (GET) and /import/ (POST multipart)
+# "json_copy": Uses / (GET list) -> /{pk} (GET detail) -> / (POST create json)
+TRANSFER_STRATEGY = {
+    "chart": "export_import",
+    "dashboard": "export_import",
+    "database": "export_import",
+    "dataset": "export_import",
+    "saved_query": "export_import",
+    "assets": "export_import",
+    
+    # Fallback to json_copy for others where feasible
+    "annotation_layer": "json_copy",
+    "css_template": "json_copy",
+    "report": "json_copy",
+    "rowlevelsecurity": "json_copy",
+}
 
 # --- MCP Registration ---
 
 def register(mcp: FastMCP):
     """Registers Superset tools."""
     
-    # Initialize connection manager in the module scope or lazily
-    # Since FastMCP tools are stateless functions, we need a global manager
-    # pointing to the module directory.
     module_dir = os.path.dirname(__file__)
     manager = ConnectionManager(module_dir)
     manager.load_servers()
 
     @mcp.tool(name="list_superset_servers")
     def tool_list_servers() -> str:
-        """
-        Lists all configured Superset servers available for operations.
-        """
+        """Lists all configured Superset servers."""
         servers = []
         for sid, ctx in manager._contexts.items():
             servers.append(f"- {sid}: {ctx.config.base_url} (Auth: {ctx.config.auth_method})")
-        
         if not servers:
-            return "No servers configured. Please check servers.json in the module directory."
-        
+            return "No servers configured."
         return "Configured Superset Servers:\n" + "\n".join(servers)
 
-    @mcp.tool(name="transfer_dashboard")
-    async def tool_transfer_dashboard(
-        source_server_id: str,
-        target_server_id: str,
-        dashboard_id: int
+    @mcp.tool(name="superset_available_resource_types")
+    def tool_list_resource_types() -> str:
+        """
+        Lists all available resource types that can be used with `superset_list_resources` 
+        and other resource-specific tools.
+        """
+        keys = sorted(list(RESOURCE_ENDPOINTS.keys()))
+        return "Available Resource Types:\n" + "\n".join(f"- {k}" for k in keys)
+
+    @mcp.tool(name="superset_api_request")
+    async def tool_superset_api(
+        server_id: str,
+        method: str,
+        endpoint: str,
+        json_body: Optional[str] = None,
+        params: Optional[str] = None
     ) -> str:
         """
-        Transfers a Dashboard (and its charts) from a source Superset server to a target Superset server.
+        Executes a raw API request against a Superset server.
+        Use this to access GET, POST, or PUT methods from the Superset API.
+        DELETE operations are strictly forbidden via this tool.
         
-        Steps:
-        1. Exports the dashboard from source as a ZIP file.
-        2. Imports the ZIP file to the target.
+        Args:
+            server_id: The ID of the configured server.
+            method: GET, POST, or PUT.
+            endpoint: The API endpoint (e.g., '/api/v1/chart/' or '/api/v1/dashboard/1').
+            json_body: Optional JSON string for the request body.
+            params: Optional JSON string for query parameters.
         """
-        source_ctx = manager.get_context(source_server_id)
-        target_ctx = manager.get_context(target_server_id)
+        if method.upper() == "DELETE":
+            return "Error: DELETE method is forbidden for safety reasons. 'YOLO mode' is not supported."
 
-        if not source_ctx:
-            return f"Error: Source server '{source_server_id}' not found."
-        if not target_ctx:
-            return f"Error: Target server '{target_server_id}' not found."
-
-        try:
-            # 1. Authenticate both
-            await ensure_auth(source_ctx)
-            await ensure_auth(target_ctx)
-
-            # 2. Export from Source
-            # Superset export endpoint: /api/v1/dashboard/export/?q=[id]
-            # This returns a ZIP file stream.
-            q_param = json.dumps([dashboard_id])
-            logger.info(f"Exporting dashboard {dashboard_id} from {source_server_id}...")
-            
-            export_resp = await source_ctx.client.get(
-                "/api/v1/dashboard/export/",
-                params={"q": q_param}
-            )
-            
-            if export_resp.status_code != 200:
-                return f"Export failed on source: {export_resp.status_code} - {export_resp.text}"
-            
-            zip_content = export_resp.content
-            
-            # 3. Import to Target
-            # Endpoint: POST /api/v1/dashboard/import/
-            # Requires multipart/form-data with 'formData' (file) and 'passwords' (optional json)
-            logger.info(f"Importing dashboard to {target_server_id}...")
-            
-            files = {
-                'formData': ('dashboard_export.zip', zip_content, 'application/zip')
-            }
-            data = {
-                'overwrite': 'true', # Usually we want to update if exists
-                'passwords': '{}'    # Empty JSON for passwords for now
-            }
-            
-            # Note: CSRF token is already in headers from ensure_auth -> authenticate -> _get_csrf_token
-            import_resp = await target_ctx.client.post(
-                "/api/v1/dashboard/import/",
-                files=files,
-                data=data
-            )
-
-            if import_resp.status_code not in [200, 201]:
-                return f"Import failed on target: {import_resp.status_code} - {import_resp.text}"
-
-            return f"Successfully transferred dashboard {dashboard_id} from {source_server_id} to {target_server_id}. Response: {import_resp.text}"
-
-        except Exception as e:
-            return f"An error occurred during transfer: {e}"
-
-    @mcp.tool(name="list_dashboards")
-    async def tool_list_dashboards(server_id: str) -> str:
-        """
-        Lists dashboards on a specific server to get their IDs.
-        """
         ctx = manager.get_context(server_id)
         if not ctx:
             return f"Error: Server '{server_id}' not found."
-        
+
         try:
             await ensure_auth(ctx)
-            resp = await ctx.client.get("/api/v1/dashboard/")
-            resp.raise_for_status()
-            data = resp.json()
             
-            result_list = data.get("result", [])
-            output = [f"Dashboards on {server_id}:"]
-            for d in result_list:
-                output.append(f"- ID: {d.get('id')}, Title: {d.get('dashboard_title')}, Slug: {d.get('slug')}")
+            data = json.loads(json_body) if json_body else None
+            query_params = json.loads(params) if params else None
             
-            return "\n".join(output)
-        except Exception as e:
-            return f"Error listing dashboards: {e}"
+            # Ensure endpoint starts with slash
+            if not endpoint.startswith("/"):
+                endpoint = "/" + endpoint
 
-    @mcp.tool(name="transfer_chart")
-    async def tool_transfer_chart(
-        source_server_id: str,
-        target_server_id: str,
-        chart_id: int
+            resp = await ctx.client.request(
+                method=method.upper(),
+                url=endpoint,
+                json=data,
+                params=query_params
+            )
+            
+            # Try to format JSON output
+            try:
+                return json.dumps(resp.json(), indent=2)
+            except:
+                return f"Status: {resp.status_code}\nBody: {resp.text}"
+
+        except Exception as e:
+            return f"Error executing request: {e}"
+
+    @mcp.tool(name="superset_list_resources")
+    async def tool_list_resources(server_id: str, resource_type: str) -> str:
+        """
+        Lists resources of a specific type (e.g., 'dashboard', 'chart', 'database').
+        Wrapper around GET /api/v1/{resource_type}/.
+        """
+        base = RESOURCE_ENDPOINTS.get(resource_type, f"/api/v1/{resource_type}")
+        return await tool_superset_api(server_id, "GET", base)
+
+    @mcp.tool(name="superset_get_resource")
+    async def tool_get_resource(
+        server_id: str,
+        resource_type: str,
+        resource_id: Union[int, str]
     ) -> str:
         """
-        Transfers a Chart from source to target.
+        Gets details for a specific resource by ID.
+        Wrapper around GET /api/v1/{resource_type}/{pk}.
+        """
+        base = RESOURCE_ENDPOINTS.get(resource_type, f"/api/v1/{resource_type}")
+        endpoint = f"{base}/{resource_id}"
+        return await tool_superset_api(server_id, "GET", endpoint)
+
+    @mcp.tool(name="superset_transfer_item")
+    async def tool_transfer_item(
+        source_server_id: str,
+        target_server_id: str,
+        resource_type: str,
+        item_id: Union[int, str]
+    ) -> str:
+        """
+        Transfers a specific item (Chart, Dashboard, etc.) from one server to another.
+        
+        Args:
+            source_server_id: ID of source server.
+            target_server_id: ID of target server.
+            resource_type: Type of resource ('dashboard', 'chart', 'database', 'dataset', 'saved_query', 'annotation_layer', etc.)
+            item_id: The ID (pk) of the item to transfer.
         """
         source_ctx = manager.get_context(source_server_id)
         target_ctx = manager.get_context(target_server_id)
 
         if not source_ctx or not target_ctx:
-            return "Error: Source or Target server not found."
+            return "Error: Server not found."
 
+        strategy = TRANSFER_STRATEGY.get(resource_type, "json_copy")
+        
         try:
             await ensure_auth(source_ctx)
             await ensure_auth(target_ctx)
+            
+            # Strategy: Export/Import (ZIP)
+            if strategy == "export_import":
+                # Export
+                # Most export endpoints take `q=[id]`
+                q_param = json.dumps([item_id])
+                endpoint_base = RESOURCE_ENDPOINTS.get(resource_type, f"/api/v1/{resource_type}")
+                export_url = f"{endpoint_base}/export/"
+                
+                logger.info(f"Exporting {resource_type} {item_id} from {source_server_id}...")
+                export_resp = await source_ctx.client.get(export_url, params={"q": q_param})
+                
+                if export_resp.status_code != 200:
+                    return f"Export failed: {export_resp.status_code} - {export_resp.text}"
+                
+                # Import
+                import_url = f"{endpoint_base}/import/"
+                file_name = f"export_{resource_type}_{item_id}.zip"
+                # Check header for filename if available (content-disposition), else use default
+                
+                files = {'formData': (file_name, export_resp.content, 'application/zip')}
+                data = {'overwrite': 'true', 'passwords': '{}'}
+                
+                logger.info(f"Importing to {target_server_id}...")
+                import_resp = await target_ctx.client.post(import_url, files=files, data=data)
+                
+                if import_resp.status_code not in [200, 201]:
+                    return f"Import failed: {import_resp.status_code} - {import_resp.text}"
+                
+                return f"Successfully transferred {resource_type} {item_id}."
 
-            # Export
-            q_param = json.dumps([chart_id])
-            export_resp = await source_ctx.client.get("/api/v1/chart/export/", params={"q": q_param})
-            if export_resp.status_code != 200:
-                return f"Export failed: {export_resp.text}"
-            
-            # Import
-            files = {'formData': ('chart_export.zip', export_resp.content, 'application/zip')}
-            data = {'overwrite': 'true', 'passwords': '{}'}
-            
-            import_resp = await target_ctx.client.post("/api/v1/chart/import/", files=files, data=data)
-            
-            if import_resp.status_code not in [200, 201]:
-                return f"Import failed: {import_resp.text}"
-            
-            return f"Chart {chart_id} transferred successfully."
+            # Strategy: JSON Copy (Get Detail -> Post Create)
+            elif strategy == "json_copy":
+                endpoint_base = RESOURCE_ENDPOINTS.get(resource_type, f"/api/v1/{resource_type}")
+                
+                # Get Detail
+                detail_url = f"{endpoint_base}/{item_id}"
+                get_resp = await source_ctx.client.get(detail_url)
+                if get_resp.status_code != 200:
+                    return f"Failed to get item from source: {get_resp.status_code}"
+                
+                item_data = get_resp.json().get("result")
+                if not item_data:
+                    return "Source item data not found in response."
+
+                # Cleanup for Creation
+                # We need to remove IDs and other read-only fields to create a new copy
+                # This is heuristic and might need adjustment per resource type
+                params_to_remove = ['id', 'created_by', 'changed_by', 'created_on', 'changed_on', 'owners']
+                payload = {k: v for k, v in item_data.items() if k not in params_to_remove}
+                
+                # Post Create
+                post_url = f"{endpoint_base}/"
+                create_resp = await target_ctx.client.post(post_url, json=payload)
+                
+                if create_resp.status_code not in [200, 201]:
+                    return f"Failed to create on target: {create_resp.status_code} - {create_resp.text}"
+                
+                return f"Successfully transferred {resource_type} {item_id} (created new ID)."
+
+            else:
+                return f"Unknown transfer strategy for {resource_type}"
 
         except Exception as e:
-            return f"Error: {e}"
+            return f"Transfer error: {e}"

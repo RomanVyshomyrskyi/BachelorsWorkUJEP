@@ -13,6 +13,9 @@ services:
         condition: service_started
     volumes:
       - .:/app
+    ports:
+      - "8000:8000"
+    command: ["--sse"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
     stdin_open: true 

@@ -256,6 +256,32 @@ async def ensure_auth(ctx: SupersetContext):
 
 # --- API Logic ---
 
+async def execute_request(ctx: SupersetContext, method: str, endpoint: str, **kwargs) -> httpx.Response:
+    """
+    Executes a request with automatic token refresh on 401.
+    """
+    await ensure_auth(ctx)
+    
+    try:
+        resp = await ctx.client.request(method, endpoint, **kwargs)
+        
+        # If 401 Unauthorized, try to refresh token and retry ONCE
+        if resp.status_code == 401:
+            logger.info(f"401 received for {ctx.server_id}. Refreshing token...")
+            ctx.access_token = None # Clear cached token
+            await ensure_auth(ctx) # Force re-auth
+            
+            # Update headers for the retry
+            # ensure_auth updates ctx.client.headers, but if kwargs contained headers, we might need to merge?
+            # Typically ctx.client.headers has the auth.
+            
+            resp = await ctx.client.request(method, endpoint, **kwargs)
+            
+        return resp
+    except Exception as e:
+        logger.error(f"Request failed: {e}")
+        raise e
+
 # Map simplified resource names to their API endpoint base
 RESOURCE_ENDPOINTS = {
     "advanced_data_type": "/api/v1/advanced_data_type",
@@ -353,8 +379,7 @@ def register(mcp: FastMCP):
             return f"Error: Server '{server_id}' not found."
         
         try:
-            await ensure_auth(ctx)
-            resp = await ctx.client.get("/api/v1/me/")
+            resp = await execute_request(ctx, "GET", "/api/v1/me/")
             if resp.status_code == 200:
                 user_data = resp.json().get("result", {})
                 return f"Server '{server_id}' is ONLINE. Authenticated as: {user_data.get('username')}"
@@ -396,9 +421,10 @@ def register(mcp: FastMCP):
             if not endpoint.startswith("/"):
                 endpoint = "/" + endpoint
 
-            resp = await ctx.client.request(
+            resp = await execute_request(
+                ctx,
                 method=method.upper(),
-                url=endpoint,
+                endpoint=endpoint,
                 json=data,
                 params=query_params
             )
@@ -501,7 +527,7 @@ def register(mcp: FastMCP):
                 export_url = f"{endpoint_base}/export/"
                 
                 logger.info(f"Exporting {resource_type} {item_id} from {source_server_id}...")
-                export_resp = await source_ctx.client.get(export_url, params={"q": q_param})
+                export_resp = await execute_request(source_ctx, "GET", export_url, params={"q": q_param})
                 
                 if export_resp.status_code != 200:
                     return f"Export failed: {export_resp.status_code} - {export_resp.text}"
@@ -515,7 +541,7 @@ def register(mcp: FastMCP):
                 data = {'overwrite': 'true', 'passwords': '{}'}
                 
                 logger.info(f"Importing to {target_server_id}...")
-                import_resp = await target_ctx.client.post(import_url, files=files, data=data)
+                import_resp = await execute_request(target_ctx, "POST", import_url, files=files, data=data)
                 
                 if import_resp.status_code not in [200, 201]:
                     return f"Import failed: {import_resp.status_code} - {import_resp.text}"
@@ -528,7 +554,7 @@ def register(mcp: FastMCP):
                 
                 # Get Detail
                 detail_url = f"{endpoint_base}/{item_id}"
-                get_resp = await source_ctx.client.get(detail_url)
+                get_resp = await execute_request(source_ctx, "GET", detail_url)
                 if get_resp.status_code != 200:
                     return f"Failed to get item from source: {get_resp.status_code}"
                 
@@ -544,7 +570,7 @@ def register(mcp: FastMCP):
                 
                 # Post Create
                 post_url = f"{endpoint_base}/"
-                create_resp = await target_ctx.client.post(post_url, json=payload)
+                create_resp = await execute_request(target_ctx, "POST", post_url, json=payload)
                 
                 if create_resp.status_code not in [200, 201]:
                     return f"Failed to create on target: {create_resp.status_code} - {create_resp.text}"

@@ -1,12 +1,17 @@
 import os
 import sys
 import importlib.util
-from fastmcp import FastMCP
 import logging
+from fastmcp import FastMCP
+from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
+import uvicorn
+from fastmcp.server.dependencies import without_injected_parameters
+
+# --- Logging Setup ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # --- Core Application Setup ---
-# Примітка: dependencies у конструкторі можуть викликати DeprecationWarning,
-# але це не критично. Краще керувати залежностями через requirements.txt.
 mcp = FastMCP("FastMCP Server")
 
 # --- Dynamic Module Loading ---
@@ -30,7 +35,6 @@ def load_modules(mcp_server: FastMCP):
                     spec = importlib.util.spec_from_file_location(f"modules.{module_name}.main", main_file_path)
                     module = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(module)
-                    
                     
                     if hasattr(module, "register") and callable(module.register):
                         module.register(mcp_server)
@@ -65,6 +69,89 @@ def health_check() -> str:
     """
     return "OK"
 
+# --- FastAPI Integration for Documentation ---
+app = FastAPI(
+    title="FastMCP Server",
+    description="Auto-generated documentation for FastMCP tools",
+    version="1.0.0"
+)
+
+# Enable CORS to allow Open Web UI to connect
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Force OpenAPI 3.0.0 for compatibility and strip 422 errors
+from fastapi.openapi.utils import get_openapi
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+        servers=[{"url": "/"}]
+    )
+    openapi_schema["openapi"] = "3.0.0"
+    
+    # Remove 422 validation errors which clutter the spec and confuse some parsers
+    for path, methods in openapi_schema.get("paths", {}).items():
+        for method, details in methods.items():
+            if "responses" in details and "422" in details["responses"]:
+                del details["responses"]["422"]
+                
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
+
+# 1. Register all MCP tools as FastAPI endpoints to generate Swagger docs
+for tool_name, tool in mcp._tool_manager._tools.items():
+    try:
+        # Use without_injected_parameters to strip Context/Injected params that FastAPI handles differently
+        endpoint = without_injected_parameters(tool.fn)
+        
+        app.add_api_route(
+            path=f"/tools/{tool_name}",
+            endpoint=endpoint,
+            methods=["POST"],
+            tags=["Tools"],
+            summary=tool.description or f"Execute {tool_name}",
+            name=tool_name,
+            operation_id=tool_name
+        )
+        logging.info(f"Registered FastAPI route for tool: {tool_name}")
+    except Exception as e:
+        logging.error(f"Failed to register route for tool '{tool_name}': {e}")
+
+# 2. Mount the FastMCP app (Starlette) to handle the actual MCP protocol (SSE)
+try:
+    mcp_app = mcp.http_app(transport="sse")
+    app.mount("/mcp", mcp_app)
+    logging.info("Mounted FastMCP SSE server at /mcp")
+except Exception as e:
+    logging.error(f"Failed to mount FastMCP app: {e}")
+
+# 3. Add redirects for the default paths to maintain compatibility
+@app.get("/sse")
+async def handle_sse_redirect():
+    return RedirectResponse(url="/mcp/sse")
+
+@app.get("/messages")
+async def handle_messages_redirect():
+    return RedirectResponse(url="/mcp/messages")
+
 # --- Entry Point ---
 if __name__ == "__main__":
-    mcp.run()
+    logging.info("Starting FastMCP Server with FastAPI integration...")
+    logging.info("Documentation available at: http://localhost:8000/docs")
+    logging.info("MCP SSE Endpoint at: http://localhost:8000/mcp/sse")
+    
+    # Run FastAPI app with Uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

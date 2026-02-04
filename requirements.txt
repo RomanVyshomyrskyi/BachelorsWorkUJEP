@@ -1,2 +1,5 @@
 fastmcp
 logging
+uvicorn
+fastapi
+sse-starlette

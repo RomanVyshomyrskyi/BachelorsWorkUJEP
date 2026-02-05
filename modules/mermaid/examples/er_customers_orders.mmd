@@ -1,0 +1,31 @@
+erDiagram
+    CUSTOMER {
+        VARCHAR customerId PK
+        VARCHAR name
+        VARCHAR email
+    }
+
+    PRODUCT {
+        VARCHAR productId PK
+        VARCHAR productName
+        DECIMAL price
+    }
+
+    ORDER {
+        INT orderId PK
+        VARCHAR customerId FK
+        DATE orderDate
+        DECIMAL totalAmount
+    }
+
+    ORDER_ITEM {
+        INT orderItemId PK
+        INT orderId FK
+        VARCHAR productId FK
+        INT quantity
+        DECIMAL itemPrice
+    }
+
+    CUSTOMER ||--o{ ORDER : places
+    ORDER ||--o{ ORDER_ITEM : contains
+    PRODUCT ||--o{ ORDER_ITEM : is part of

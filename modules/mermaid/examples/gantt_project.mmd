@@ -1,0 +1,24 @@
+gantt
+    dateFormat  YYYY-MM-DD
+    title       Website Redesign Project
+
+    section Planning
+    Define Scope      :done, s1, 2024-03-01, 3d
+    Gather Requirements :active, s2, after s1, 5d
+    Create Wireframes :s3, after s2, 7d
+
+    section Design
+    UI/UX Design      :des1, after s3, 10d
+    Graphics Creation :des2, after des1, 8d
+
+    section Development
+    Frontend Build    :dev1, after des1, 15d
+    Backend Build     :dev2, after s3, 12d
+    Database Setup    :dev3, after dev2, 5d
+
+    section Testing
+    Integration Test  :test1, after dev1, after dev3, 7d
+    User Acceptance   :test2, after test1, 5d
+
+    section Deployment
+    Go Live           :crit, final, after test2, 1d

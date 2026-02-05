@@ -3,3 +3,10 @@ logging
 uvicorn
 fastapi
 sse-starlette
+psycopg2-binary
+mysql-connector-python
+pyodbc
+pandas
+plotly
+kaleido
+matplotlib

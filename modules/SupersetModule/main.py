@@ -369,6 +369,28 @@ def register(mcp: FastMCP):
             
         return "Configured Superset Servers:\n" + "\n".join(servers)
 
+    @mcp.tool(name="superset_reauthenticate")
+    async def tool_reauthenticate(server_id: str) -> str:
+        """
+        Forces re-authentication with a Superset server, obtaining a new access token.
+        Use this if you suspect the current token is expired or invalid.
+        """
+        ctx = manager.get_context(server_id)
+        if not ctx:
+            return f"Error: Server '{server_id}' not found."
+        
+        try:
+            # Clear existing token to force a fresh authentication
+            ctx.access_token = None
+            await authenticate(ctx)
+            if ctx.access_token:
+                return f"Successfully re-authenticated with server '{server_id}'. New token obtained."
+            else:
+                return f"Re-authentication failed for server '{server_id}'. Check credentials."
+        except Exception as e:
+            return f"An error occurred during re-authentication for server '{server_id}': {e}"
+
+
     @mcp.tool(name="superset_server_status")
     async def tool_server_status(server_id: str) -> str:
         """
@@ -499,6 +521,260 @@ def register(mcp: FastMCP):
         Wrapper around GET /api/v1/{resource_type}/{pk}.
         """
         return await _impl_get_resource(server_id, resource_type, resource_id)
+
+    @mcp.tool(name="superset_get_chart_data")
+    async def tool_get_chart_data(server_id: str, chart_id: int) -> str:
+        """
+        Retrieves the data associated with a specific chart from a Superset server.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            chart_id: The ID (pk) of the chart to retrieve data from.
+        """
+        ctx = manager.get_context(server_id)
+        if not ctx:
+            return f"Error: Server '{server_id}' not found."
+        
+        try:
+            endpoint = f"/api/v1/chart/{chart_id}/data/"
+            resp = await execute_request(ctx, "GET", endpoint)
+            resp.raise_for_status() # Raise an exception for HTTP errors
+            return json.dumps(resp.json(), indent=2)
+        except httpx.HTTPStatusError as e:
+            return f"Error fetching chart data: {e.response.status_code} - {e.response.text}"
+        except Exception as e:
+            return f"An unexpected error occurred while fetching chart data: {e}"
+
+    @mcp.tool(name="superset_create_chart")
+    async def tool_create_chart(
+        server_id: str,
+        slice_name: str,
+        viz_type: str,
+        datasource_id: int,
+        datasource_type: str,
+        params: str, # JSON string
+        description: Optional[str] = None
+    ) -> str:
+        """
+        Creates a new chart (slice) on a Superset server.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            slice_name: The name of the new chart.
+            viz_type: The visualization type (e.g., 'table', 'bar', 'line').
+            datasource_id: The ID of the dataset to base the chart on.
+            datasource_type: The type of the datasource (e.g., 'table').
+            params: A JSON string representing the chart's visualization parameters.
+                    It is highly recommended to generate this by creating a chart
+                    in the Superset UI and extracting its 'params' JSON string.
+            description: Optional description for the chart.
+        """
+        ctx = manager.get_context(server_id)
+        if not ctx:
+            return f"Error: Server '{server_id}' not found."
+        
+        try:
+            chart_payload = {
+                "slice_name": slice_name,
+                "description": description,
+                "viz_type": viz_type,
+                "datasource_id": datasource_id,
+                "datasource_type": datasource_type,
+                "params": params,
+            }
+            
+            endpoint = "/api/v1/chart/"
+            resp = await execute_request(ctx, "POST", endpoint, json=chart_payload)
+            resp.raise_for_status()
+            
+            return json.dumps(resp.json(), indent=2)
+        except httpx.HTTPStatusError as e:
+            return f"Error creating chart: {e.response.status_code} - {e.response.text}"
+        except Exception as e:
+            return f"An unexpected error occurred while creating the chart: {e}"
+
+    @mcp.tool(name="superset_create_dashboard")
+    async def tool_create_dashboard(
+        server_id: str,
+        dashboard_title: str,
+        position_json: str, # JSON string
+        slug: Optional[str] = None,
+        json_metadata: Optional[str] = None, # JSON string
+        owners: Optional[List[int]] = None,
+        roles: Optional[List[int]] = None,
+        published: Optional[bool] = False
+    ) -> str:
+        """
+        Creates a new dashboard on a Superset server.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            dashboard_title: The title of the new dashboard.
+            position_json: A JSON string defining the layout and positioning of charts
+                           within the dashboard. It is highly recommended to generate
+                           this by creating a dashboard in the Superset UI and
+                           extracting its 'position_json' string.
+            slug: Optional URL-friendly identifier for the dashboard.
+            json_metadata: Optional JSON string for various dashboard metadata.
+            owners: Optional list of owner IDs.
+            roles: Optional list of role IDs that have access.
+            published: Optional boolean indicating if the dashboard should be published.
+        """
+        ctx = manager.get_context(server_id)
+        if not ctx:
+            return f"Error: Server '{server_id}' not found."
+        
+        try:
+            dashboard_payload = {
+                "dashboard_title": dashboard_title,
+                "position_json": position_json,
+                "slug": slug,
+                "json_metadata": json_metadata,
+                "owners": owners if owners is not None else [],
+                "roles": roles if roles is not None else [],
+                "published": published
+            }
+            
+            # Remove None values
+            dashboard_payload = {k: v for k, v in dashboard_payload.items() if v is not None}
+
+            endpoint = "/api/v1/dashboard/"
+            resp = await execute_request(ctx, "POST", endpoint, json=dashboard_payload)
+            resp.raise_for_status()
+            
+            return json.dumps(resp.json(), indent=2)
+        except httpx.HTTPStatusError as e:
+            return f"Error creating dashboard: {e.response.status_code} - {e.response.text}"
+        except Exception as e:
+                        return f"An unexpected error occurred while creating the dashboard: {e}"
+
+    @mcp.tool(name="superset_create_dataset")
+    async def tool_create_dataset(
+        server_id: str,
+        table_name: str,
+        database_id: int,
+        schema: Optional[str] = None,
+        owners: Optional[List[int]] = None,
+        metrics_json: Optional[str] = None, # JSON string
+        columns_json: Optional[str] = None, # JSON string
+        sql_expression: Optional[str] = None # For virtual datasets
+    ) -> str:
+        """
+        Creates a new dataset on a Superset server.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            table_name: The name of the table in the database that this dataset will represent.
+            database_id: The ID of the database where the table resides.
+            schema: Optional schema name if your database uses schemas.
+            owners: Optional list of user IDs who own the dataset.
+            metrics_json: Optional JSON string of metric definitions for the dataset.
+            columns_json: Optional JSON string of column definitions for the dataset.
+            sql_expression: Optional SQL query for virtual datasets.
+        """
+        ctx = manager.get_context(server_id)
+        if not ctx:
+            return f"Error: Server '{server_id}' not found."
+        
+        try:
+            dataset_payload: Dict[str, Any] = {
+                "table_name": table_name,
+                "database": database_id,
+            }
+            if schema:
+                dataset_payload["schema"] = schema
+            if owners is not None:
+                dataset_payload["owners"] = owners
+            if metrics_json:
+                dataset_payload["metrics"] = json.loads(metrics_json)
+            if columns_json:
+                dataset_payload["columns"] = json.loads(columns_json)
+            if sql_expression:
+                dataset_payload["sql_expression"] = sql_expression
+            
+            endpoint = "/api/v1/dataset/"
+            resp = await execute_request(ctx, "POST", endpoint, json=dataset_payload)
+            resp.raise_for_status()
+            
+            return json.dumps(resp.json(), indent=2)
+        except httpx.HTTPStatusError as e:
+            return f"Error creating dataset: {e.response.status_code} - {e.response.text}"
+        except Exception as e:
+            return f"An unexpected error occurred while creating the dataset: {e}"
+
+    @mcp.tool(name="superset_sqllab_execute_query")
+    async def tool_sqllab_execute_query(
+        server_id: str,
+        database_id: int,
+        sql_query: str,
+        schema: Optional[str] = None,
+        client_id: Optional[str] = None,
+        tab_name: Optional[str] = None
+    ) -> str:
+        """
+        Executes an SQL query through Superset's SQL Lab API.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            database_id: The ID of the database to execute the query against.
+            sql_query: The SQL query string to execute.
+            schema: Optional schema to use for the query.
+            client_id: Optional client ID for the query. If not provided, one will be generated by Superset.
+            tab_name: Optional tab name for the query.
+        """
+        ctx = manager.get_context(server_id)
+        if not ctx:
+            return f"Error: Server '{server_id}' not found."
+        
+        try:
+            sqllab_payload: Dict[str, Any] = {
+                "database_id": database_id,
+                "sql": sql_query,
+            }
+            if schema:
+                sqllab_payload["schema"] = schema
+            if client_id:
+                sqllab_payload["client_id"] = client_id
+            if tab_name:
+                sqllab_payload["tab_name"] = tab_name
+            
+            endpoint = "/api/v1/sqllab/execute/"
+            resp = await execute_request(ctx, "POST", endpoint, json=sqllab_payload)
+            resp.raise_for_status()
+            
+            return json.dumps(resp.json(), indent=2)
+        except httpx.HTTPStatusError as e:
+            return f"Error executing SQL Lab query: {e.response.status_code} - {e.response.text}"
+        except Exception as e:
+            return f"An unexpected error occurred while executing the SQL Lab query: {e}"
+
+    @mcp.tool(name="superset_sqllab_get_query_results")
+    async def tool_sqllab_get_query_results(
+        server_id: str,
+        client_id: str
+    ) -> str:
+        """
+        Retrieves the results of a previously executed SQL Lab query.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            client_id: The client ID of the query whose results are to be retrieved.
+        """
+        ctx = manager.get_context(server_id)
+        if not ctx:
+            return f"Error: Server '{server_id}' not found."
+        
+        try:
+            endpoint = f"/api/v1/sqllab/results/{client_id}/"
+            resp = await execute_request(ctx, "GET", endpoint)
+            resp.raise_for_status()
+            
+            return json.dumps(resp.json(), indent=2)
+        except httpx.HTTPStatusError as e:
+            return f"Error retrieving SQL Lab query results: {e.response.status_code} - {e.response.text}"
+        except Exception as e:
+            return f"An unexpected error occurred while retrieving SQL Lab query results: {e}"
+
 
     async def _impl_transfer_item(
         source_server_id: str,

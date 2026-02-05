@@ -1,0 +1,19 @@
+gitGraph
+    commit id: "Initial Commit"
+    branch develop
+    checkout develop
+    commit id: "Feature A start"
+    commit id: "Feature A work"
+    checkout main
+    commit id: "Hotfix"
+    checkout develop
+    merge main id: "Merge hotfix"
+    branch feature-b
+    checkout feature-b
+    commit id: "Feature B start"
+    commit id: "Feature B work"
+    checkout develop
+    merge feature-b id: "Merge Feature B"
+    checkout main
+    merge develop id: "Release v1.0"
+    tag: "v1.0"

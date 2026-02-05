@@ -1,0 +1,26 @@
+classDiagram
+    class Bank {
+        -String name
+        +addAccount(Account)
+    }
+
+    class Account {
+        -String accountNumber
+        -double balance
+        +deposit(amount)
+        +withdraw(amount)
+    }
+
+    class SavingsAccount {
+        -double interestRate
+        +applyInterest()
+    }
+
+    class CheckingAccount {
+        -double overdraftLimit
+        +processCheck()
+    }
+
+    Bank "1" -- "0..*" Account : manages
+    Account <|-- SavingsAccount
+    Account <|-- CheckingAccount

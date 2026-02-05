@@ -6,8 +6,6 @@ from fastmcp import FastMCP
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 import uvicorn
-from fastmcp.server.dependencies import without_injected_parameters
-
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
@@ -31,20 +29,19 @@ def load_modules(mcp_server: FastMCP):
             main_file_path = os.path.join(module_path, "main.py")
             if os.path.isfile(main_file_path):
                 try:
-                    # Import the module's main.py
-                    spec = importlib.util.spec_from_file_location(f"modules.{module_name}.main", main_file_path)
-                    module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(module)
+                    # Import the module's main.py using its full package name
+                    module_pkg = f"modules.{module_name}.main"
+                    module = importlib.import_module(module_pkg)
                     
                     if hasattr(module, "register") and callable(module.register):
                         module.register(mcp_server)
                         loaded_modules.append(module_name)
                         logging.info(f"Successfully loaded module: {module_name}")
                     else:
-                        logging.info(f"Warning: Module '{module_name}' has no 'register(mcp)' function.")
+                        logging.warning(f"Module '{module_name}' has no 'register(mcp)' function.")
 
                 except Exception as e:
-                    logging.info(f"Error loading module '{module_name}': {e}")
+                    logging.error(f"Error loading module '{module_name}': {e}", exc_info=True)
     
     return loaded_modules
 
@@ -61,6 +58,20 @@ def list_loaded_modules() -> dict:
         "message": "Welcome to the FastMCP Server",
         "loaded_modules": loaded_modules
     }
+
+@mcp.tool()
+def list_available_tools() -> list:
+    """
+    Returns a list of all available tools across all modules.
+    """
+    tools = []
+    for name, tool in mcp._tool_manager._tools.items():
+        tools.append({
+            "name": name,
+            "description": tool.description,
+            "module": tool.fn.__module__
+        })
+    return tools
 
 @mcp.tool()
 def health_check() -> str:
@@ -114,19 +125,27 @@ app.openapi = custom_openapi
 # 1. Register all MCP tools as FastAPI endpoints to generate Swagger docs
 for tool_name, tool in mcp._tool_manager._tools.items():
     try:
-        # Use without_injected_parameters to strip Context/Injected params that FastAPI handles differently
-        endpoint = without_injected_parameters(tool.fn)
+        # Use tool.fn directly
+        endpoint = tool.fn
         
+        # Determine the tag based on the module name
+        # If the tool is from a module, it will be in modules.<module_name>...
+        module_path = tool.fn.__module__
+        if module_path.startswith("modules."):
+            tag = module_path.split(".")[1]
+        else:
+            tag = "Core"
+            
         app.add_api_route(
             path=f"/tools/{tool_name}",
             endpoint=endpoint,
             methods=["POST"],
-            tags=["Tools"],
+            tags=[tag],
             summary=tool.description or f"Execute {tool_name}",
             name=tool_name,
             operation_id=tool_name
         )
-        logging.info(f"Registered FastAPI route for tool: {tool_name}")
+        logging.info(f"Registered FastAPI route for tool: {tool_name} with tag: {tag}")
     except Exception as e:
         logging.error(f"Failed to register route for tool '{tool_name}': {e}")
 

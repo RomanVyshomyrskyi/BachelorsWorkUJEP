@@ -1,0 +1,42 @@
+requirementDiagram
+    requirement R1 {
+        id: "REQ_FUNC_LOGIN"
+        text: "User must be able to log in to the system."
+        risk: medium
+        verify: "TC_LOGIN_001"
+    }
+
+    functionalRequirement FR2 {
+        id: "REQ_FUNC_SEARCH"
+        text: "System shall allow searching for products."
+        risk: low
+        verify: "TC_SEARCH_001"
+    }
+
+    interfaceRequirement IR3 {
+        id: "REQ_INT_API"
+        text: "Backend API must respond within 500ms."
+        risk: high
+    }
+
+    element FrontendApp {
+        type: "Web"
+    }
+
+    element BackendService {
+        type: "Microservice"
+    }
+
+    testCase TC_LOGIN_001 {
+        id: "TC_LOGIN_001"
+        text: "Verify login with valid credentials."
+    }
+
+    R1 satisfies FrontendApp
+    R1 satisfies BackendService
+    R1 verifies TC_LOGIN_001
+
+    FR2 satisfies FrontendApp
+    FR2 satisfies BackendService
+
+    IR3 satisfies BackendService

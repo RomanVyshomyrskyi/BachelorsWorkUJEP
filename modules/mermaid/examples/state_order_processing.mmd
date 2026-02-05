@@ -1,0 +1,9 @@
+stateDiagram-v2
+    [*] --> OrderPlaced
+    OrderPlaced --> PaymentPending: PaymentInitiated
+    PaymentPending --> OrderConfirmed: PaymentSuccessful
+    PaymentPending --> OrderCancelled: PaymentFailed
+    OrderConfirmed --> Shipped: InventoryChecked & Packed
+    Shipped --> Delivered: InTransit
+    Delivered --> [*]: CustomerConfirmation
+    OrderCancelled --> [*]

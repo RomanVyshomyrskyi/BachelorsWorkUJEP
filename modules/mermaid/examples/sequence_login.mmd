@@ -1,0 +1,16 @@
+sequenceDiagram
+    actor User
+    participant Client
+    participant Server
+    participant Database
+
+    User->>Client: Enters credentials
+    Client->>Server: POST /login {username, password}
+    activate Server
+    Server->>Database: SELECT * FROM users WHERE username = ?
+    activate Database
+    Database-->>Server: User data (or null)
+    deactivate Database
+    Server-->>Client: 200 OK / 401 Unauthorized
+    deactivate Server
+    Client->>User: Displays success / error message

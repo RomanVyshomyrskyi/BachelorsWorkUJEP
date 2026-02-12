@@ -6,6 +6,7 @@ import logging
 import httpx
 import asyncio
 from fastmcp import FastMCP
+from modules.SupersetModule import rules
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List, Union
 from urllib.parse import urlparse, urlunparse
@@ -522,28 +523,19 @@ def register(mcp: FastMCP):
         """
         return await _impl_get_resource(server_id, resource_type, resource_id)
 
-    @mcp.tool(name="superset_get_chart_data")
-    async def tool_get_chart_data(server_id: str, chart_id: int) -> str:
+    @mcp.tool(name="superset_get_chart_api_info")
+    async def tool_get_chart_api_info(server_id: str) -> str:
         """
-        Retrieves the data associated with a specific chart from a Superset server.
-        
+        Retrieves metadata about the chart API from the GET /api/v1/chart/_info endpoint.
+        This includes information about available filters, permissions, and properties
+        related to the chart resource.
+
         Args:
             server_id: The ID of the configured Superset server.
-            chart_id: The ID (pk) of the chart to retrieve data from.
+        Returns:
+            A JSON string containing the API metadata.
         """
-        ctx = manager.get_context(server_id)
-        if not ctx:
-            return f"Error: Server '{server_id}' not found."
-        
-        try:
-            endpoint = f"/api/v1/chart/{chart_id}/data/"
-            resp = await execute_request(ctx, "GET", endpoint)
-            resp.raise_for_status() # Raise an exception for HTTP errors
-            return json.dumps(resp.json(), indent=2)
-        except httpx.HTTPStatusError as e:
-            return f"Error fetching chart data: {e.response.status_code} - {e.response.text}"
-        except Exception as e:
-            return f"An unexpected error occurred while fetching chart data: {e}"
+        return await _impl_superset_api(server_id, "GET", "/api/v1/chart/_info")
 
     @mcp.tool(name="superset_create_chart")
     async def tool_create_chart(
@@ -592,6 +584,97 @@ def register(mcp: FastMCP):
             return f"Error creating chart: {e.response.status_code} - {e.response.text}"
         except Exception as e:
             return f"An unexpected error occurred while creating the chart: {e}"
+
+    @mcp.tool(name="superset_generate_simple_dashboard_layout")
+    async def tool_generate_simple_dashboard_layout(
+        server_id: str, # Added server_id to fetch chart details
+        chart_ids: List[int],
+        layout_type: str = "row_of_charts", # "row_of_charts", "column_of_charts"
+        chart_width: int = 6, # Superset grid is 12 units wide
+        chart_height: int = 50 # Default height
+    ) -> str:
+        """
+        Generates a basic, valid position_json structure for a Superset dashboard,
+        arranging a list of charts in a simple layout.
+
+        This helps avoid common TypeError issues from manually crafting complex position_json.
+        For more complex layouts, it is still recommended to extract position_json from the UI.
+
+        Args:
+            server_id: The ID of the configured Superset server.
+            chart_ids: A list of integer IDs of the charts to include in the dashboard.
+            layout_type: 'row_of_charts' (default) to arrange charts horizontally,
+                         'column_of_charts' to arrange charts vertically.
+            chart_width: The width of each chart in Superset's 12-unit grid system.
+                         Defaults to 6 (half width).
+            chart_height: The height of each chart. Defaults to 50.
+        Returns:
+            A JSON string representing the generated position_json.
+        """
+        ctx = manager.get_context(server_id)
+        if not ctx:
+            return f"Error: Server '{server_id}' not found."
+
+        if not chart_ids:
+            return "Error: At least one chart ID must be provided."
+
+        # Initialize the basic dashboard structure
+        dashboard_json_map: Dict[str, Any] = {
+            "DASHBOARD_VERSION": "2.0",
+            "ROOT_ID": "ROOT_ID",
+            "ROOT_ID-content": ["GRID_ID"],
+            "GRID_ID": {
+                "type": "GRID",
+                "id": "GRID_ID",
+                "children": [],
+                "parents": ["ROOT_ID"]
+            }
+        }
+
+        current_x = 0
+        current_y = 0
+
+        for i, chart_id in enumerate(chart_ids):
+            chart_element_id = f"CHART_{chart_id}"
+            
+            # Fetch chart details to get sliceName
+            chart_details_str = await _impl_get_resource(server_id, "chart", chart_id)
+            try:
+                chart_details = json.loads(chart_details_str)
+                slice_name = chart_details.get("result", {}).get("slice_name", f"Chart {chart_id}")
+            except (json.JSONDecodeError, AttributeError):
+                logger.warning(f"Could not fetch slice_name for chart {chart_id}. Using default name.")
+                slice_name = f"Chart {chart_id}"
+
+            chart_meta = {
+                "id": chart_id,
+                "type": "CHART",
+                "chartId": chart_id,
+                "width": chart_width,
+                "height": chart_height,
+                "startX": current_x,
+                "startY": current_y,
+                "sliceName": slice_name # Include sliceName for robustness
+            }
+            
+            dashboard_json_map[chart_element_id] = {
+                "type": "CHART",
+                "id": chart_id,
+                "children": [],
+                "meta": chart_meta,
+                "parents": ["GRID_ID"]
+            }
+            dashboard_json_map["GRID_ID"]["children"].append(chart_element_id)
+
+            if layout_type == "row_of_charts":
+                current_x += chart_width
+                if current_x >= 12: # Wrap to next row if exceeding 12 units width
+                    current_x = 0
+                    current_y += chart_height # This is heuristic, actual Superset layout adjusts heights
+            elif layout_type == "column_of_charts":
+                current_y += chart_height
+                
+        return json.dumps(dashboard_json_map, indent=2)
 
     @mcp.tool(name="superset_create_dashboard")
     async def tool_create_dashboard(
@@ -646,7 +729,7 @@ def register(mcp: FastMCP):
         except httpx.HTTPStatusError as e:
             return f"Error creating dashboard: {e.response.status_code} - {e.response.text}"
         except Exception as e:
-                        return f"An unexpected error occurred while creating the dashboard: {e}"
+            return f"An unexpected error occurred while creating the dashboard: {e}"
 
     @mcp.tool(name="superset_create_dataset")
     async def tool_create_dataset(
@@ -686,20 +769,33 @@ def register(mcp: FastMCP):
             if owners is not None:
                 dataset_payload["owners"] = owners
             if metrics_json:
-                dataset_payload["metrics"] = json.loads(metrics_json)
+                try:
+                    dataset_payload["metrics"] = json.loads(metrics_json)
+                except json.JSONDecodeError:
+                    return f"Error: 'metrics_json' is not a valid JSON string. Please ensure it is a valid JSON array of metric definitions."
             if columns_json:
-                dataset_payload["columns"] = json.loads(columns_json)
+                try:
+                    dataset_payload["columns"] = json.loads(columns_json)
+                except json.JSONDecodeError:
+                    return f"Error: 'columns_json' is not a valid JSON string. Please ensure it is a valid JSON array of column definitions."
             if sql_expression:
                 dataset_payload["sql_expression"] = sql_expression
             
+            # Verify database existence using _impl_get_resource
+            db_check_result = await _impl_get_resource(server_id, "database", database_id)
+            if "Error" in db_check_result or "not found" in db_check_result.lower():
+                return f"Error: Database with ID '{database_id}' not found on server '{server_id}'. Details: {db_check_result}"
+
             endpoint = "/api/v1/dataset/"
             resp = await execute_request(ctx, "POST", endpoint, json=dataset_payload)
             resp.raise_for_status()
             
             return json.dumps(resp.json(), indent=2)
         except httpx.HTTPStatusError as e:
+            logger.error(f"HTTPStatusError creating dataset for {server_id}: {e.response.status_code} - {e.response.text}")
             return f"Error creating dataset: {e.response.status_code} - {e.response.text}"
         except Exception as e:
+            logger.error(f"An unexpected error occurred while creating the dataset for {server_id}: {e}")
             return f"An unexpected error occurred while creating the dataset: {e}"
 
     @mcp.tool(name="superset_sqllab_execute_query")
@@ -870,20 +966,242 @@ def register(mcp: FastMCP):
         """
         return await _impl_transfer_item(source_server_id, target_server_id, "dashboard", dashboard_id)
 
-    @mcp.tool(name="superset_transfer_item")
-    async def tool_transfer_item(
-        source_server_id: str,
-        target_server_id: str,
-        resource_type: str,
-        item_id: Union[int, str]
+    @mcp.tool(name="superset_get_database_schema")
+    async def tool_get_database_schema(
+        server_id: str,
+        database_id: int,
+        schema_name: Optional[str] = None # For filtering by schema, e.g., 'public'
     ) -> str:
         """
-        Transfers a specific item (Chart, Dashboard, etc.) from one server to another.
-        
+        Retrieves the schema (tables and columns) for a specified database on a Superset server
+        by querying the database's information_schema via SQL Lab.
+
         Args:
-            source_server_id: ID of source server.
-            target_server_id: ID of target server.
-            resource_type: Type of resource ('dashboard', 'chart', 'database', 'dataset', 'saved_query', 'annotation_layer', etc.)
-            item_id: The ID (pk) of the item to transfer.
+            server_id: The ID of the configured Superset server.
+            database_id: The ID of the database to inspect.
+            schema_name: Optional schema name to filter tables (e.g., 'public' for PostgreSQL).
         """
-        return await _impl_transfer_item(source_server_id, target_server_id, resource_type, item_id)
+        ctx = manager.get_context(server_id)
+        if not ctx:
+            return f"Error: Server '{server_id}' not found."
+
+        try:
+            # 1. Get database details to determine engine
+            db_details_str = await _impl_get_resource(server_id, "database", database_id)
+            try:
+                db_details = json.loads(db_details_str)
+            except json.JSONDecodeError:
+                return f"Error: Could not parse database details for ID {database_id}: {db_details_str}"
+
+            engine = db_details.get("result", {}).get("backend") # 'postgresql', 'mysql', 'presto', etc.
+            if not engine:
+                return f"Error: Could not determine database engine for ID {database_id}. Details: {db_details_str}"
+
+            schema_info = {
+                "database_id": database_id,
+                "database_name": db_details.get("result", {}).get("database_name"),
+                "engine": engine,
+                "tables": []
+            }
+
+            # Define SQL queries based on engine
+            table_query = ""
+            column_query_template = ""
+
+            if engine == "postgresql":
+                table_query = f"""
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = '{schema_name if schema_name else 'public'}'
+                    AND table_type = 'BASE TABLE';
+                """
+                column_query_template = f"""
+                    SELECT column_name, data_type, is_nullable
+                    FROM information_schema.columns
+                    WHERE table_schema = '{schema_name if schema_name else 'public'}'
+                    AND table_name = '{{table_name}}'
+                    ORDER BY ordinal_position;
+                """
+            elif engine == "mysql":
+                table_query = f"""
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = '{schema_name if schema_name else db_details.get("result", {}).get("database_name")}'
+                    AND table_type = 'BASE TABLE';
+                """
+                column_query_template = f"""
+                    SELECT column_name, data_type, is_nullable
+                    FROM information_schema.columns
+                    WHERE table_schema = '{schema_name if schema_name else db_details.get("result", {}).get("database_name")}'
+                    AND table_name = '{{table_name}}'
+                    ORDER BY ordinal_position;
+                """
+            elif engine == "mssql":
+                table_query = f"""
+                    SELECT TABLE_NAME
+                    FROM INFORMATION_SCHEMA.TABLES
+                    WHERE TABLE_SCHEMA = '{schema_name if schema_name else 'dbo'}'
+                    AND TABLE_TYPE = 'BASE TABLE';
+                """
+                column_query_template = f"""
+                    SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = '{schema_name if schema_name else 'dbo'}'
+                    AND TABLE_NAME = '{{table_name}}'
+                    ORDER BY ORDINAL_POSITION;
+                """
+            else:
+                return f"Error: Database engine '{engine}' is not supported for automatic schema extraction via information_schema."
+
+            # 2. Get table names
+            logger.info(f"Executing table query for {server_id}/{database_id}: {table_query}")
+            table_query_res = await tool_sqllab_execute_query(server_id, database_id, table_query, schema=schema_name)
+            table_query_json = json.loads(table_query_res)
+            table_client_id = table_query_json.get("result", {}).get("query", {}).get("client_id")
+            if not table_client_id:
+                return f"Error: Failed to execute table query or get client_id: {table_query_res}"
+
+            # Wait for results and get them
+            await asyncio.sleep(2) # Give Superset a moment to process
+            table_results_res = await tool_sqllab_get_query_results(server_id, table_client_id)
+            table_results_json = json.loads(table_results_res)
+            table_names = [row["table_name"] for row in table_results_json.get("data", [])] if "data" in table_results_json else []
+
+            if not table_names:
+                return f"No tables found in database ID {database_id}, schema '{schema_name if schema_name else 'default'}'."
+
+            # 3. Get columns for each table
+            for table_name in table_names:
+                columns = []
+                current_column_query = column_query_template.format(table_name=table_name)
+                logger.info(f"Executing column query for {table_name}: {current_column_query}")
+                column_query_res = await tool_sqllab_execute_query(server_id, database_id, current_column_query, schema=schema_name)
+                column_query_json = json.loads(column_query_res)
+                column_client_id = column_query_json.get("result", {}).get("query", {}).get("client_id")
+                
+                if column_client_id:
+                    await asyncio.sleep(2) # Give Superset a moment
+                    column_results_res = await tool_sqllab_get_query_results(server_id, column_client_id)
+                    column_results_json = json.loads(column_results_res)
+                    columns = column_results_json.get("data", [])
+
+                schema_info["tables"].append({
+                    "table_name": table_name,
+                    "columns": columns
+                })
+            
+            return json.dumps(schema_info, indent=2)
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTPStatusError fetching database schema for {server_id}: {e.response.status_code} - {e.response.text}")
+            return f"Error fetching database schema: {e.response.status_code} - {e.response.text}"
+        except json.JSONDecodeError as e:
+            return f"Error parsing JSON response: {e}"
+        except Exception as e:
+            logger.error(f"An unexpected error occurred while fetching database schema for {server_id}: {e}")
+            return f"An unexpected error occurred while fetching database schema: {e}"
+
+    @mcp.tool(name="superset_get_dashboard_api_info")
+    async def tool_get_dashboard_api_info(server_id: str) -> str:
+        """
+        Retrieves metadata about the dashboard API from the GET /api/v1/dashboard/_info endpoint.
+        Useful for understanding available fields and validation rules for dashboards.
+        """
+        return await _impl_superset_api(server_id, "GET", "/api/v1/dashboard/_info")
+
+    @mcp.tool(name="superset_update_chart")
+    async def tool_update_chart(
+        server_id: str,
+        chart_id: int,
+        json_body: str
+    ) -> str:
+        """
+        Updates an existing chart on a Superset server.
+        Args:
+            server_id: The ID of the configured server.
+            chart_id: The ID of the chart to update.
+            json_body: A JSON string containing the fields to update (e.g., '{"params": "...", "dashboards": [1]}').
+        """
+        return await _impl_superset_api(server_id, "PUT", f"/api/v1/chart/{chart_id}", json_body=json_body)
+
+    @mcp.tool(name="superset_update_dashboard")
+    async def tool_update_dashboard(
+        server_id: str,
+        dashboard_id: int,
+        json_body: str
+    ) -> str:
+        """
+        Updates an existing dashboard on a Superset server.
+        Args:
+            server_id: The ID of the configured server.
+            dashboard_id: The ID of the dashboard to update.
+            json_body: A JSON string containing the fields to update (e.g., '{"dashboard_title": "New Title"}').
+        """
+        return await _impl_superset_api(server_id, "PUT", f"/api/v1/dashboard/{dashboard_id}", json_body=json_body)
+
+    @mcp.tool(name="superset_bulk_link_charts_to_dashboard")
+    async def tool_bulk_link_charts(
+        server_id: str,
+        dashboard_id: int,
+        chart_ids: List[int]
+    ) -> str:
+        """
+        Links multiple charts to a dashboard in bulk.
+        This is necessary because charts must be explicitly associated with a dashboard
+        in the database to appear, even if they are in the position_json.
+        """
+        results = []
+        for cid in chart_ids:
+            # We use the update_chart endpoint to add the dashboard ID to the chart
+            # Note: This might overwrite existing dashboard associations if not handled carefully,
+            # but usually for new charts this is what is needed.
+            payload = json.dumps({"dashboards": [dashboard_id]})
+            res = await _impl_superset_api(server_id, "PUT", f"/api/v1/chart/{cid}", json_body=payload)
+            results.append(f"Chart {cid}: {res}")
+        
+        return "\n".join(results)
+
+    @mcp.tool(name="superset_generate_robust_dashboard_layout")
+    async def tool_generate_robust_layout(
+        server_id: str,
+        chart_ids: List[int]
+    ) -> str:
+        """
+        Generates a robust, nested position_json for Superset dashboards.
+        Uses a proper ROOT -> GRID -> ROW -> CHART hierarchy to avoid TypeError.
+        """
+        chart_info = []
+        for cid in chart_ids:
+            res = await _impl_get_resource(server_id, "chart", cid)
+            try:
+                data = json.loads(res)
+                chart_info.append({"id": cid, "name": data.get("result", {}).get("slice_name", f"Chart {cid}")})
+            except:
+                chart_info.append({"id": cid, "name": f"Chart {cid}"})
+        
+        layout = rules.generate_robust_dashboard_layout(chart_info)
+        return json.dumps(layout, indent=2)
+
+    @mcp.tool(name="superset_get_standard_chart_params")
+    def tool_get_standard_params(
+        viz_type: str,
+        datasource_id: int,
+        overrides_json: Optional[str] = None
+    ) -> str:
+        """
+        Returns a JSON string of standard parameters for a given visualization type.
+        Helps prevent 'empty query' errors by providing mandatory fields.
+        """
+        overrides = json.loads(overrides_json) if overrides_json else {}
+        params = rules.get_standard_chart_params(viz_type, datasource_id, **overrides)
+        return json.dumps(params, indent=2)
+
+    @mcp.tool(name="superset_get_chart_creation_rules")
+    def tool_get_chart_rules() -> str:
+        """Returns the expert rules for creating functional Superset charts."""
+        return rules.get_chart_creation_rules()
+
+    @mcp.tool(name="superset_get_dashboard_creation_rules")
+    def tool_get_dashboard_rules() -> str:
+        """Returns the expert rules for creating functional Superset dashboards."""
+        return rules.get_dashboard_creation_rules()

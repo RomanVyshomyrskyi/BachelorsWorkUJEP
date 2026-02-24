@@ -137,7 +137,7 @@ for tool_name, tool in mcp._tool_manager._tools.items():
             tag = "Core"
             
         app.add_api_route(
-            path=f"/tools/{tool_name}",
+            path=f"/{tool_name}",
             endpoint=endpoint,
             methods=["POST"],
             tags=[tag],

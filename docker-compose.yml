@@ -1,7 +1,7 @@
 services:
   fast-mcp:
     build: .
-    container_name: fast-mcp-server
+    container_name: supeset-db-analitcs
     env_file:
       - .env
     depends_on:

@@ -71,7 +71,7 @@ class ConnectionManager:
                 if config.cookie_file_path and not os.path.isabs(config.cookie_file_path):
                     config.cookie_file_path = os.path.join(self._config_dir, config.cookie_file_path)
 
-                client = httpx.AsyncClient(base_url=config.base_url, timeout=60.0)
+                client = httpx.AsyncClient(base_url=config.base_url, timeout=60.0, follow_redirects=True)
                 token_path = self.get_token_path(server_id)
                 self._contexts[server_id] = SupersetContext(
                     config=config, 

@@ -1,63 +1,62 @@
 # DBAnalysis Module
 
-This module provides tools to analyze the schema of a relational database for compliance with the first three normal forms (1NF, 2NF, 3NF).
-
-It uses a **Strategy Design Pattern** to support analysis for multiple database systems (PostgreSQL, MariaDB, and MSSQL) and leverages a knowledge base (`normalization_rules.md`) to provide context for AI-driven suggestions.
+This module provides tools to analyze relational database schemas for normalization compliance and perform data visualization.
 
 ---
 
-## Endpoints
+## Detailed Functionality Reference
 
-### `POST /DBAnalysis/analyze`
+### Analysis Tools (`tools/analysis.py`)
 
-This is the primary endpoint for performing a database analysis. It connects to the specified database, extracts its schema, and then simulates generating normalization suggestions.
+#### `get_normalization_rules()`
+- **What it does**: Retrieves the text content of the database normalization standards (1NF, 2NF, 3NF).
+- **How it does it**: Uses `utils/rules_loader.py` to locate and read `normalization_rules.md` from the module's root directory.
 
-**Request Body:**
+#### `analyze_database_schema(db_type, host, user, password, dbname, port)`
+- **What it does**: Gathers all necessary context (rules + schema) for an AI-driven normalization analysis.
+- **How it does it**:
+    1. Uses `strategies/factory.py` to instantiate the correct `DatabaseStrategy` (Postgres, MariaDB, or MSSQL).
+    2. Opens a connection context manager which handles `connect()` and `disconnect()`.
+    3. Calls `get_schema_representation()` on the strategy, which executes system-specific SQL queries against `information_schema`.
+    4. Merges the schema string with the normalization rules and returns a formatted prompt for an LLM.
 
-```json
-{
-  "db_type": "postgres",
-  "connection_details": {
-    "host": "your_db_host",
-    "user": "your_db_user",
-    "password": "your_db_password",
-    "dbname": "your_database_name",
-    "port": 5432
-  }
-}
-```
+### Data Tools (`tools/data.py`)
 
-*   **`db_type`**: The type of database to analyze. Must be one of `postgres`, `mariadb`, or `mssql`.
-*   **`connection_details`**: A dictionary containing the credentials and information needed to connect to the database.
+#### `run_read_only_sql(db_type, host, user, password, dbname, query, port)`
+- **What it does**: Safely executes a SELECT query and returns the data.
+- **How it does it**:
+    1. Validates that the query starts with `SELECT` (basic security check).
+    2. Uses the database-specific strategy to execute the raw SQL.
+    3. Converts the resulting rows (tuples) into a list of dictionaries mapping column names to values.
 
-**Response:**
+#### `get_table_data(db_type, host, user, password, dbname, table_name, limit, port)`
+- **What it does**: Quickly previews data from a specific table.
+- **How it does it**:
+    1. Constructs a `SELECT * FROM {table} LIMIT {limit}` query (or `TOP` for MSSQL).
+    2. Reuses the `run_read_only_sql` logic via the strategy's `execute_query` method.
 
-The endpoint returns a JSON object containing the simulated analysis and the full prompt that would be sent to an LLM for generating suggestions.
+### Visualization Tools (`tools/visualization.py`)
 
-### `GET /DBAnalysis/rules`
-
-A simple endpoint to retrieve the contents of the `normalization_rules.md` file used by the analyzer.
-
----
-
-## Architecture
-
-This module uses a **Strategy Pattern** to cleanly separate the analysis logic for different database systems.
-
-1.  **`interfaces.py`**: Defines the `DatabaseStrategy` abstract base class, which requires all concrete strategies to implement methods like `connect()`, `disconnect()`, and `get_schema_representation()`.
-2.  **`strategies.py`**: Provides the concrete implementations: `PostgresStrategy`, `MariaDBStrategy`, and `MSSQLStrategy`. Each class contains the specific SQL queries and logic needed to extract the schema from its target database.
-3.  **`main.py`**: The API endpoint uses a factory function (`get_db_strategy`) to select the correct strategy at runtime based on the `db_type` provided in the request.
-
-This pattern makes it easy to extend the module to support other database systems in the future by simply adding a new strategy class.
+#### `generate_database_chart(...)`
+- **What it does**: Transforms SQL query results into a visual chart (PNG).
+- **How it does it**:
+    1. Fetches data using the selected `DatabaseStrategy`.
+    2. Loads the result list into a **Pandas DataFrame**.
+    3. Uses **Matplotlib** (with the non-interactive `Agg` backend) to create a figure.
+    4. Depending on `chart_type`, calls `plt.bar`, `plt.plot`, `plt.scatter`, or `plt.pie`.
+    5. Saves the plot to a `BytesIO` buffer, encodes it to **Base64**, and returns it as a rich MCP content object.
 
 ---
 
-## Local Development
+## Developer Documentation: Internal Logic
 
-This module has its own Python dependencies, which are listed in `modules/DBAnalysis/requirements.txt`.
+### Database Strategies (`strategies/`)
+The module implements the **Strategy Pattern** to abstract away dialect differences:
+- **`DatabaseStrategy` (Base)**: Defines the interface. Uses `__enter__` and `__exit__` to ensure connections are always closed.
+- **`PostgresStrategy`**: Uses `psycopg2`. Queries `public` schema for tables and handles PostgreSQL-specific foreign key joins in `information_schema`.
+- **`MariaDBStrategy`**: Uses `mysql.connector`. Queries `TABLE_SCHEMA` based on the provided database name.
+- **`MSSQLStrategy`**: Uses `pyodbc`. Requires "ODBC Driver 17 for SQL Server". Queries `TABLE_CATALOG` and handles the complex multi-join relationship queries required by SQL Server.
 
-To run the application in a local development environment (outside of Docker), you must install these dependencies into your virtual environment:
-
-```bash
-pip install -r modules/DBAnalysis/requirements.txt
-```
+### Utilities (`utils/`)
+- **`formatters.py`**: Contains `format_schema`, which iterates through table/column rows and foreign key relationships to build a structured, human-readable string representation of the DB.
+- **`rules_loader.py`**: Handles absolute path resolution for reading the markdown knowledge base.

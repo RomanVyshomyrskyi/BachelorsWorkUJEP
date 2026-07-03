@@ -122,6 +122,21 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
+# Tools that only read data and should be GET in Swagger (NOT exhaustive - add as needed)
+READ_ONLY_TOOLS = {
+    "list_superset_servers", "list_loaded_modules", "list_available_tools",
+    "health_check", "superset_server_status", "superset_available_resource_types",
+    "superset_list_resources", "list_dashboards", "superset_get_resource",
+    "superset_get_chart_api_info", "superset_sqllab_get_query_results",
+    "superset_get_database_schema", "superset_get_dashboard_api_info",
+    "superset_get_standard_chart_params", "superset_get_chart_creation_rules",
+    "superset_get_dashboard_creation_rules",
+    "get_mermaid_file_descriptions", "get_mermaid_doc_content",
+    "generate_all_mermaid_diagrams",
+    "analyze_database_schema", "get_normalization_rules", "get_table_data",
+    "run_read_only_sql",
+}
+
 # 1. Register all MCP tools as FastAPI endpoints to generate Swagger docs
 for tool_name, tool in mcp._tool_manager._tools.items():
     try:
@@ -135,17 +150,19 @@ for tool_name, tool in mcp._tool_manager._tools.items():
             tag = module_path.split(".")[1]
         else:
             tag = "Core"
+        
+        methods = ["GET"] if tool_name in READ_ONLY_TOOLS else ["POST"]
             
         app.add_api_route(
             path=f"/{tool_name}",
             endpoint=endpoint,
-            methods=["POST"],
+            methods=methods,
             tags=[tag],
             summary=tool.description or f"Execute {tool_name}",
             name=tool_name,
             operation_id=tool_name
         )
-        logging.info(f"Registered FastAPI route for tool: {tool_name} with tag: {tag}")
+        logging.info(f"Registered FastAPI route for tool: {tool_name} [{', '.join(methods)}] with tag: {tag}")
     except Exception as e:
         logging.error(f"Failed to register route for tool '{tool_name}': {e}")
 

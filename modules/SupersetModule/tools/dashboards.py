@@ -6,7 +6,7 @@ from modules.SupersetModule.manager import ConnectionManager
 from modules.SupersetModule.api_client import execute_request
 from modules.SupersetModule.tools.general import impl_superset_api
 from modules.SupersetModule.tools.resources import impl_get_resource
-from modules.SupersetModule.tools.transfer import impl_transfer_item
+from modules.SupersetModule.tools.transfer import impl_transfer_item, transfer_dashboard as new_transfer_dashboard
 from modules.SupersetModule import rules
 
 logger = logging.getLogger(__name__)
@@ -184,6 +184,8 @@ async def transfer_dashboard(
     manager: ConnectionManager,
     source_server_id: str,
     target_server_id: str,
-    dashboard_id: int
+    dashboard_id: int,
+    db_mappings: Optional[str] = None,
+    table_mappings: Optional[str] = None
 ) -> str:
-    return await impl_transfer_item(manager, source_server_id, target_server_id, "dashboard", dashboard_id)
+    return await new_transfer_dashboard(manager, source_server_id, target_server_id, dashboard_id, db_mappings, table_mappings)

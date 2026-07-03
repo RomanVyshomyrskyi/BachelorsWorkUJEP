@@ -267,12 +267,17 @@ def register(mcp: FastMCP):
     async def tool_transfer_dashboard(
         source_server_id: str,
         target_server_id: str,
-        dashboard_id: int
+        dashboard_id: int,
+        db_mappings: Optional[str] = None,
+        table_mappings: Optional[str] = None
     ) -> str:
         """
         Transfers a Dashboard (and its charts) from a source Superset server to a target Superset server.
+        Uses a 3-phase approach: datasets -> charts -> dashboard with interactive fallback.
+        If a database or table is not found on the target, returns a NEED_INPUT message
+        asking the user to provide mappings. Retry with db_mappings/table_mappings JSON.
         """
-        return await transfer.transfer_dashboard(manager, source_server_id, target_server_id, dashboard_id)
+        return await transfer.transfer_dashboard(manager, source_server_id, target_server_id, dashboard_id, db_mappings, table_mappings)
 
     @mcp.tool(name="superset_get_database_schema")
     async def tool_get_database_schema(

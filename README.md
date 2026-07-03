@@ -95,7 +95,7 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
 | `SupersetModule` | (none) | `ConnectionManager`, `api_request`, `execute_request` |
 | `StatisticalMethods` | (none) | All regression functions |
 | `mermaid` | (none) | `get_mermaid_doc_content`, `get_mermaid_file_descriptions` |
-| `LocalAPI` | (none) | (none) |
+
 
 ## Creating a New Module
 

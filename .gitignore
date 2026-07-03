@@ -33,3 +33,6 @@ Thumbs.db
 # Logs and DB files
 *.log
 *.sqlite3
+
+#dev context
+dev_context

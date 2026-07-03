@@ -1,8 +1,9 @@
 import os
 import sys
 import logging
-from fastmcp import FastMCP
 from typing import Optional, List, Union
+from fastmcp import FastMCP
+from modules.registry import ModuleRegistry
 
 from modules.SupersetModule.manager import ConnectionManager
 from modules.SupersetModule.tools import server
@@ -14,15 +15,19 @@ from modules.SupersetModule.tools import datasets
 from modules.SupersetModule.tools import sqllab
 from modules.SupersetModule.tools import transfer
 
-# --- Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', stream=sys.stderr)
 logger = logging.getLogger(__name__)
 
-# --- MCP Registration ---
+depends_on = []
 
-def register(mcp: FastMCP):
-    """Registers Superset tools."""
-    
+def get_module_api():
+    return {
+        "ConnectionManager": ConnectionManager,
+        "api_request": general.impl_superset_api,
+        "execute_request": __import__("modules.SupersetModule.api_client", fromlist=["execute_request"]).execute_request,
+    }
+
+def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     module_dir = os.path.dirname(__file__)
     manager = ConnectionManager(module_dir)
     manager.load_servers()
@@ -125,7 +130,7 @@ def register(mcp: FastMCP):
         viz_type: str,
         datasource_id: int,
         datasource_type: str,
-        params: str, # JSON string
+        params: str,
         description: Optional[str] = None
     ) -> str:
         """
@@ -146,11 +151,11 @@ def register(mcp: FastMCP):
 
     @mcp.tool(name="superset_generate_simple_dashboard_layout")
     async def tool_generate_simple_dashboard_layout(
-        server_id: str, # Added server_id to fetch chart details
+        server_id: str,
         chart_ids: List[int],
-        layout_type: str = "row_of_charts", # "row_of_charts", "column_of_charts"
-        chart_width: int = 6, # Superset grid is 12 units wide
-        chart_height: int = 50 # Default height
+        layout_type: str = "row_of_charts",
+        chart_width: int = 6,
+        chart_height: int = 50
     ) -> str:
         """
         Generates a basic, valid position_json structure for a Superset dashboard,
@@ -176,9 +181,9 @@ def register(mcp: FastMCP):
     async def tool_create_dashboard(
         server_id: str,
         dashboard_title: str,
-        position_json: str, # JSON string
+        position_json: str,
         slug: Optional[str] = None,
-        json_metadata: Optional[str] = None, # JSON string
+        json_metadata: Optional[str] = None,
         owners: Optional[List[int]] = None,
         roles: Optional[List[int]] = None,
         published: Optional[bool] = False
@@ -208,9 +213,9 @@ def register(mcp: FastMCP):
         database_id: int,
         schema: Optional[str] = None,
         owners: Optional[List[int]] = None,
-        metrics_json: Optional[str] = None, # JSON string
-        columns_json: Optional[str] = None, # JSON string
-        sql_expression: Optional[str] = None # For virtual datasets
+        metrics_json: Optional[str] = None,
+        columns_json: Optional[str] = None,
+        sql_expression: Optional[str] = None
     ) -> str:
         """
         Creates a new dataset on a Superset server.
@@ -283,7 +288,7 @@ def register(mcp: FastMCP):
     async def tool_get_database_schema(
         server_id: str,
         database_id: int,
-        schema_name: Optional[str] = None # For filtering by schema, e.g., 'public'
+        schema_name: Optional[str] = None
     ) -> str:
         """
         Retrieves the schema (tables and columns) for a specified database on a Superset server
@@ -379,3 +384,6 @@ def register(mcp: FastMCP):
     def tool_get_dashboard_rules() -> str:
         """Returns the expert rules for creating functional Superset dashboards."""
         return dashboards.get_dashboard_creation_rules()
+
+    if registry is not None:
+        registry.register_module_api("SupersetModule", get_module_api())

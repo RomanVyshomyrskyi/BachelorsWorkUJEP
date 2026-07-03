@@ -1,22 +1,33 @@
 import os
 import sys
 import logging
-from fastmcp import FastMCP
 from typing import Optional, List, Union, Dict, Any, Callable
+from fastmcp import FastMCP
+from modules.registry import ModuleRegistry
 
-# Add the current directory to sys.path to allow importing from 'regression' folder
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from .regression.linear import calculate_linear_regression, calculate_ridge_regression, calculate_lasso_regression
+from .regression.polynomial import calculate_polynomial_regression
+from .regression.nonlinear import calculate_nonlinear_regression
+from .regression.support_vector import calculate_support_vector_regression
+from .regression.tree_forest import calculate_decision_tree_regression, calculate_random_forest_regression
+from .regression.logistic import calculate_logistic_regression
 
-from regression.linear import calculate_linear_regression, calculate_ridge_regression, calculate_lasso_regression
-from regression.polynomial import calculate_polynomial_regression
-from regression.nonlinear import calculate_nonlinear_regression
-from regression.support_vector import calculate_support_vector_regression
-from regression.tree_forest import calculate_decision_tree_regression, calculate_random_forest_regression
-from regression.logistic import calculate_logistic_regression
+depends_on = []
 
-def register(mcp: FastMCP):
-    """Registers the Statistical Methods module."""
+def get_module_api():
+    return {
+        "linear_regression": calculate_linear_regression,
+        "ridge_regression": calculate_ridge_regression,
+        "lasso_regression": calculate_lasso_regression,
+        "polynomial_regression": calculate_polynomial_regression,
+        "nonlinear_regression": calculate_nonlinear_regression,
+        "support_vector_regression": calculate_support_vector_regression,
+        "decision_tree_regression": calculate_decision_tree_regression,
+        "random_forest_regression": calculate_random_forest_regression,
+        "logistic_regression": calculate_logistic_regression,
+    }
 
+def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     @mcp.tool(name="test", description="rest registration")
     def test():
         return "Statistical Methods module registered successfully!"
@@ -40,7 +51,6 @@ def register(mcp: FastMCP):
     @mcp.tool(name="nonlinear_regression", description="Calculates Nonlinear Regression for a given model function string (e.g., 'lambda x, a, b: a * np.exp(b * x)').")
     def nonlinear_regression(X: List[float], y: List[float], model_func_str: str, p0: List[float] = None) -> Dict[str, Any]:
         import numpy as np
-        # Caution: eval can be dangerous, but here we expect a lambda string for curve fitting
         model_func = eval(model_func_str, {"np": np})
         return calculate_nonlinear_regression(X, y, model_func, p0=p0)
 
@@ -59,3 +69,6 @@ def register(mcp: FastMCP):
     @mcp.tool(name="logistic_regression", description="Calculates Logistic Regression for classification tasks.")
     def logistic_regression(X: List[List[float]], y: List[int], C: float = 1.0) -> Dict[str, Any]:
         return calculate_logistic_regression(X, y, C=C)
+
+    if registry is not None:
+        registry.register_module_api("StatisticalMethods", get_module_api())

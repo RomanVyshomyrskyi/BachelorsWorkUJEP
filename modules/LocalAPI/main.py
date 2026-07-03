@@ -1,24 +1,20 @@
 import os
 import socket
+from typing import Optional
 from fastmcp import FastMCP
+from modules.registry import ModuleRegistry
 
-def register(mcp: FastMCP):
-    """
-    Registers Local API helper tools.
-    """
+depends_on = []
 
+def get_module_api():
+    return {}
+
+def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     @mcp.tool(name="get_local_api_info")
     def get_api_info() -> str:
-        """
-        Returns information about the running Local API (if available).
-        """
-        # Check if we are likely running in SSE mode (usually on port 8000 or similar)
-        # This is a heuristic since we might not know the exact port if dynamically assigned
-        
-        # We can try to guess or just return general info
         hostname = socket.gethostname()
         local_ip = socket.gethostbyname(hostname)
-        
+
         return f"""
 Local API Info:
 Hostname: {hostname}
@@ -29,3 +25,6 @@ To use with Open Web UI:
 2. The URL is typically http://localhost:8000/sse
 3. Configure Open Web UI to point to this URL as an OpenAI-compatible endpoint or MCP server.
 """
+
+    if registry is not None:
+        registry.register_module_api("LocalAPI", get_module_api())

@@ -1,15 +1,19 @@
 import os
 import pathlib
 import json
+from typing import Optional
 from fastmcp import FastMCP
+from modules.registry import ModuleRegistry
+
+depends_on = []
+
+def get_module_api():
+    return {
+        "get_mermaid_doc_content": get_mermaid_doc_content,
+        "get_mermaid_file_descriptions": get_mermaid_file_descriptions,
+    }
 
 def get_mermaid_doc_content(doc_filename: str) -> str:
-    """
-    Retrieves the content of a specific Mermaid documentation file.
-
-    :param doc_filename: The name of the documentation file (e.g., 'flowchart_syntax.md').
-    :return: The content of the documentation file or an error message if not found.
-    """
     docs_dir = pathlib.Path(__file__).parent / "docs"
     file_path = docs_dir / doc_filename
 
@@ -23,29 +27,21 @@ def get_mermaid_doc_content(doc_filename: str) -> str:
         return f"Error reading file '{doc_filename}': {str(e)}"
 
 def get_mermaid_file_descriptions() -> str:
-    """
-    Lists all available Mermaid documentation and example files with a short description of their content.
-    This helps the LLM identify relevant files for user queries.
-
-    :return: A JSON string containing a list of file descriptions.
-    """
     docs_dir = pathlib.Path(__file__).parent / "docs"
     examples_dir = pathlib.Path(__file__).parent / "examples"
-    
+
     file_descriptions = []
 
-    # Process documentation files
     for doc_file in docs_dir.glob("*.md"):
         try:
             with open(doc_file, "r") as f:
                 first_line = f.readline().strip()
                 title = first_line.lstrip("# ").strip() if first_line.startswith("#") else doc_file.name
                 description = f"Documentation for {title.lower()}"
-                
-                # Try to get a second line for more context if available and different
+
                 second_line = f.readline().strip()
                 if second_line and second_line != first_line:
-                    description += f": {second_line[:100]}..." # Add snippet of second line
+                    description += f": {second_line[:100]}..."
             file_descriptions.append({
                 "filename": doc_file.name,
                 "type": "documentation",
@@ -58,19 +54,18 @@ def get_mermaid_file_descriptions() -> str:
                 "description": f"Error reading description: {str(e)}"
             })
 
-    # Process example files
     for example_file in examples_dir.glob("*.mmd"):
         file_descriptions.append({
             "filename": example_file.name,
             "type": "example",
             "description": f"Example Mermaid diagram for {example_file.stem.replace('_', ' ')}."
         })
-    
+
     return json.dumps(file_descriptions, indent=2)
 
-def register(mcp: FastMCP):
-    """
-    Registers Mermaid-related tools with the FastMCP application.
-    """
+def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     mcp.tool(name="get_mermaid_doc_content")(get_mermaid_doc_content)
     mcp.tool(name="get_mermaid_file_descriptions")(get_mermaid_file_descriptions)
+
+    if registry is not None:
+        registry.register_module_api("mermaid", get_module_api())

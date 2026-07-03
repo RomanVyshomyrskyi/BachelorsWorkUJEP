@@ -27,3 +27,13 @@ A helper module to provide information about the local server environment and co
 
 ### Customizing Network Detection
 You can modify the `get_api_info` function in `main.py` if you need to detect additional environment variables or network configurations specific to your deployment.
+
+---
+
+## Cross-Module Interface
+
+### Dependency Declaration
+`depends_on = []` — this module has no dependencies on other modules.
+
+### Public API (`get_module_api()`)
+This module exposes no public API (returns an empty dict). It is a leaf module with no callable functionality for other modules to consume.

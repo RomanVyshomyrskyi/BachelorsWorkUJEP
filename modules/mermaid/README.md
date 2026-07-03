@@ -43,3 +43,15 @@ The `register(mcp: FastMCP)` function in `main.py` is responsible for exposing t
 
 ### Extending the Module
 Developers can add more diagram types by simply dropping a new `.md` file in `docs/` or a new `.mmd` file in `examples/`. No changes to `main.py` are required as the `get_mermaid_file_descriptions` function uses dynamic globbing to discover files at runtime.
+
+---
+
+## Cross-Module Interface
+
+### Dependency Declaration
+`depends_on = []` — this module has no dependencies on other modules.
+
+### Public API (`get_module_api()`)
+Other modules can access these via the `ModuleRegistry`:
+- `get_mermaid_doc_content` — retrieves documentation file content
+- `get_mermaid_file_descriptions` — lists available files with descriptions

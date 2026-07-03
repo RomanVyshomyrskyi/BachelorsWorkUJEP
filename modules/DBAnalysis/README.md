@@ -60,3 +60,25 @@ The module implements the **Strategy Pattern** to abstract away dialect differen
 ### Utilities (`utils/`)
 - **`formatters.py`**: Contains `format_schema`, which iterates through table/column rows and foreign key relationships to build a structured, human-readable string representation of the DB.
 - **`rules_loader.py`**: Handles absolute path resolution for reading the markdown knowledge base.
+
+---
+
+## Cross-Module Interface
+
+### Dependency Declaration
+`depends_on = []` — this module has no dependencies on other modules.
+
+### Public API (`get_module_api()`)
+Other modules can access these functions via the `ModuleRegistry`:
+- `get_db_strategy` — creates a database-specific strategy instance
+- `get_normalization_rules` — retrieves normalization rules text
+
+### Usage from another module
+```python
+depends_on = ["DBAnalysis"]
+
+def register(mcp, registry=None):
+    if registry:
+        db_api = registry.get_module_api("DBAnalysis")
+        strategy = db_api["get_db_strategy"](db_type, host, user, password, dbname, port)
+```

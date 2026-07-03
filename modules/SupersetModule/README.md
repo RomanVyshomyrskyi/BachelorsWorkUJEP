@@ -94,3 +94,26 @@ This module provides tools for interacting with Apache Superset servers, allowin
 ### `models.py`: Resource Mapping
 - **`RESOURCE_ENDPOINTS`**: A centralized dictionary mapping friendly resource names to their corresponding API base paths.
 - **`TRANSFER_STRATEGY`**: Defines whether a resource should be transferred via the `export_import` (ZIP) or `json_copy` (Get detail -> Post Create) method.
+
+---
+
+## Cross-Module Interface
+
+### Dependency Declaration
+`depends_on = []` — this module has no dependencies on other modules.
+
+### Public API (`get_module_api()`)
+Other modules can access these via the `ModuleRegistry`:
+- `ConnectionManager` — the connection manager class for Superset servers
+- `api_request` — low-level `impl_superset_api` function
+- `execute_request` — raw HTTP execution with auth handling
+
+### Usage from another module
+```python
+depends_on = ["SupersetModule"]
+
+def register(mcp, registry=None):
+    if registry:
+        ss_api = registry.get_module_api("SupersetModule")
+        # Use ConnectionManager, api_request, etc.
+```

@@ -7,74 +7,112 @@
 docker-compose -f .\docker-compose.dev.yml up --build
 ```
 
-# Whrer to finde modeule documentation?
-Module documentation is avalibe in `modules/*module name*/README.md`
+# Module Architecture
 
-# FastMCP Server Architecture
+The project uses a **modular (plugin) architecture** via FastMCP with **cross-module dependency support**. Modules can declare dependencies on other modules and access their functionality through a shared `ModuleRegistry`.
 
-My `app.py` has been refactored into a **modular (plugin) architecture** using FastAPI. This design allows for easy extension of the server's functionality by simply adding new "modules" (plugins).
+## Module Discovery & Loading
 
-### How it Works
+1. **Core Server (`main.py`)**:
+   - Scans the `modules` directory for subdirectories containing `main.py`
+   - Reads `depends_on` from each module to build a dependency graph
+   - Resolves load order using topological sort (Kahn's algorithm)
+   - Loads modules in dependency order, passing the shared `ModuleRegistry`
+   - Detects circular dependencies and aborts with a clear error
 
-1.  **Core Server (`app.py`)**:
-    *   When the application starts, it initializes a FastAPI web server.
-    *   It scans the `modules` directory for any subdirectories.
-    *   For each subdirectory found, it looks for a `main.py` file within it.
-    *   Using Python's `importlib`, it dynamically loads this `main.py` file as a module.
+2. **Module Registry (`modules/registry.py`)**:
+   - Central registry that stores each module's public API
+   - Modules register their API via `registry.register_module_api(name, dict)`
+   - Other modules retrieeve APIs via `registry.get_module_api(name)`
+   - Provides `resolve_dependency_order()` for topological sorting
 
-2.  **Modules (`modules/*`)**:
-    *   Each module's `main.py` is expected to define a FastAPI `APIRouter` instance, which **must be named `router`**.
-    *   The core server then includes this `router` into the main FastAPI application.
-    *   To ensure unique endpoint paths and avoid conflicts, all routes defined within a module's router are automatically prefixed with the module's folder name. For example, if a `hello_world` module has a `/hello` endpoint, it will be accessible via `/hello_world/hello`.
+## Module Structure
 
-### How to Create a New Module
+Every module follows this convention:
 
-Adding new functionality (a "tool") to the FastMCP server is straightforward:
+```
+modules/YourModule/
+  __init__.py          # Package marker (empty)
+  main.py              # Entry point: depends_on, get_module_api(), register()
+  README.md            # Module documentation
+  tools/               # Tool registration functions
+  ...
+```
 
-1.  **Create a Module Directory**:
-    Create a new folder inside the `modules` directory. The folder name will be used as the prefix for all routes in that module.
+### Required elements in `main.py`
 
-    ```bash
-    mkdir modules/your_new_module_name
-    ```
+```python
+from typing import Optional
+from fastmcp import FastMCP
+from modules.registry import ModuleRegistry
 
-2.  **Create `main.py`**:
-    Inside your new module folder (`modules/your_new_module_name/`), create a `main.py` file. This file will contain your module's logic and API endpoints.
+# 1. Dependency declaration (list of module folder names)
+depends_on = ["DBAnalysis"]  # empty list if no dependencies
 
-3.  **Define Your Router and Endpoints**:
-    In `modules/your_new_module_name/main.py`, define your FastAPI endpoints using an `APIRouter`. **It is crucial that the `APIRouter` instance is named `router`**.
+# 2. Public API surface exposed to other modules
+def get_module_api():
+    return {
+        "my_function": my_function,
+        "my_class": MyClass,
+    }
 
-    **Example (`modules/your_new_module_name/main.py`):**
-    ```python
-    from fastapi import APIRouter
-    from pydantic import BaseModel # Example: if your module needs data validation
+# 3. Registration function (optional registry parameter)
+def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
+    # Register MCP tools
+    mcp.tool(name="my_tool")(my_tool)
 
-    # Your module's router - MUST be named 'router'
-    router = APIRouter()
+    # Expose API to other modules
+    if registry is not None:
+        registry.register_module_api("YourModule", get_module_api())
+```
 
-    class Item(BaseModel):
-        name: str
-        description: str = None
+## Cross-Module Access
 
-    @router.get("/status", tags=["Your New Module"])
-    async def get_status():
-        """
-        A simple endpoint to check the module's status.
-        """
-        return {"module": "your_new_module_name", "status": "active"}
+A module that depends on another can access its API at runtime:
 
-    @router.post("/process_item", tags=["Your New Module"])
-    async def process_item(item: Item):
-        """
-        An endpoint to process an item received by the module.
-        """
-        return {"message": f"Item '{item.name}' processed successfully!"}
-    ```
+```python
+depends_on = ["DBAnalysis"]
 
-Once you've created this structure, restart your FastMCP server. The `app.py` core will automatically discover and load `your_new_module_name`, making its endpoints accessible (e.g., `GET /your_new_module_name/status` and `POST /your_new_module_name/process_item`).
+def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
+    if registry is not None:
+        db_api = registry.get_module_api("DBAnalysis")
+        if db_api:
+            strategy = db_api["get_db_strategy"](...)
+```
+
+### Dependency Resolution Rules
+
+- Dependencies are declared via the top-level `depends_on` list in `main.py`
+- The loader performs topological sorting; dependencies load first
+- Circular dependencies raise a `ValueError` at startup
+- Missing dependencies do not block loading (the depending module handles `None`)
+
+## Current Modules & Dependencies
+
+| Module | depends_on | Exposed API |
+|---|---|---|
+| `DBAnalysis` | (none) | `get_db_strategy`, `get_normalization_rules` |
+| `SupersetModule` | (none) | `ConnectionManager`, `api_request`, `execute_request` |
+| `StatisticalMethods` | (none) | All regression functions |
+| `mermaid` | (none) | `get_mermaid_doc_content`, `get_mermaid_file_descriptions` |
+| `LocalAPI` | (none) | (none) |
+
+## Creating a New Module
+
+1. Create the directory and files:
+
+```bash
+mkdir modules/your_module
+touch modules/your_module/__init__.py
+touch modules/your_module/main.py
+```
+
+2. Define `main.py` following the template above.
+
+3. Add any sub-packages with their own `__init__.py` files.
 
 # Full Testing Environment with Docker Compose
 
-For a complete integration testing environment, I have created a `docker-compose.yml` file that launches the FastMCP server along with instances of PostgreSQL, MariaDB, and MSSQL. This allows for end-to-end testing of modules like `DBAnalysis`.
+For a complete integration testing environment, there is a `docker-compose.yml` file that launches the FastMCP server along with instances of PostgreSQL, MariaDB, and MSSQL. This allows for end-to-end testing of modules like `DBAnalysis`.
 
-The credentials for these databases are managed in the `.env` file for security and flexibility.
+The credentials for these databases are managed in the `.env` file.

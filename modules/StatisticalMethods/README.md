@@ -51,3 +51,27 @@ Install dependencies listed in `modules/StatisticalMethods/requirements.txt`:
 ```bash
 pip install -r modules/StatisticalMethods/requirements.txt
 ```
+
+---
+
+## Cross-Module Interface
+
+### Dependency Declaration
+`depends_on = []` — this module has no dependencies on other modules.
+
+### Public API (`get_module_api()`)
+Other modules can access all regression functions via the `ModuleRegistry`:
+- `linear_regression`, `ridge_regression`, `lasso_regression`
+- `polynomial_regression`, `nonlinear_regression`
+- `support_vector_regression`, `decision_tree_regression`
+- `random_forest_regression`, `logistic_regression`
+
+### Usage from another module
+```python
+depends_on = ["StatisticalMethods"]
+
+def register(mcp, registry=None):
+    if registry:
+        stats_api = registry.get_module_api("StatisticalMethods")
+        result = stats_api["linear_regression"](X, y)
+```

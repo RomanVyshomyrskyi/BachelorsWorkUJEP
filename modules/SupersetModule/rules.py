@@ -1,6 +1,16 @@
 import json
 import uuid
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List
+
+from modules.SupersetModule.chart_strategies import get_standard_chart_params
+
+__all__ = [
+    "generate_robust_dashboard_layout",
+    "get_standard_chart_params",
+    "get_chart_creation_rules",
+    "get_dashboard_creation_rules",
+]
+
 
 def generate_robust_dashboard_layout(chart_info: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
@@ -11,144 +21,193 @@ def generate_robust_dashboard_layout(chart_info: List[Dict[str, Any]]) -> Dict[s
     dashboard_uuid = str(uuid.uuid4())[:8]
     layout = {
         "DASHBOARD_VERSION_KEY": "v2",
-        "ROOT_ID": {
-            "type": "ROOT",
-            "id": "ROOT_ID",
-            "children": ["GRID_ID"]
-        },
-        "GRID_ID": {
-            "type": "GRID",
-            "id": "GRID_ID",
-            "children": [],
-            "parents": ["ROOT_ID"]
-        }
+        "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["GRID_ID"]},
+        "GRID_ID": {"type": "GRID", "id": "GRID_ID", "children": [], "parents": ["ROOT_ID"]},
     }
 
-    # Group charts into rows (max 2 charts per row for clear visibility)
-    rows = [chart_info[i:i + 2] for i in range(0, len(chart_info), 2)]
-    
+    rows = [chart_info[i : i + 2] for i in range(0, len(chart_info), 2)]
+
     for row_idx, row_charts in enumerate(rows):
         row_id = f"ROW-R{row_idx}-{dashboard_uuid}"
         layout["GRID_ID"]["children"].append(row_id)
-        
+
         layout[row_id] = {
             "type": "ROW",
             "id": row_id,
             "children": [],
             "parents": ["GRID_ID"],
-            "meta": {"background": "BACKGROUND_TRANSPARENT"}
+            "meta": {"background": "BACKGROUND_TRANSPARENT"},
         }
-        
+
         for chart_idx, chart in enumerate(row_charts):
             chart_cid = f"CHART-{dashboard_uuid}-{chart['id']}"
             layout[row_id]["children"].append(chart_cid)
-            
+
             layout[chart_cid] = {
                 "type": "CHART",
                 "id": chart_cid,
                 "children": [],
                 "parents": [row_id],
                 "meta": {
-                    "chartId": chart['id'],
+                    "chartId": chart["id"],
                     "height": 50,
                     "width": 6,
-                    "sliceName": chart['name']
-                }
+                    "sliceName": chart["name"],
+                },
             }
-            
+
     return layout
 
-def get_standard_chart_params(viz_type: str, datasource_id: int, **kwargs) -> Dict[str, Any]:
-    """
-    Returns a standard set of parameters for common viz types.
-    Reflects deviations for modern ECharts Superset instances.
-    """
-    # 1. Map generic types to modern ECharts equivalents
-    type_map = {
-        "line": "echarts_timeseries_line",
-        "area": "echarts_timeseries_area",
-        "bar": "echarts_bar",
-        "dist_bar": "echarts_timeseries_bar",
-        "big_number": "big_number",
-        "scatter": "echarts_timeseries_scatter",
-        "histogram": "echarts_timeseries_histogram",
-        "waterfall": "echarts_timeseries_waterfall",
-        "boxplot": "echarts_boxplot",
-        "graph": "echarts_graph",
-        "pie": "pie",
-        "table": "table",
-        "radar": "radar",
-        "heatmap": "heatmap_v2",
-        "treemap": "treemap_v2",
-        "sankey": "sankey_v2",
-        "sunburst": "sunburst_v2",
-        "funnel": "funnel",
-        "gauge": "gauge",
-        "gantt": "gantt",
-        "world_map": "world_map",
-        "word_cloud": "word_cloud",
-        "pivot_table": "pivot_table",
-        "parallel": "parallel"
-    }
-    
-    actual_viz_type = type_map.get(viz_type, viz_type)
-    
-    base = {
-        "datasource": f"{datasource_id}__table",
-        "viz_type": actual_viz_type,
-        "adhoc_filters": [],
-        "row_limit": 1000,
-    }
-    
-    # 2. Add Area specific styling if requested
-    if viz_type == "area":
-        base["show_area"] = True
-        base["stack"] = "Stack"
-
-    # 3. Handle ECharts specific x_axis mapping vs legacy groupby
-    if actual_viz_type.startswith("echarts_timeseries") or actual_viz_type == "echarts_area":
-        if "x_axis" not in kwargs:
-            # Heuristic: if 'groupby' was provided as a string or list, move first item to x_axis
-            if "groupby" in kwargs:
-                gb = kwargs["groupby"]
-                if isinstance(gb, list) and len(gb) > 0:
-                    base["x_axis"] = gb[0]
-                elif isinstance(gb, str):
-                    base["x_axis"] = gb
-            else:
-                base["x_axis"] = "year" # Reasonable default for provided WB data
-        
-        if "time_grain_sqla" not in kwargs:
-            base["time_grain_sqla"] = "P1Y"
-
-    # Merge overrides
-    base.update(kwargs)
-            
-    return base
 
 def get_chart_creation_rules() -> str:
     return """
-# Superset Chart Creation Rules (Modern ECharts)
+# Superset Chart Creation Rules
 
-1. **Valid Viz Types**: Supported visualization types:
-   - Bar: `echarts_bar` (category), `echarts_timeseries_bar` (time-based)
-   - Line: `echarts_timeseries_line`
-   - Area: `echarts_timeseries_area`
-   - Scatter: `echarts_timeseries_scatter`
-   - Pie: `pie`
-   - Table: `table`
-   - Big Number: `big_number`
-   - And more: `radar`, `heatmap_v2`, `treemap_v2`, `sankey_v2`, `sunburst_v2`, `funnel`, `gauge`, `gantt`, `world_map`, `word_cloud`
+## 1. Chart Types & Required Params
 
-2. **X-Axis Mapping**:
-   - For time-series ECharts plugins, you MUST map the primary dimension (time or category) to the `x_axis` property.
-   - Legacy `groupby` is used for series breaking, not the primary axis.
+### Time Series Charts (line, bar, area, scatter)
+- viz_type: `echarts_timeseries_line`, `echarts_timeseries_bar`, `echarts_area`, `echarts_timeseries_scatter`
+- Required: `x_axis` (time column), `time_grain_sqla` (e.g., 'P1M'), `metrics` (list of strings)
+- Optional: `groupby` (list of columns for series)
+- Example: {"viz_type": "echarts_timeseries_line", "x_axis": "order_date", "time_grain_sqla": "P1M", "metrics": ["SUM(sales)"], "groupby": ["product_line"]}
 
-3. **Mandatory Time Fields**:
-   - For any time-series chart, `time_grain_sqla` (e.g., 'P1Y', 'P1M') must be defined.
+### Mixed Timeseries (dual-axis)
+- viz_type: `mixed_timeseries`
+- Required: `x_axis`, `metrics` (primary), `metrics_b` (secondary)
+- Example: {"viz_type": "mixed_timeseries", "x_axis": "order_date", "metrics": ["SUM(sales)"], "metrics_b": ["count"]}
 
-4. **Validation**: Always call `superset_get_standard_chart_params` to resolve generic names to correct plugin IDs and required keys.
+### Bubble Chart
+- viz_type: `bubble_v2`
+- Required: `x`, `y`, `size` (string metrics), `series`, `entity`
+- Example: {"viz_type": "bubble_v2", "x": "SUM(quantity_ordered)", "y": "SUM(sales)", "size": "count", "series": "product_line", "entity": "deal_size"}
+
+### Pie Chart
+- viz_type: `pie`
+- Required: `groupby` (list), `metric` (string)
+- Example: {"viz_type": "pie", "groupby": ["product_line"], "metric": "SUM(sales)"}
+
+### Table Chart
+- viz_type: `table`
+- Required: `query_mode` ('raw'), `all_columns` (list of column names)
+- Example: {"viz_type": "table", "query_mode": "raw", "all_columns": ["order_date", "product_line", "sales"]}
+
+### Big Number
+- viz_type: `big_number_total` (total), `big_number` (with trend)
+- Required: `metric` (string)
+- Example: {"viz_type": "big_number_total", "metric": "count"}
+- With trend: {"viz_type": "big_number", "metric": "count", "show_trend_line": true, "x_axis": "order_date", "time_grain_sqla": "P1M"}
+
+### Gauge Chart
+- viz_type: `gauge_chart`
+- Required: `groupby` (list), `metric` (string)
+- Example: {"viz_type": "gauge_chart", "groupby": ["deal_size"], "metric": "count"}
+
+### Gantt Chart
+- viz_type: `gantt_chart`
+- Required: `start_time`, `end_time`, `y_axis`, `series` (column names)
+- Example: {"viz_type": "gantt_chart", "start_time": "start_time", "end_time": "end_time", "y_axis": "status", "series": "priority"}
+
+### Box Plot
+- viz_type: `box_plot`
+- Required: `columns` (list with temporal column), `groupby` (list), `metrics` (list)
+- Example: {"viz_type": "box_plot", "columns": ["order_date"], "groupby": ["product_line"], "metrics": ["count"]}
+
+### Funnel Chart
+- viz_type: `funnel`
+- Required: `groupby` (list), `metric` (string)
+- Example: {"viz_type": "funnel", "groupby": ["status"], "metric": "count"}
+
+### Graph Chart (network)
+- viz_type: `graph_chart`
+- Required: `source`, `target` (column names), `metric` (string)
+- Example: {"viz_type": "graph_chart", "source": "deal_size", "target": "product_line", "metric": "count"}
+
+### Waterfall Chart
+- viz_type: `waterfall`
+- Required: `x_axis`, `time_grain_sqla`, `metric`
+- Example: {"viz_type": "waterfall", "x_axis": "order_date", "time_grain_sqla": "P3M", "metric": "SUM(sales)"}
+
+### Heatmap
+- viz_type: `heatmap_v2`
+- Required: `x_axis`, `groupby` (string), `metric` (string)
+- Example: {"viz_type": "heatmap_v2", "x_axis": "product_line", "groupby": "deal_size", "metric": "count"}
+
+### Histogram
+- viz_type: `histogram_v2`
+- Required: `column`, `groupby` (list)
+- Optional: `bins` (default 10)
+- Example: {"viz_type": "histogram_v2", "column": "quantity_ordered", "groupby": ["deal_size"], "bins": 10}
+
+### Radar Chart
+- viz_type: `radar`
+- Required: `groupby` (list), `metrics` (list of strings)
+- Example: {"viz_type": "radar", "groupby": ["product_line"], "metrics": ["count", "AVG(price_each)", "AVG(sales)"]}
+
+### Sankey Diagram
+- viz_type: `sankey_v2`
+- Required: `source`, `target` (column names), `metric` (string)
+- Example: {"viz_type": "sankey_v2", "source": "product_line", "target": "deal_size", "metric": "count"}
+
+### Sunburst Chart
+- viz_type: `sunburst_v2`
+- Required: `columns` (list of hierarchical columns), `metric` (string)
+- Example: {"viz_type": "sunburst_v2", "columns": ["year", "product_line"], "metric": "count"}
+
+### TreeMap Chart
+- viz_type: `treemap_v2`
+- Required: `groupby` (list), `metric` (string)
+- Example: {"viz_type": "treemap_v2", "groupby": ["year", "product_line"], "metric": "count"}
+
+### Tree Chart (hierarchical)
+- viz_type: `tree_chart`
+- Required: `id`, `parent`, `name` (column names), `metric` (string)
+- Example: {"viz_type": "tree_chart", "id": "id", "parent": "parent", "name": "name", "metric": "count"}
+
+### Pivot Table
+- viz_type: `pivot_table_v2`
+- Required: `groupbyRows` (list), `groupbyColumns` (list), `metrics` (list)
+- Example: {"viz_type": "pivot_table_v2", "groupbyRows": ["country", "city"], "groupbyColumns": ["product_line"], "metrics": ["SUM(sales)"]}
+
+### Word Cloud
+- viz_type: `word_cloud`
+- Required: `series` (column name), `metric` (string)
+- Example: {"viz_type": "word_cloud", "series": "customer_name", "metric": "count"}
+
+### World Map
+- viz_type: `world_map`
+- Required: `groupby` (list), `metric` (string)
+- Example: {"viz_type": "world_map", "groupby": ["country"], "metric": "SUM(sales)"}
+
+## 2. Metric Format
+
+- Use **simple string metrics**: "count", "SUM(sales)", "AVG(price_each)", "COUNT_DISTINCT(country)"
+- The Superset API accepts string metrics for ALL chart types
+- Format: `{AGGREGATION}({column_name})` or just "count" for row count
+- Available aggregations: SUM, AVG, MIN, MAX, COUNT, COUNT_DISTINCT
+
+## 3. Chart Creation Workflow
+
+1. Call `superset_get_standard_chart_params` with viz_type and datasource_id
+2. Provide additional kwargs: metric, metrics, groupby, x_axis, etc.
+3. The function returns a properly structured params dict
+4. Use `json.dumps(params)` to create the JSON string
+5. Call `superset_create_chart` with the JSON string
+
+Example:
+  params = get_standard_chart_params("line", 13, x_axis="order_date", time_grain_sqla="P1M", metrics=["SUM(sales)"], groupby=["product_line"])
+  # Returns: {"datasource": "13__table", "viz_type": "echarts_timeseries_line", "metrics": ["SUM(sales)"], ...}
+  params_json = json.dumps(params)  # Convert to JSON string for API
+  create_chart(..., params=params_json)
+
+## 4. Important Notes
+
+- `datasource` field format: `"{datasource_id}__table"` (e.g., "13__table")
+- `row_limit` defaults to 10000 for most charts
+- `color_scheme` defaults to "supersetColors"
+- All charts support `adhoc_filters` for WHERE clauses
+- Time grain formats: P1D (day), P1W (week), P1M (month), P3M (quarter), P1Y (year)
 """
+
 
 def get_dashboard_creation_rules() -> str:
     return """

@@ -11,3 +11,7 @@ plotly
 kaleido
 matplotlib
 httpx
+pytest
+pytest-asyncio
+pytest-mock
+python-dotenv

@@ -116,3 +116,49 @@ touch modules/your_module/main.py
 For a complete integration testing environment, there is a `docker-compose.yml` file that launches the FastMCP server along with instances of PostgreSQL, MariaDB, and MSSQL. This allows for end-to-end testing of modules like `DBAnalysis`.
 
 The credentials for these databases are managed in the `.env` file.
+
+# Running Tests
+
+The project uses **pytest** for testing. Tests are located in the `tests/` directory.
+
+## Running All Unit Tests
+
+```bash
+pytest
+```
+
+## Running Only Unit Tests (Skip Integration)
+
+Integration tests require a running PostgreSQL container. To run only unit tests:
+
+```bash
+pytest -m "not integration"
+```
+
+## Running Integration Tests
+
+Integration tests require Docker Compose to be running:
+
+```bash
+docker-compose up -d postgres-db
+pytest -m "integration"
+```
+
+## Running Specific Test Files
+
+```bash
+pytest tests/modules/DBAnalysis/test_postgres_strategy.py
+pytest tests/modules/DBAnalysis/test_data_tools.py
+```
+
+## Test Coverage
+
+The test suite covers:
+
+- **PostgreSQL Strategy**: Connection, disconnection, schema extraction, query execution, security checks
+- **Database Strategy Base**: Abstract method enforcement, context manager behavior
+- **Strategy Factory**: Correct strategy selection, error handling for unknown types
+- **Utilities**: Schema formatting, normalization rules loading
+- **Models**: ConnectionDetails Pydantic validation
+- **MCP Tools**: All DBAnalysis endpoints (data, analysis, visualization)
+- **Integration Tests**: End-to-end tests against a real PostgreSQL container

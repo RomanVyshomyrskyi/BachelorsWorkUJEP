@@ -2,7 +2,6 @@ import pytest
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))))
 
 from modules.DBAnalysis.utils.rules_loader import get_normalization_rules
 

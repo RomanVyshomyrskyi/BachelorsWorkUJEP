@@ -1,10 +1,6 @@
 import pytest
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, patch
 import psycopg2
-
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))))
 
 from modules.DBAnalysis.strategies.postgres import PostgresStrategy
 from modules.DBAnalysis.strategies.base import DatabaseStrategy
@@ -95,11 +91,12 @@ class TestPostgresStrategyDisconnect:
             'dbname': 'test_db',
         }
         strategy = PostgresStrategy(details)
-        strategy.connection = MagicMock()
+        mock_conn = MagicMock()
+        strategy.connection = mock_conn
         
         strategy.disconnect()
         
-        strategy.connection.close.assert_called_once()
+        mock_conn.close.assert_called_once()
         assert strategy.connection is None
 
     def test_disconnect_with_no_connection(self):
@@ -201,6 +198,7 @@ class TestPostgresStrategyExecuteQuery:
             'dbname': 'test_db',
         }
         strategy = PostgresStrategy(details)
+        strategy.connection = MagicMock()
         
         with pytest.raises(ValueError, match="Security violation"):
             strategy.execute_query("INSERT INTO users VALUES (1, 'test')")
@@ -213,6 +211,7 @@ class TestPostgresStrategyExecuteQuery:
             'dbname': 'test_db',
         }
         strategy = PostgresStrategy(details)
+        strategy.connection = MagicMock()
         
         with pytest.raises(ValueError, match="Security violation"):
             strategy.execute_query("UPDATE users SET name = 'test'")
@@ -225,6 +224,7 @@ class TestPostgresStrategyExecuteQuery:
             'dbname': 'test_db',
         }
         strategy = PostgresStrategy(details)
+        strategy.connection = MagicMock()
         
         with pytest.raises(ValueError, match="Security violation"):
             strategy.execute_query("DELETE FROM users WHERE id = 1")
@@ -237,6 +237,7 @@ class TestPostgresStrategyExecuteQuery:
             'dbname': 'test_db',
         }
         strategy = PostgresStrategy(details)
+        strategy.connection = MagicMock()
         
         with pytest.raises(ValueError, match="Security violation"):
             strategy.execute_query("DROP TABLE users")
@@ -359,8 +360,9 @@ class TestPostgresStrategyContextManager:
             'dbname': 'test_db',
         }
         with patch('modules.DBAnalysis.strategies.postgres.psycopg2.connect') as mock_connect:
-            mock_connect.return_value = MagicMock()
+            mock_conn = MagicMock()
+            mock_connect.return_value = mock_conn
             with PostgresStrategy(details) as strategy:
                 pass
             
-            strategy.connection.close.assert_called_once()
+            mock_conn.close.assert_called_once()

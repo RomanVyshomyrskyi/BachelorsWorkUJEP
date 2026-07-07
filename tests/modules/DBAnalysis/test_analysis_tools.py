@@ -3,7 +3,6 @@ from unittest.mock import MagicMock, patch
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))))
 
 from modules.DBAnalysis.tools.analysis import tool_get_rules, tool_analyze_db
 

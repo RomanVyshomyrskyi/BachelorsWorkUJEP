@@ -1,10 +1,6 @@
 import pytest
 from abc import ABC
-from unittest.mock import MagicMock
-
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))))
+from unittest.mock import MagicMock, patch
 
 from modules.DBAnalysis.strategies.base import DatabaseStrategy
 
@@ -32,73 +28,46 @@ class TestDatabaseStrategy:
         assert strategy.connection is None
 
 
-class TestDatabaseStrategyContextManager:
-    def test_context_manager_connects_on_enter(self, valid_connection_details):
-        with patch('modules.DBAnalysis.strategies.postgres.PostgresStrategy') as MockStrategy:
-            mock_instance = MockStrategy.return_value
-            mock_instance.connection = MagicMock()
-            
-            with DatabaseStrategy.__new__(MockStrategy) as strategy:
-                pass
-            
-            MockStrategy.assert_called_once()
-            MockStrategy.return_value.connect.assert_called_once()
-            MockStrategy.return_value.disconnect.assert_called_once()
-
-    def test_context_manager_disconnects_on_exit(self, valid_connection_details):
-        with patch('modules.DBAnalysis.strategies.postgres.PostgresStrategy') as MockStrategy:
-            mock_instance = MockStrategy.return_value
-            mock_instance.connection = MagicMock()
-            
-            try:
-                with MockStrategy(valid_connection_details) as strategy:
-                    pass
-            except Exception:
-                pass
-            
-            MockStrategy.return_value.disconnect.assert_called_once()
-
-    def test_context_manager_returns_strategy_instance(self, valid_connection_details):
-        with patch('modules.DBAnalysis.strategies.postgres.PostgresStrategy') as MockStrategy:
-            mock_instance = MockStrategy.return_value
-            
-            result = MockStrategy(valid_connection_details).__enter__()
-            
-            assert result is mock_instance
+# Note: Context manager tests are in test_postgres_strategy.py since they
+# require a concrete implementation with mocked psycopg2.connect
 
 
 class TestDatabaseStrategyAbstractMethods:
     def test_connect_is_abstract(self):
+        class TestStrategy(DatabaseStrategy):
+            pass
+        
         with pytest.raises(TypeError):
-            class TestStrategy(DatabaseStrategy):
-                pass
             TestStrategy({})
 
     def test_disconnect_is_abstract(self):
+        class TestStrategy(DatabaseStrategy):
+            def connect(self):
+                pass
+        
         with pytest.raises(TypeError):
-            class TestStrategy(DatabaseStrategy):
-                def connect(self):
-                    pass
             TestStrategy({})
 
     def test_get_schema_representation_is_abstract(self):
+        class TestStrategy(DatabaseStrategy):
+            def connect(self):
+                pass
+            def disconnect(self):
+                pass
+        
         with pytest.raises(TypeError):
-            class TestStrategy(DatabaseStrategy):
-                def connect(self):
-                    pass
-                def disconnect(self):
-                    pass
             TestStrategy({})
 
     def test_execute_query_is_abstract(self):
+        class TestStrategy(DatabaseStrategy):
+            def connect(self):
+                pass
+            def disconnect(self):
+                pass
+            def get_schema_representation(self):
+                return ""
+        
         with pytest.raises(TypeError):
-            class TestStrategy(DatabaseStrategy):
-                def connect(self):
-                    pass
-                def disconnect(self):
-                    pass
-                def get_schema_representation(self):
-                    return ""
             TestStrategy({})
 
     def test_concrete_implementation_with_all_methods_works(self):

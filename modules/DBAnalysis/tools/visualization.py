@@ -42,7 +42,7 @@ def tool_generate_chart(
         conn_details = ConnectionDetails(
             host=host, user=user, password=password, dbname=dbname, port=port
         )
-        strategy = get_db_strategy(db_type, conn_details.dict())
+        strategy = get_db_strategy(db_type, conn_details.model_dump())
         
         with strategy as db_context:
             data = db_context.execute_query(query)

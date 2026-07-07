@@ -21,7 +21,7 @@ def tool_run_sql(
             host=host, user=user, password=password, dbname=dbname, port=port
         )
         
-        strategy = get_db_strategy(db_type, conn_details.dict())
+        strategy = get_db_strategy(db_type, conn_details.model_dump())
 
         with strategy as db_context:
             results = db_context.execute_query(query)
@@ -49,7 +49,7 @@ def tool_get_table_data(
             host=host, user=user, password=password, dbname=dbname, port=port
         )
         
-        strategy = get_db_strategy(db_type, conn_details.dict())
+        strategy = get_db_strategy(db_type, conn_details.model_dump())
 
         query = f"SELECT * FROM {table_name} LIMIT {limit}"
         # MSSQL uses TOP instead of LIMIT

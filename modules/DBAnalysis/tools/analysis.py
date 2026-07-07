@@ -25,7 +25,7 @@ def tool_analyze_db(
             host=host, user=user, password=password, dbname=dbname, port=port
         )
         
-        strategy = get_db_strategy(db_type, conn_details.dict())
+        strategy = get_db_strategy(db_type, conn_details.model_dump())
 
         with strategy as db_context:
             schema_representation = db_context.get_schema_representation()

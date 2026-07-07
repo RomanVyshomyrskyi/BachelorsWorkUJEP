@@ -66,10 +66,29 @@ def get_standard_chart_params(viz_type: str, datasource_id: int, **kwargs) -> Di
     # 1. Map generic types to modern ECharts equivalents
     type_map = {
         "line": "echarts_timeseries_line",
-        "area": "echarts_timeseries_line", # Area is often just a line with stack
-        "bar": "echarts_timeseries_bar",
+        "area": "echarts_timeseries_area",
+        "bar": "echarts_bar",
         "dist_bar": "echarts_timeseries_bar",
-        "big_number": "big_number_total" # Default to total to avoid trendline date errors
+        "big_number": "big_number",
+        "scatter": "echarts_timeseries_scatter",
+        "histogram": "echarts_timeseries_histogram",
+        "waterfall": "echarts_timeseries_waterfall",
+        "boxplot": "echarts_boxplot",
+        "graph": "echarts_graph",
+        "pie": "pie",
+        "table": "table",
+        "radar": "radar",
+        "heatmap": "heatmap_v2",
+        "treemap": "treemap_v2",
+        "sankey": "sankey_v2",
+        "sunburst": "sunburst_v2",
+        "funnel": "funnel",
+        "gauge": "gauge",
+        "gantt": "gantt",
+        "world_map": "world_map",
+        "word_cloud": "word_cloud",
+        "pivot_table": "pivot_table",
+        "parallel": "parallel"
     }
     
     actual_viz_type = type_map.get(viz_type, viz_type)
@@ -111,21 +130,24 @@ def get_chart_creation_rules() -> str:
     return """
 # Superset Chart Creation Rules (Modern ECharts)
 
-1. **Prefer ECharts**: Use `echarts_timeseries_line`, `echarts_timeseries_bar`, and `pie`. 
-   Generic keys like `line` or `bar` are often not registered in modern instances.
+1. **Valid Viz Types**: Supported visualization types:
+   - Bar: `echarts_bar` (category), `echarts_timeseries_bar` (time-based)
+   - Line: `echarts_timeseries_line`
+   - Area: `echarts_timeseries_area`
+   - Scatter: `echarts_timeseries_scatter`
+   - Pie: `pie`
+   - Table: `table`
+   - Big Number: `big_number`
+   - And more: `radar`, `heatmap_v2`, `treemap_v2`, `sankey_v2`, `sunburst_v2`, `funnel`, `gauge`, `gantt`, `world_map`, `word_cloud`
 
-2. **Big Number Logic**:
-   - Use `big_number_total` for simple aggregate counts or sums.
-   - Use `big_number` ONLY if a time column is present and you want a trendline.
-
-3. **X-Axis Mapping**:
-   - For all ECharts plugins, you MUST map the primary dimension (time or category) to the `x_axis` property.
+2. **X-Axis Mapping**:
+   - For time-series ECharts plugins, you MUST map the primary dimension (time or category) to the `x_axis` property.
    - Legacy `groupby` is used for series breaking, not the primary axis.
 
-4. **Mandatory Time Fields**:
+3. **Mandatory Time Fields**:
    - For any time-series chart, `time_grain_sqla` (e.g., 'P1Y', 'P1M') must be defined.
 
-5. **Validation**: Always call `superset_get_standard_chart_params` to resolve generic names to correct plugin IDs and required keys.
+4. **Validation**: Always call `superset_get_standard_chart_params` to resolve generic names to correct plugin IDs and required keys.
 """
 
 def get_dashboard_creation_rules() -> str:

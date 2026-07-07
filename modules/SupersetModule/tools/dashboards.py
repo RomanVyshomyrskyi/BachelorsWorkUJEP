@@ -20,7 +20,10 @@ async def generate_simple_dashboard_layout(
     chart_height: int = 50
 ) -> str:
     """
-    Generates a basic, valid position_json structure for a Superset dashboard.
+    Generates a basic, valid position_json structure for a Superset dashboard,
+    arranging a list of charts in a simple layout.
+    
+    Follows ROOT -> GRID -> ROW -> CHART hierarchy as required by Superset.
     """
     ctx = manager.get_context(server_id)
     if not ctx:
@@ -29,11 +32,41 @@ async def generate_simple_dashboard_layout(
     if not chart_ids:
         return "Error: At least one chart ID must be provided."
 
-    # Initialize the basic dashboard structure
-    dashboard_json_map: Dict[str, Any] = {
-        "DASHBOARD_VERSION": "2.0",
-        "ROOT_ID": "ROOT_ID",
-        "ROOT_ID-content": ["GRID_ID"],
+    # Build chart info list with names
+    chart_info = []
+    for chart_id in chart_ids:
+        chart_details_str = await impl_get_resource(manager, server_id, "chart", chart_id)
+        try:
+            chart_details = json.loads(chart_details_str)
+            slice_name = chart_details.get("result", {}).get("slice_name", f"Chart {chart_id}")
+        except (json.JSONDecodeError, AttributeError):
+            logger.warning(f"Could not fetch slice_name for chart {chart_id}. Using default name.")
+            slice_name = f"Chart {chart_id}"
+        chart_info.append({"id": chart_id, "name": slice_name})
+
+    layout = _build_simple_layout(chart_info, layout_type, chart_width, chart_height)
+    return json.dumps(layout, indent=2)
+
+
+def _build_simple_layout(
+    chart_info: List[Dict[str, Any]],
+    layout_type: str = "row_of_charts",
+    chart_width: int = 6,
+    chart_height: int = 50
+) -> Dict[str, Any]:
+    """
+    Builds position_json with ROOT -> GRID -> ROW -> CHART hierarchy.
+    
+    Groups charts into rows (max 2 charts per row for clear visibility)
+    and assigns proper X/Y positions based on layout type.
+    """
+    layout = {
+        "DASHBOARD_VERSION_KEY": "v2",
+        "ROOT_ID": {
+            "type": "ROOT",
+            "id": "ROOT_ID",
+            "children": ["GRID_ID"]
+        },
         "GRID_ID": {
             "type": "GRID",
             "id": "GRID_ID",
@@ -42,50 +75,51 @@ async def generate_simple_dashboard_layout(
         }
     }
 
-    current_x = 0
-    current_y = 0
-
-    for i, chart_id in enumerate(chart_ids):
-        chart_element_id = f"CHART_{chart_id}"
+    # Group charts into rows (max 2 charts per row)
+    rows = [chart_info[i:i + 2] for i in range(0, len(chart_info), 2)]
+    
+    for row_idx, row_charts in enumerate(rows):
+        row_id = f"ROW-R{row_idx}"
+        layout["GRID_ID"]["children"].append(row_id)
         
-        # Fetch chart details to get sliceName
-        chart_details_str = await impl_get_resource(manager, server_id, "chart", chart_id)
-        try:
-            chart_details = json.loads(chart_details_str)
-            slice_name = chart_details.get("result", {}).get("slice_name", f"Chart {chart_id}")
-        except (json.JSONDecodeError, AttributeError):
-            logger.warning(f"Could not fetch slice_name for chart {chart_id}. Using default name.")
-            slice_name = f"Chart {chart_id}"
-
-        chart_meta = {
-            "id": chart_id,
-            "type": "CHART",
-            "chartId": chart_id,
-            "width": chart_width,
-            "height": chart_height,
-            "startX": current_x,
-            "startY": current_y,
-            "sliceName": slice_name
-        }
-        
-        dashboard_json_map[chart_element_id] = {
-            "type": "CHART",
-            "id": chart_id,
+        layout[row_id] = {
+            "type": "ROW",
+            "id": row_id,
             "children": [],
-            "meta": chart_meta,
-            "parents": ["GRID_ID"]
+            "parents": ["GRID_ID"],
+            "meta": {"background": "BACKGROUND_TRANSPARENT"}
         }
-        dashboard_json_map["GRID_ID"]["children"].append(chart_element_id)
-
-        if layout_type == "row_of_charts":
-            current_x += chart_width
-            if current_x >= 12: # Wrap to next row
-                current_x = 0
-                current_y += chart_height
-        elif layout_type == "column_of_charts":
-            current_y += chart_height
+        
+        for chart_idx, chart in enumerate(row_charts):
+            chart_element_id = f"CHART_{chart['id']}"
             
-    return json.dumps(dashboard_json_map, indent=2)
+            # Calculate position within the row
+            if layout_type == "row_of_charts":
+                current_x = chart_idx * chart_width
+                current_y = 0
+            else:  # column_of_charts
+                current_x = 0
+                current_y = chart_idx * chart_height
+            
+            chart_meta = {
+                "chartId": chart['id'],
+                "width": chart_width,
+                "height": chart_height,
+                "startX": current_x,
+                "startY": current_y,
+                "sliceName": chart['name']
+            }
+            
+            layout[chart_element_id] = {
+                "type": "CHART",
+                "id": chart_element_id,
+                "children": [],
+                "parents": [row_id],
+                "meta": chart_meta
+            }
+            layout[row_id]["children"].append(chart_element_id)
+    
+    return layout
 
 async def create_dashboard(
     manager: ConnectionManager,

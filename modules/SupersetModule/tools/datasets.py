@@ -43,6 +43,77 @@ async def get_dataset_info(
     )
 
 
+async def create_virtual_dataset(
+    manager: ConnectionManager,
+    server_id: str,
+    dataset_name: str,
+    database_id: int,
+    sql: str,
+    schema: Optional[str] = None,
+    description: Optional[str] = None,
+    default_endpoint_id: Optional[int] = None,
+    columns_json: Optional[str] = None,
+    metrics_json: Optional[str] = None
+) -> str:
+    """Save a SQL query as a virtual dataset for charting.
+    
+    Creates a virtual dataset from a SQL query that can be used
+    to create charts. This is the official tool name matching
+    the Apache Superset MCP service.
+    
+    Args:
+        server_id: The ID of the configured Superset server.
+        dataset_name: Name for the virtual dataset.
+        database_id: The ID of the database.
+        sql: The SQL query for the virtual dataset.
+        schema: Optional schema name.
+        description: Optional description.
+        default_endpoint_id: Optional endpoint ID.
+        columns_json: Optional JSON string of column definitions.
+        metrics_json: Optional JSON string of metric definitions.
+    Returns:
+        JSON string containing the created dataset.
+    """
+    ctx = manager.get_context(server_id)
+    if not ctx:
+        return f"Error: Server '{server_id}' not found."
+    
+    try:
+        dataset_payload: Dict[str, Any] = {
+            "table_name": dataset_name,
+            "database": database_id,
+            "sql": sql,
+        }
+        if schema:
+            dataset_payload["schema"] = schema
+        if description:
+            dataset_payload["description"] = description
+        if default_endpoint_id:
+            dataset_payload["default_endpoint_id"] = default_endpoint_id
+        if columns_json:
+            try:
+                dataset_payload["columns"] = json.loads(columns_json)
+            except json.JSONDecodeError:
+                return f"Error: 'columns_json' is not a valid JSON string."
+        if metrics_json:
+            try:
+                dataset_payload["metrics"] = json.loads(metrics_json)
+            except json.JSONDecodeError:
+                return f"Error: 'metrics_json' is not a valid JSON string."
+        
+        endpoint = "/api/v1/dataset/"
+        resp = await execute_request(ctx, "POST", endpoint, json=dataset_payload)
+        resp.raise_for_status()
+        
+        return json.dumps(resp.json(), indent=2)
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTPStatusError creating virtual dataset for {server_id}: {e.response.status_code} - {e.response.text}")
+        return f"Error creating virtual dataset: {e.response.status_code} - {e.response.text}"
+    except Exception as e:
+        logger.error(f"An unexpected error occurred while creating virtual dataset for {server_id}: {e}")
+        return f"An unexpected error occurred while creating virtual dataset: {e}"
+
+
 async def create_dataset(
     manager: ConnectionManager,
     server_id: str,

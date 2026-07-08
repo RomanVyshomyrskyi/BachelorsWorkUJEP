@@ -15,6 +15,8 @@ from modules.SupersetModule.tools import datasets
 from modules.SupersetModule.tools import databases
 from modules.SupersetModule.tools import sqllab
 from modules.SupersetModule.tools import transfer
+from modules.SupersetModule.tools import explore
+from modules.SupersetModule.tools import system
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', stream=sys.stderr)
 logger = logging.getLogger(__name__)
@@ -465,6 +467,245 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
             dashboard_id: The ID of the dashboard to retrieve.
         """
         return await dashboards.get_dashboard_info(manager, server_id, dashboard_id)
+
+    # === Official Apache MCP tool names ===
+
+    @mcp.tool(name="generate_chart")
+    async def tool_generate_chart(
+        server_id: str,
+        dataset_id: int,
+        config: str,
+        slice_name: Optional[str] = None,
+        save_chart: bool = True,
+        description: Optional[str] = None
+    ) -> str:
+        """Create and optionally save a new chart.
+        
+        Use generate_explore_link for exploration (no permanent chart created).
+        Use generate_chart with save_chart=True only when the user wants to save.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            dataset_id: The ID of the dataset to base the chart on.
+            config: JSON string of chart configuration (viz_type, metrics, etc.).
+            slice_name: Optional name for the chart.
+            save_chart: If True, saves permanently. If False, returns preview only.
+            description: Optional description.
+        """
+        return await charts.generate_chart(manager, server_id, dataset_id, config, slice_name, save_chart, description)
+
+    @mcp.tool(name="get_chart_preview")
+    async def tool_get_chart_preview(
+        server_id: str,
+        chart_id: Union[int, str]
+    ) -> str:
+        """Get a visual preview of a chart with image URL.
+        
+        Returns a URL to a PNG preview image of the chart.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            chart_id: The ID of the chart to preview.
+        """
+        return await charts.get_chart_preview(manager, server_id, chart_id)
+
+    @mcp.tool(name="get_chart_data")
+    async def tool_get_chart_data(
+        server_id: str,
+        chart_id: Union[int, str]
+    ) -> str:
+        """Get underlying chart data in text-friendly format.
+        
+        Returns the raw data that backs the chart.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            chart_id: The ID of the chart.
+        """
+        return await charts.get_chart_data(manager, server_id, chart_id)
+
+    @mcp.tool(name="get_chart_type_schema")
+    async def tool_get_chart_type_schema(
+        server_id: str,
+        chart_type: str
+    ) -> str:
+        """Get schema for a specific chart type.
+        
+        Returns expected parameters and configuration for a visualization type.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            chart_type: The visualization type (e.g., 'xy', 'big_number', 'table').
+        """
+        return await charts.get_chart_type_schema(manager, server_id, chart_type)
+
+    @mcp.tool(name="generate_dashboard")
+    async def tool_generate_dashboard(
+        server_id: str,
+        dashboard_title: str,
+        chart_ids: List[int],
+        slug: Optional[str] = None,
+        json_metadata: Optional[str] = None,
+        published: bool = False,
+        layout_type: str = "robust"
+    ) -> str:
+        """Create a new dashboard from chart IDs.
+        
+        Automatically generates the dashboard layout from the provided chart IDs.
+        Preferred over superset_create_dashboard when you have chart IDs.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            dashboard_title: The title for the new dashboard.
+            chart_ids: List of chart IDs to include.
+            slug: Optional URL-friendly identifier.
+            json_metadata: Optional JSON string for metadata.
+            published: Whether the dashboard should be published.
+            layout_type: Layout style ('robust' or 'simple').
+        """
+        return await dashboards.generate_dashboard(manager, server_id, dashboard_title, chart_ids, slug, json_metadata, published, layout_type)
+
+    @mcp.tool(name="add_chart_to_existing_dashboard")
+    async def tool_add_chart_to_existing_dashboard(
+        server_id: str,
+        dashboard_id: int,
+        chart_id: int
+    ) -> str:
+        """Add a chart to an existing dashboard.
+        
+        Preferred tool for adding charts to EXISTING dashboards.
+        Only use generate_dashboard to create a brand-new dashboard.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            dashboard_id: The ID of the existing dashboard.
+            chart_id: The ID of the chart to add.
+        """
+        return await dashboards.add_chart_to_existing_dashboard(manager, server_id, dashboard_id, chart_id)
+
+    @mcp.tool(name="create_virtual_dataset")
+    async def tool_create_virtual_dataset(
+        server_id: str,
+        dataset_name: str,
+        database_id: int,
+        sql: str,
+        schema: Optional[str] = None,
+        description: Optional[str] = None
+    ) -> str:
+        """Save a SQL query as a virtual dataset for charting.
+        
+        Creates a virtual dataset from a SQL query that can be used to create charts.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            dataset_name: Name for the virtual dataset.
+            database_id: The ID of the database.
+            sql: The SQL query for the virtual dataset.
+            schema: Optional schema name.
+            description: Optional description.
+        """
+        return await datasets.create_virtual_dataset(manager, server_id, dataset_name, database_id, sql, schema, description)
+
+    @mcp.tool(name="generate_explore_link")
+    async def tool_generate_explore_link(
+        server_id: str,
+        dataset_id: int,
+        config: Optional[str] = None
+    ) -> str:
+        """Generate an interactive explore URL for ad-hoc data exploration.
+        
+        Creates a URL that opens Superset's Explore view with pre-configured
+        chart settings. Does NOT create a permanent chart.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            dataset_id: The ID of the dataset to explore.
+            config: Optional JSON string of chart configuration.
+        """
+        return await explore.generate_explore_link(manager, server_id, dataset_id, config)
+
+    @mcp.tool(name="execute_sql")
+    async def tool_execute_sql(
+        server_id: str,
+        database_id: int,
+        sql_query: str,
+        schema: Optional[str] = None
+    ) -> str:
+        """Execute SQL queries and get results (requires database_id).
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            database_id: The ID of the database.
+            sql_query: The SQL query string to execute.
+            schema: Optional schema name.
+        """
+        return await sqllab.sqllab_execute_query(manager, server_id, database_id, sql_query, schema)
+
+    @mcp.tool(name="save_sql_query")
+    async def tool_save_sql_query(
+        server_id: str,
+        database_id: int,
+        label: str,
+        sql: str,
+        schema: Optional[str] = None,
+        description: Optional[str] = None
+    ) -> str:
+        """Save a SQL query to Saved Queries list.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            database_id: The ID of the database.
+            label: The name/label for the saved query.
+            sql: The SQL query text to save.
+            schema: Optional schema name.
+            description: Optional description.
+        """
+        return await sqllab.save_sql_query(manager, server_id, database_id, label, sql, schema, description)
+
+    @mcp.tool(name="open_sql_lab_with_context")
+    async def tool_open_sql_lab_with_context(
+        server_id: str,
+        database_id: int,
+        sql: Optional[str] = None,
+        schema: Optional[str] = None
+    ) -> str:
+        """Generate SQL Lab URL with pre-filled sql.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            database_id: The ID of the database.
+            sql: Optional pre-filled SQL query.
+            schema: Optional schema name.
+        """
+        return await sqllab.open_sql_lab_with_context(manager, server_id, database_id, sql, schema)
+
+    @mcp.tool(name="get_schema")
+    async def tool_get_schema(
+        server_id: str,
+        model_type: Optional[str] = None
+    ) -> str:
+        """Get schema metadata for chart/dataset/dashboard (columns, filters).
+        
+        Returns filterable columns, sortable columns, default columns.
+        Use this before calling list_* tools to discover available filters.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            model_type: Optional type ('chart', 'dataset', 'dashboard', 'database').
+        """
+        return await system.get_schema(manager, server_id, model_type)
+
+    @mcp.tool(name="get_instance_info")
+    async def tool_get_instance_info(server_id: str) -> str:
+        """Get instance-wide statistics, metadata, and current user identity.
+        
+        Call this first after connecting to learn the user's identity
+        and available features.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+        """
+        return await system.get_instance_info(manager, server_id)
 
     if registry is not None:
         registry.register_module_api("SupersetModule", get_module_api())

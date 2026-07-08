@@ -172,6 +172,8 @@ READ_ONLY_TOOLS = {
     "superset_sqllab_get_query_results", "superset_get_database_schema",
     "superset_get_dashboard_api_info", "superset_get_standard_chart_params",
     "superset_get_chart_creation_rules", "superset_get_dashboard_creation_rules",
+    "get_schema", "get_instance_info", "get_chart_preview", "get_chart_data",
+    "get_chart_type_schema",
     "get_mermaid_doc_content", "get_mermaid_file_descriptions",
     "generate_all_mermaid_diagrams",
     "analyze_database_schema", "get_normalization_rules", "get_table_data",

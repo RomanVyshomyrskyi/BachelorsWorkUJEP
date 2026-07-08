@@ -1,11 +1,44 @@
 import os
 import logging
 import base64
+import time
+import json
 import httpx
 from typing import Optional
 from modules.SupersetModule.config import SupersetContext
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_jwt_payload(token: str) -> dict | None:
+    """Parse JWT token payload without verification to check expiration."""
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return None
+        import base64 as b64
+
+        payload = parts[1]
+        padding = 4 - len(payload) % 4
+        if padding != 4:
+            payload += "=" * padding
+        decoded = b64.b64decode(payload)
+        return json.loads(decoded)
+    except Exception:
+        return None
+
+
+def _is_token_expired(token: str, buffer_seconds: int = 60) -> bool:
+    """Check if JWT token is expired (with buffer)."""
+    if not token:
+        return True
+    payload = _parse_jwt_payload(token)
+    if not payload:
+        return True
+    exp = payload.get("exp")
+    if not exp:
+        return False
+    return time.time() >= (exp - buffer_seconds)
 
 async def _get_csrf_token(ctx: SupersetContext):
     """Fetches and sets the CSRF token."""
@@ -107,50 +140,81 @@ async def authenticate(ctx: SupersetContext):
             raise ValueError(f"Cookie file not found for {ctx.server_id}")
 
 async def ensure_auth(ctx: SupersetContext):
-    """Ensures authentication headers are present, re-authenticates if necessary."""
-    if ctx.access_token or ctx.session_cookie:
+    """Ensures authentication headers are present with live token expiration check.
+    
+    Proactively checks JWT token expiration before API calls and re-authenticates
+    if the token is expired or about to expire (60s buffer). This prevents 401 errors
+    by refreshing tokens before they actually expire.
+    
+    Priority:
+    1. Active in-memory token (checked for expiration)
+    2. Token loaded from disk (checked for expiration)
+    3. Fresh authentication
+    """
+    # Case 1: Have an in-memory token - check if it's expired
+    if ctx.access_token:
+        if _is_token_expired(ctx.access_token):
+            logger.info(f"Token expired for {ctx.server_id}. Re-authenticating...")
+            ctx.access_token = None
+        else:
+            # Token is still valid
+            return
+
+    # Case 2: Have a session cookie (cookie auth doesn't expire in the same way)
+    if ctx.session_cookie:
         return
 
-    # Try loading token from disk
+    # Case 3: Try loading token from disk
     if ctx.token_path and os.path.exists(ctx.token_path):
         try:
             with open(ctx.token_path, 'r') as f:
                 token = f.read().strip()
             if token:
-                ctx.access_token = token
-                ctx.client.headers.update({"Authorization": f"Bearer {token}"})
-                logger.info(f"Loaded access token for {ctx.server_id} from disk.")
-                # Refresh CSRF
-                await _get_csrf_token(ctx)
-                return
+                # Check if disk token is expired before using it
+                if not _is_token_expired(token):
+                    ctx.access_token = token
+                    ctx.client.headers.update({"Authorization": f"Bearer {token}"})
+                    logger.info(f"Loaded valid access token for {ctx.server_id} from disk.")
+                    await _get_csrf_token(ctx)
+                    return
+                else:
+                    logger.info(f"Disk token expired for {ctx.server_id}. Re-authenticating...")
         except Exception as e:
             logger.warning(f"Failed to load token from disk for {ctx.server_id}: {e}")
 
+    # Case 4: Fresh authentication
     await authenticate(ctx)
 
 
-async def execute_request(ctx: SupersetContext, method: str, endpoint: str, **kwargs) -> httpx.Response:
-    """
-    Executes a request with automatic token refresh on 401.
+async def execute_request(
+    ctx: SupersetContext,
+    method: str,
+    endpoint: str,
+    **kwargs
+) -> httpx.Response:
+    """Executes an HTTP request with automatic token refresh on 401.
+    
+    If a 401 is received, clears the cached token, forces re-authentication,
+    and retries the request once. This handles both expired tokens and
+    unexpected authorization failures.
     """
     await ensure_auth(ctx)
-    
+
     try:
         resp = await ctx.client.request(method, endpoint, **kwargs)
-        
-        # If 401 Unauthorized, try to refresh token and retry ONCE
+
         if resp.status_code == 401:
-            logger.info(f"401 received for {ctx.server_id}. Refreshing token...")
-            ctx.access_token = None # Clear cached token
-            await ensure_auth(ctx) # Force re-auth
-            
-            # Update headers for the retry
-            # ensure_auth updates ctx.client.headers, but if kwargs contained headers, we might need to merge?
-            # Typically ctx.client.headers has the auth.
-            
+            logger.info(f"401 received for {ctx.server_id} on {method} {endpoint}. Re-authenticating...")
+            ctx.access_token = None
+            ctx.session_cookie = None
+            await ensure_auth(ctx)
+
             resp = await ctx.client.request(method, endpoint, **kwargs)
-            
+
         return resp
+
+    except httpx.HTTPStatusError:
+        raise
     except Exception as e:
-        logger.error(f"Request failed: {e}")
-        raise e
+        logger.error(f"Request failed for {ctx.server_id} on {method} {endpoint}: {e}")
+        raise

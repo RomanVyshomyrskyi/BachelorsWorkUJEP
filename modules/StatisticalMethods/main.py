@@ -28,10 +28,6 @@ def get_module_api():
     }
 
 def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
-    @mcp.tool(name="test", description="rest registration")
-    def test():
-        return "Statistical Methods module registered successfully!"
-
     @mcp.tool(name="linear_regression", description="Calculates Simple and Multiple Linear Regression.")
     def linear_regression(X: List[List[float]], y: List[float]) -> Dict[str, Any]:
         return calculate_linear_regression(X, y)

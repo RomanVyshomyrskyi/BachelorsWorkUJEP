@@ -2,13 +2,46 @@ import json
 import asyncio
 import logging
 import httpx
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from modules.SupersetModule.manager import ConnectionManager
 from modules.SupersetModule.api_client import execute_request
 from modules.SupersetModule.tools.resources import impl_get_resource
 from modules.SupersetModule.tools.sqllab import sqllab_execute_query, sqllab_get_query_results
+from modules.SupersetModule.tools.general import impl_superset_api
 
 logger = logging.getLogger(__name__)
+
+
+async def list_datasets(manager: ConnectionManager, server_id: str) -> str:
+    """Lists all datasets on a Superset server.
+    
+    Wrapper around GET /api/v1/dataset/.
+    
+    Args:
+        server_id: The ID of the configured Superset server.
+    Returns:
+        JSON string containing the list of datasets.
+    """
+    return await impl_superset_api(manager, server_id, "GET", "/api/v1/dataset/")
+
+
+async def get_dataset_info(
+    manager: ConnectionManager,
+    server_id: str,
+    dataset_id: Union[int, str]
+) -> str:
+    """Gets detailed information for a specific dataset.
+    
+    Args:
+        server_id: The ID of the configured Superset server.
+        dataset_id: The ID of the dataset to retrieve.
+    Returns:
+        JSON string containing the dataset details.
+    """
+    return await impl_superset_api(
+        manager, server_id, "GET", f"/api/v1/dataset/{dataset_id}"
+    )
+
 
 async def create_dataset(
     manager: ConnectionManager,

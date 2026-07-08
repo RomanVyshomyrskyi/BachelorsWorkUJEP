@@ -12,6 +12,7 @@ from modules.SupersetModule.tools import resources
 from modules.SupersetModule.tools import charts
 from modules.SupersetModule.tools import dashboards
 from modules.SupersetModule.tools import datasets
+from modules.SupersetModule.tools import databases
 from modules.SupersetModule.tools import sqllab
 from modules.SupersetModule.tools import transfer
 
@@ -384,6 +385,86 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     def tool_get_dashboard_rules() -> str:
         """Returns the expert rules for creating functional Superset dashboards."""
         return dashboards.get_dashboard_creation_rules()
+
+    @mcp.tool(name="list_charts")
+    async def tool_list_charts(server_id: str) -> str:
+        """
+        Lists all charts on a Superset server to get their IDs.
+        Wrapper around GET /api/v1/chart/.
+        """
+        return await charts.list_charts(manager, server_id)
+
+    @mcp.tool(name="get_chart_info")
+    async def tool_get_chart_info(
+        server_id: str,
+        chart_id: Union[int, str]
+    ) -> str:
+        """
+        Gets detailed information for a specific chart by ID.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            chart_id: The ID of the chart to retrieve.
+        """
+        return await charts.get_chart_info(manager, server_id, chart_id)
+
+    @mcp.tool(name="list_databases")
+    async def tool_list_databases(server_id: str) -> str:
+        """
+        Lists all database connections on a Superset server.
+        Wrapper around GET /api/v1/database/.
+        """
+        return await databases.list_databases(manager, server_id)
+
+    @mcp.tool(name="get_database_info")
+    async def tool_get_database_info(
+        server_id: str,
+        database_id: int
+    ) -> str:
+        """
+        Gets detailed information for a specific database connection by ID.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            database_id: The ID of the database to retrieve.
+        """
+        return await databases.get_database_info(manager, server_id, database_id)
+
+    @mcp.tool(name="list_datasets")
+    async def tool_list_datasets(server_id: str) -> str:
+        """
+        Lists all datasets on a Superset server.
+        Wrapper around GET /api/v1/dataset/.
+        """
+        return await datasets.list_datasets(manager, server_id)
+
+    @mcp.tool(name="get_dataset_info")
+    async def tool_get_dataset_info(
+        server_id: str,
+        dataset_id: Union[int, str]
+    ) -> str:
+        """
+        Gets detailed information for a specific dataset by ID.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            dataset_id: The ID of the dataset to retrieve.
+        """
+        return await datasets.get_dataset_info(manager, server_id, dataset_id)
+
+    @mcp.tool(name="get_dashboard_info")
+    async def tool_get_dashboard_info(
+        server_id: str,
+        dashboard_id: Union[int, str]
+    ) -> str:
+        """
+        Gets detailed information for a specific dashboard by ID.
+        
+        Args:
+            server_id: The ID of the configured Superset server.
+            dashboard_id: The ID of the dashboard to retrieve.
+        """
+        return await dashboards.get_dashboard_info(manager, server_id, dashboard_id)
 
     if registry is not None:
         registry.register_module_api("SupersetModule", get_module_api())

@@ -1,7 +1,7 @@
 import json
 import logging
 import httpx
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from modules.SupersetModule.manager import ConnectionManager
 from modules.SupersetModule.api_client import execute_request
 from modules.SupersetModule.tools.general import impl_superset_api
@@ -120,6 +120,27 @@ def _build_simple_layout(
             layout[row_id]["children"].append(chart_element_id)
     
     return layout
+
+
+async def get_dashboard_info(
+    manager: ConnectionManager,
+    server_id: str,
+    dashboard_id: Union[int, str]
+) -> str:
+    """Gets detailed information for a specific dashboard.
+    
+    Args:
+        server_id: The ID of the configured Superset server.
+        dashboard_id: The ID of the dashboard to retrieve.
+    Returns:
+        JSON string containing the dashboard details.
+    """
+    return await impl_superset_api(
+        manager, server_id, "GET", f"/api/v1/dashboard/{dashboard_id}"
+    )
+
+
+async def create_dashboard(
 
 async def create_dashboard(
     manager: ConnectionManager,

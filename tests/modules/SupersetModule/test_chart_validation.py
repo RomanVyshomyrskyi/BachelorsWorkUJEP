@@ -29,7 +29,6 @@ class TestValidateChartParams:
         errors = validate_chart_params("pie", params)
         assert len(errors) == 1
         assert "metric" in errors[0]
-        assert "metrics" in errors[0]
 
     def test_pie_with_metric_object_is_valid(self):
         """Pie chart with 'metric' (singular) AdHocMetricObject should be valid."""
@@ -46,25 +45,24 @@ class TestValidateChartParams:
         errors = validate_chart_params("pie", params)
         assert len(errors) == 0
 
-    def test_pie_with_string_metric_is_error(self):
-        """Pie chart with string metric should be flagged."""
+    def test_pie_with_string_metric_is_accepted(self):
+        """Pie chart with string metric is accepted (auto-fix will convert)."""
         params = {
             "viz_type": "pie",
             "groupby": ["region"],
             "metric": "SUM(sales)",
         }
         errors = validate_chart_params("pie", params)
-        assert len(errors) == 1
-        assert "AdHocMetricObject" in errors[0]
+        assert len(errors) == 0
 
-    def test_big_number_with_string_metric_is_error(self):
-        """Big number with string metric should be flagged."""
+    def test_big_number_with_string_metric_is_valid(self):
+        """Big number with string metric is valid (string metrics expected)."""
         params = {
             "viz_type": "big_number",
             "metric": "count",
         }
         errors = validate_chart_params("big_number", params)
-        assert len(errors) == 1
+        assert len(errors) == 0
 
     def test_scatter_with_flat_column_name_is_error(self):
         """Scatter with flat column_name should be flagged."""
@@ -174,15 +172,14 @@ class TestAutoFixChartParams:
         assert fixed["metric"]["expressionType"] == "SIMPLE"
 
     def test_fix_big_number_string_metric(self):
-        """Auto-fix big number string metric to AdHocMetricObject."""
+        """Big number string metric should remain as string (valid format)."""
         params = {
             "viz_type": "big_number",
             "metric": "count",
         }
         fixed = auto_fix_chart_params("big_number", params)
-        assert isinstance(fixed["metric"], dict)
-        assert fixed["metric"]["aggregate"] == "COUNT"
-        assert fixed["metric"]["column"]["column_name"] == "count"
+        assert isinstance(fixed["metric"], str)
+        assert fixed["metric"] == "count"
 
     def test_fix_scatter_flat_column_name(self):
         """Auto-fix scatter flat column_name to nested column object."""

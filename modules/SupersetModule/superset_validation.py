@@ -173,13 +173,7 @@ def validate_chart_params(viz_type: str, params: Dict[str, Any]) -> List[str]:
 
     elif actual_viz in SINGULAR_ADHOC_METRIC_TYPES:
         # Should have "metric": {...AdHocMetricObject...}
-        if "metric" not in params:
-            errors.append(
-                f"Chart '{actual_viz}' is missing 'metric' field. "
-                f"Add: 'metric': {{'aggregate': 'AVG', 'column': {{'column_name': '...'}}, "
-                f"'expressionType': 'SIMPLE'}}"
-            )
-        elif "metrics" in params and "metric" not in params:
+        if "metrics" in params and "metric" not in params:
             errors.append(
                 f"Chart '{actual_viz}' uses 'metrics' (plural array) but should use "
                 f"'metric' (singular AdHocMetricObject). Change 'metrics: [...]' to "

@@ -37,8 +37,13 @@ async def get_instance_info(manager: ConnectionManager, server_id: str) -> str:
 
     try:
         user_info = await impl_superset_api(manager, server_id, "GET", "/api/v1/me/")
+        if isinstance(user_info, str) and user_info.startswith("Error"):
+            return ServerError(f"Error getting instance info: {user_info}").to_json()
+
         try:
             feature_info = await impl_superset_api(manager, server_id, "GET", "/api/v1/feature-features/")
+            if isinstance(feature_info, str) and feature_info.startswith("Error"):
+                feature_info = '{"result": {}}'
         except Exception:
             feature_info = '{"result": {}}'
 

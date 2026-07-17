@@ -19,6 +19,7 @@ from modules.SupersetModule.superset_validation import (
     auto_fix_chart_params,
     format_error_summary,
 )
+from modules.SupersetModule.superset_mermaid import chart_to_mermaid
 
 async def get_chart_api_info(manager: ConnectionManager, server_id: str) -> str:
     """
@@ -62,6 +63,11 @@ async def create_chart(
 
         if warning:
             result["_validation_warning"] = warning
+
+        try:
+            result["_mermaid_graph"] = chart_to_mermaid(viz_type, fixed_params, slice_name)
+        except Exception:
+            result["_mermaid_graph"] = None
 
         return json.dumps(result, indent=2)
     except json.JSONDecodeError as e:
@@ -157,6 +163,12 @@ async def generate_chart(
         resp = await execute_request(ctx, "POST", endpoint, json=chart_payload)
         resp.raise_for_status()
         result = resp.json()
+
+        try:
+            viz = chart_config.get("viz_type", "table")
+            result["_mermaid_graph"] = chart_to_mermaid(viz, chart_config, chart_name)
+        except Exception:
+            result["_mermaid_graph"] = None
 
         return json.dumps({
             "saved": True,

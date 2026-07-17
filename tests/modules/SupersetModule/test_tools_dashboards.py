@@ -73,6 +73,8 @@ class TestCreateDashboard:
             )
             data = json.loads(result)
             assert data["id"] == 1
+            assert "_mermaid_graph" in data
+            assert "flowchart" in data["_mermaid_graph"]
 
     async def test_http_error(self, mock_manager):
         with patch(
@@ -124,6 +126,8 @@ class TestGenerateDashboard:
             )
             data = json.loads(result)
             assert data["id"] == 1
+            assert "_mermaid_graph" in data
+            assert "flowchart" in data["_mermaid_graph"]
 
     async def test_generates_simple_dashboard(self, mock_manager):
         with (
@@ -146,6 +150,8 @@ class TestGenerateDashboard:
             )
             data = json.loads(result)
             assert data["id"] == 2
+            assert "_mermaid_graph" in data
+            assert "flowchart" in data["_mermaid_graph"]
 
     async def test_empty_chart_ids(self, mock_manager):
         result = await generate_dashboard(

@@ -15,6 +15,7 @@ from modules.SupersetModule.schemas.dashboard import (
     ChartLinkResult,
 )
 from modules.SupersetModule import rules
+from modules.SupersetModule.superset_mermaid import dashboard_to_mermaid
 
 logger = logging.getLogger(__name__)
 
@@ -171,8 +172,18 @@ async def create_dashboard(
         endpoint = "/api/v1/dashboard/"
         resp = await execute_request(ctx, "POST", endpoint, json=dashboard_payload)
         resp.raise_for_status()
+        result = resp.json()
 
-        return json.dumps(resp.json(), indent=2)
+        try:
+            result["_mermaid_graph"] = dashboard_to_mermaid(
+                dashboard_title,
+                chart_ids=[],
+                chart_info=result.get("charts", []),
+            )
+        except Exception:
+            result["_mermaid_graph"] = None
+
+        return json.dumps(result, indent=2)
     except httpx.HTTPStatusError as e:
         return DashboardError(
             f"HTTP {e.response.status_code} creating dashboard",
@@ -281,6 +292,14 @@ async def generate_dashboard(
         result = resp.json()
 
         await bulk_link_charts(manager, server_id, result.get("id"), chart_ids)
+
+        try:
+            result["_mermaid_graph"] = dashboard_to_mermaid(
+                dashboard_title,
+                chart_ids=chart_ids,
+            )
+        except Exception:
+            result["_mermaid_graph"] = None
 
         return json.dumps(result, indent=2)
     except httpx.HTTPStatusError as e:

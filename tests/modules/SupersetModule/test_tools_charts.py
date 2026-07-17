@@ -101,6 +101,8 @@ class TestCreateChart:
             )
             data = json.loads(result)
             assert data["id"] == 42
+            assert "_mermaid_graph" in data
+            assert "flowchart" in data["_mermaid_graph"]
 
     @patch("modules.SupersetModule.tools.charts.auto_fix_chart_params", side_effect=lambda vt, p: p)
     @patch("modules.SupersetModule.tools.charts.validate_chart_params", return_value=["error"])
@@ -123,6 +125,7 @@ class TestCreateChart:
             )
             data = json.loads(result)
             assert "_validation_warning" in data
+            assert "_mermaid_graph" in data
 
     async def test_invalid_json_params(self, mock_manager):
         result = await create_chart(
@@ -198,6 +201,7 @@ class TestGenerateChart:
             data = json.loads(result)
             assert data["saved"] is True
             assert data["chart_id"] == 42
+            assert "_mermaid_graph" in data["result"]
 
     async def test_returns_explore_url_when_not_saved(self, mock_manager):
         result = await generate_chart(

@@ -198,6 +198,7 @@ class TestAddChartToExistingDashboard:
             assert data["chart_id"] == 5
             assert data["dashboard_id"] == 1
             assert "message" in data
+            assert "_mermaid_graph" in data["result"]
 
     async def test_dashboard_not_found(self, mock_manager):
         with patch(

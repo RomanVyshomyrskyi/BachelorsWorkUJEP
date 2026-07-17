@@ -376,11 +376,25 @@ async def add_chart_to_existing_dashboard(
 
         await bulk_link_charts(manager, server_id, dashboard_id, [chart_id])
 
+        dash_title = dash_result.get("dashboard_title", f"Dashboard {dashboard_id}")
+        result_data = resp.json()
+
+        try:
+            existing_charts = dash_result.get("charts", [])
+            chart_names = [c.get("slice_name", f"Chart {c.get('id')}") for c in existing_charts]
+            chart_names.append(f"Chart {chart_id}")
+            result_data["_mermaid_graph"] = dashboard_to_mermaid(
+                dash_title,
+                chart_info=[{"slice_name": name} for name in chart_names],
+            )
+        except Exception:
+            result_data["_mermaid_graph"] = None
+
         return json.dumps({
             "message": "Chart successfully added to dashboard",
             "dashboard_id": dashboard_id,
             "chart_id": chart_id,
-            "result": resp.json()
+            "result": result_data
         }, indent=2)
 
     except httpx.HTTPStatusError as e:

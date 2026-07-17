@@ -448,7 +448,13 @@ async def transfer_dashboard(
         "diffs": [],
     }
 
-    logger.info(f"Fetching source dashboard {dashboard_id}...")
+    _logs: List[str] = []
+    def _log(msg: str) -> None:
+        logger.info(msg)
+        _logs.append(msg)
+    report["_logs"] = _logs
+
+    _log(f"Fetching source dashboard {dashboard_id}...")
     dash_str = await impl_get_resource(manager, source_server_id, "dashboard", dashboard_id)
     dash_data = _parse_json_result(dash_str)
     if not dash_data:
@@ -473,7 +479,7 @@ async def transfer_dashboard(
         "charts": [],
     }
 
-    logger.info(f"Dashboard '{dashboard_title}' ({dashboard_id}) has {len(source_chart_ids)} charts")
+    _log(f"Dashboard '{dashboard_title}' ({dashboard_id}) has {len(source_chart_ids)} charts")
 
     chart_details = []
     for sc in source_charts:
@@ -514,7 +520,7 @@ async def transfer_dashboard(
         report["errors"].append("No datasources found in source charts")
         return json.dumps(report, indent=2, default=str)
 
-    logger.info(f"Dashboard requires {len(unique_ds_ids)} unique datasets")
+    _log(f"Dashboard requires {len(unique_ds_ids)} unique datasets")
 
     dest_matches = await _find_matching_charts_at_destination(manager, target_server_id, source_charts)
     for cd in chart_details:
@@ -539,7 +545,7 @@ async def transfer_dashboard(
                 "diff": diff_text,
             })
 
-    logger.info(f"Phase 1: Resolving {len(unique_ds_ids)} unique datasources (reverse hierarchy)...")
+    _log(f"Phase 1: Resolving {len(unique_ds_ids)} unique datasources (reverse hierarchy)...")
     ds_mapping: Dict[int, Tuple[int, str]] = {}
     ds_errors = 0
     for old_ds_id, ds_type in unique_ds_ids.items():
@@ -568,14 +574,14 @@ async def transfer_dashboard(
             report["errors"].append(f"Dataset {old_ds_id}: {err}")
         else:
             ds_mapping[old_ds_id] = (new_ds_id, resolved_ds_type or ds_type)
-            logger.info(f"  Dataset {old_ds_id} -> {new_ds_id}")
+            _log(f"  Dataset {old_ds_id} -> {new_ds_id}")
         report["execution"]["datasets"].append(entry)
 
     if ds_errors > 0:
         report["success_rate"] = f"0% — dataset resolution failed"
         return json.dumps(report, indent=2, default=str)
 
-    logger.info(f"Phase 2: Recreating {len(source_chart_ids)} charts...")
+    _log(f"Phase 2: Recreating {len(source_chart_ids)} charts...")
     chart_id_mapping: Dict[int, int] = {}
     chart_errors = 0
     for cd in chart_details:
@@ -599,7 +605,7 @@ async def transfer_dashboard(
             report["errors"].append(f"Chart {cid} ('{cd['slice_name']}'): {err}")
         else:
             chart_id_mapping[cid] = new_cid
-            logger.info(f"  Chart {cid} ('{cd['slice_name']}') -> {new_cid}")
+            _log(f"  Chart {cid} ('{cd['slice_name']}') -> {new_cid}")
         report["execution"]["charts"].append(entry)
 
     if chart_errors > 0:
@@ -607,7 +613,7 @@ async def transfer_dashboard(
         return json.dumps(report, indent=2, default=str)
 
     from modules.SupersetModule.tools.dashboards import create_dashboard, bulk_link_charts
-    logger.info(f"Phase 3: Creating dashboard...")
+    _log(f"Phase 3: Creating dashboard...")
     t0 = time.time()
     position_json_raw = dash_result.get("position_json", "{}")
     json_metadata_raw = dash_result.get("json_metadata", "{}")

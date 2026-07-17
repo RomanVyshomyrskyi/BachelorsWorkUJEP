@@ -15,7 +15,7 @@ from modules.SupersetModule.schemas.dashboard import (
 )
 from modules.SupersetModule import rules
 from modules.SupersetModule.superset_mermaid import dashboard_to_mermaid
-from modules.SupersetModule.log_utils import LogCollector
+from modules.log_utils import LogCollector
 
 log = LogCollector(__name__)
 

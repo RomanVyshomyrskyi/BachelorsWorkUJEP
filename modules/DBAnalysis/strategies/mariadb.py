@@ -1,25 +1,33 @@
+import logging
 import mysql.connector
 from .base import DatabaseStrategy
 from ..utils.formatters import format_schema
+
+logger = logging.getLogger(__name__)
 
 class MariaDBStrategy(DatabaseStrategy):
     """Strategy for analyzing a MariaDB/MySQL database."""
 
     def connect(self):
+        db = self.connection_details
+        logger.info(f"Connecting to MariaDB/MySQL at {db['host']}:{db.get('port', 3306)}/{db['dbname']}")
         try:
             self.connection = mysql.connector.connect(
-                database=self.connection_details['dbname'],
-                user=self.connection_details['user'],
-                password=self.connection_details['password'],
-                host=self.connection_details['host'],
-                port=self.connection_details.get('port', 3306)
+                database=db['dbname'],
+                user=db['user'],
+                password=db['password'],
+                host=db['host'],
+                port=db.get('port', 3306)
             )
+            logger.info(f"Connected to MariaDB/MySQL: {db['dbname']}")
         except Exception as e:
+            logger.error(f"MariaDB/MySQL connection failed: {e}")
             raise ConnectionError(f"Failed to connect to MariaDB: {e}")
 
     def disconnect(self):
         if self.connection:
             self.connection.close()
+            logger.info("MariaDB/MySQL connection closed")
         self.connection = None
 
     def get_schema_representation(self) -> str:
@@ -27,6 +35,7 @@ class MariaDBStrategy(DatabaseStrategy):
             raise ConnectionError("Not connected to the database.")
         
         db_name = self.connection_details['dbname']
+        logger.info(f"Extracting schema for {db_name}")
         with self.connection.cursor() as cursor:
             cursor.execute("""
                 SELECT
@@ -65,6 +74,7 @@ class MariaDBStrategy(DatabaseStrategy):
             raise ConnectionError("Not connected to the database.")
         
         cleaned = self._validate_read_only_query(query)
+        logger.info(f"Executing query ({len(cleaned)} chars)")
 
         with self.connection.cursor() as cursor:
             cursor.execute(cleaned)
@@ -73,5 +83,7 @@ class MariaDBStrategy(DatabaseStrategy):
                 results = []
                 for row in cursor.fetchall():
                     results.append(dict(zip(columns, row)))
+                logger.info(f"Query returned {len(results)} rows")
                 return results
+            logger.warning("Query returned no results")
             return []

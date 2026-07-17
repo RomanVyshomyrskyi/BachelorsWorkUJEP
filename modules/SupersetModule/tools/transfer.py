@@ -10,7 +10,7 @@ from modules.SupersetModule.tools.datasets import create_dataset
 from modules.SupersetModule.tools.charts import create_chart
 from modules.SupersetModule.tools.sqllab import sqllab_execute_query, sqllab_get_query_results
 from modules.SupersetModule.exceptions import TransferError
-from modules.SupersetModule.log_utils import LogCollector
+from modules.log_utils import LogCollector
 
 NEED_INPUT_PREFIX = "NEED_INPUT:"
 

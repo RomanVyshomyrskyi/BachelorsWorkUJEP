@@ -1,31 +1,40 @@
+import logging
 import psycopg2
 from .base import DatabaseStrategy
 from ..utils.formatters import format_schema
+
+logger = logging.getLogger(__name__)
 
 class PostgresStrategy(DatabaseStrategy):
     """Strategy for analyzing a PostgreSQL database."""
 
     def connect(self):
+        db = self.connection_details
+        logger.info(f"Connecting to PostgreSQL at {db['host']}:{db.get('port', 5432)}/{db['dbname']}")
         try:
             self.connection = psycopg2.connect(
-                dbname=self.connection_details['dbname'],
-                user=self.connection_details['user'],
-                password=self.connection_details['password'],
-                host=self.connection_details['host'],
-                port=self.connection_details.get('port', 5432)
+                dbname=db['dbname'],
+                user=db['user'],
+                password=db['password'],
+                host=db['host'],
+                port=db.get('port', 5432)
             )
+            logger.info(f"Connected to PostgreSQL: {db['dbname']}")
         except Exception as e:
+            logger.error(f"PostgreSQL connection failed: {e}")
             raise ConnectionError(f"Failed to connect to PostgreSQL: {e}")
 
     def disconnect(self):
         if self.connection:
             self.connection.close()
+            logger.info("PostgreSQL connection closed")
         self.connection = None
 
     def get_schema_representation(self) -> str:
         if not self.connection:
             raise ConnectionError("Not connected to the database.")
 
+        logger.info(f"Extracting schema for {self.connection_details['dbname']}")
         with self.connection.cursor() as cursor:
             # 1. Get tables and columns
             cursor.execute("""
@@ -72,6 +81,7 @@ class PostgresStrategy(DatabaseStrategy):
             raise ConnectionError("Not connected to the database.")
         
         cleaned = self._validate_read_only_query(query)
+        logger.info(f"Executing query ({len(cleaned)} chars)")
 
         with self.connection.cursor() as cursor:
             cursor.execute(cleaned)
@@ -80,5 +90,7 @@ class PostgresStrategy(DatabaseStrategy):
                 results = []
                 for row in cursor.fetchall():
                     results.append(dict(zip(columns, row)))
+                logger.info(f"Query returned {len(results)} rows")
                 return results
+            logger.warning("Query returned no results")
             return []

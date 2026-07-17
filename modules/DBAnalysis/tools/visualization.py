@@ -8,9 +8,13 @@ import matplotlib.pyplot as plt
 from typing import Literal, Any
 from ..models.connection import ConnectionDetails
 from ..strategies.factory import get_db_strategy
+from modules.log_utils import LogCollector
+
+def _default_port(db_type: str) -> int:
+    return {"postgres": 5432, "mariadb": 3306, "mysql": 3306, "mssql": 1433}.get(db_type, 5432)
 
 def tool_generate_chart(
-    db_type: str,
+    db_type: Literal["postgres", "mariadb", "mysql", "mssql"],
     host: str,
     user: str,
     password: str,
@@ -20,7 +24,7 @@ def tool_generate_chart(
     x_column: str,
     y_column: str,
     title: str = "Database Analysis Chart",
-    port: int = 5432
+    port: int = 0
 ) -> Any:
     """
     Generates a chart visualization from a SQL query using Matplotlib.
@@ -37,17 +41,22 @@ def tool_generate_chart(
     :param title: Title of the chart
     :param port: Database port (default 5432)
     """
+    log = LogCollector(f"{__name__}.generate_chart")
+    if not port:
+        port = _default_port(db_type)
     try:
-        # 1. Fetch Data
+        log.info(f"Generating {chart_type} chart from {db_type}://{host}:{port}/{dbname}")
         conn_details = ConnectionDetails(
             host=host, user=user, password=password, dbname=dbname, port=port
         )
         strategy = get_db_strategy(db_type, conn_details.model_dump())
         
         with strategy as db_context:
+            log.info(f"Executing chart query: {query[:200]}")
             data = db_context.execute_query(query)
         
         if not data:
+            log.warning(f"No data returned for chart from {dbname}")
             return "No data returned from query to visualize."
 
         # 2. Create DataFrame

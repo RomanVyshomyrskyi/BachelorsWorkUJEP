@@ -1,32 +1,41 @@
+import logging
 import pyodbc
 from .base import DatabaseStrategy
 from ..utils.formatters import format_schema
+
+logger = logging.getLogger(__name__)
 
 class MSSQLStrategy(DatabaseStrategy):
     """Strategy for analyzing a Microsoft SQL Server database."""
 
     def connect(self):
+        db = self.connection_details
+        logger.info(f"Connecting to MSSQL at {db['host']}/{db['dbname']}")
         try:
             conn_str = (
                 f"DRIVER={{ODBC Driver 17 for SQL Server}} ;"
-                f"SERVER={self.connection_details['host']};"
-                f"DATABASE={self.connection_details['dbname']};"
-                f"UID={self.connection_details['user']};"
-                f"PWD={self.connection_details['password']}"
+                f"SERVER={db['host']};"
+                f"DATABASE={db['dbname']};"
+                f"UID={db['user']};"
+                f"PWD={db['password']}"
             )
             self.connection = pyodbc.connect(conn_str)
+            logger.info(f"Connected to MSSQL: {db['dbname']}")
         except Exception as e:
+            logger.error(f"MSSQL connection failed: {e}")
             raise ConnectionError(f"Failed to connect to MSSQL. Ensure ODBC Driver 17 for SQL Server is installed. Error: {e}")
 
     def disconnect(self):
         if self.connection:
             self.connection.close()
+            logger.info("MSSQL connection closed")
         self.connection = None
 
     def get_schema_representation(self) -> str:
         if not self.connection:
             raise ConnectionError("Not connected to the database.")
 
+        logger.info(f"Extracting schema for {self.connection_details['dbname']}")
         with self.connection.cursor() as cursor:
             cursor.execute("""
                 SELECT
@@ -81,6 +90,7 @@ class MSSQLStrategy(DatabaseStrategy):
             raise ConnectionError("Not connected to the database.")
         
         cleaned = self._validate_read_only_query(query)
+        logger.info(f"Executing query ({len(cleaned)} chars)")
 
         with self.connection.cursor() as cursor:
             cursor.execute(cleaned)
@@ -90,5 +100,7 @@ class MSSQLStrategy(DatabaseStrategy):
                 for row in cursor.fetchall():
                     # MSSQL via pyodbc sometimes returns rows as tuples that need clean conversion
                     results.append(dict(zip(columns, row)))
+                logger.info(f"Query returned {len(results)} rows")
                 return results
+            logger.warning("Query returned no results")
             return []

@@ -17,6 +17,7 @@ from modules.SupersetModule.tools import sqllab
 from modules.SupersetModule.tools import transfer
 from modules.SupersetModule.tools import explore
 from modules.SupersetModule.tools import system
+from modules.SupersetModule.tools import semantic
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', stream=sys.stderr)
 logger = logging.getLogger(__name__)
@@ -264,6 +265,26 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     async def tool_health_check(server_id: str) -> str:
         """Check the health status of a Superset server."""
         return await system.health_check(manager, server_id)
+
+    @mcp.tool(name="profile_table")
+    async def tool_profile_table(server_id: str, database_id: int, schema: str, table: str) -> str:
+        """Profile a database table: row count, column stats, nulls, distinct, min/max/avg, stddev, top values."""
+        return await semantic.profile_table(manager, server_id, database_id, schema, table)
+
+    @mcp.tool(name="suggest_metrics")
+    async def tool_suggest_metrics(server_id: str, database_id: int, schema: str, table: str) -> str:
+        """Auto-suggest aggregate metrics (SUM, AVG, COUNT, MIN, MAX) for numeric columns."""
+        return await semantic.suggest_metrics(manager, server_id, database_id, schema, table)
+
+    @mcp.tool(name="suggest_dimensions")
+    async def tool_suggest_dimensions(server_id: str, database_id: int, schema: str, table: str) -> str:
+        """Auto-suggest dimension columns (text/categorical/date/boolean) for grouping and filtering."""
+        return await semantic.suggest_dimensions(manager, server_id, database_id, schema, table)
+
+    @mcp.tool(name="get_data_dictionary")
+    async def tool_get_data_dictionary(server_id: str, database_id: int, schema: str, table: str, include_statistics: bool = True) -> str:
+        """Generate a data dictionary for a table: column names, types, categories, recommended roles, and optional statistics."""
+        return await semantic.get_data_dictionary(manager, server_id, database_id, schema, table, include_statistics)
 
     if registry is not None:
         registry.register_module_api("SupersetModule", get_module_api())

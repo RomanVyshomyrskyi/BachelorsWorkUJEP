@@ -55,9 +55,11 @@ class TestGetDbStrategyErrors:
         with pytest.raises(ValueError, match="Unsupported database type"):
             get_db_strategy("", {})
 
-    def test_get_db_strategy_raises_value_error_for_mysql_type(self):
-        with pytest.raises(ValueError, match="Unsupported database type"):
-            get_db_strategy("mysql", {})
+    def test_get_db_strategy_returns_mariadb_for_mysql_type(self, valid_connection_details):
+        with patch('modules.DBAnalysis.strategies.mariadb.MariaDBStrategy') as mock_strategy:
+            strategy = get_db_strategy("mysql", valid_connection_details)
+            mock_strategy.assert_called_once_with(valid_connection_details)
+            assert strategy is mock_strategy.return_value
 
     def test_get_db_strategy_raises_value_error_for_sqlite_type(self):
         with pytest.raises(ValueError, match="Unsupported database type"):

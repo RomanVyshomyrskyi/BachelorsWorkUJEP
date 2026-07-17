@@ -204,7 +204,7 @@ async def get_database_schema(
                 AND table_name = '{{table_name}}'
                 ORDER BY ordinal_position;
             """
-        elif engine == "mysql":
+        elif engine in ("mysql", "mariadb"):
             schema_filter = schema_name or db_details.get("result", {}).get("database_name")
             table_query = f"""
                 SELECT table_name

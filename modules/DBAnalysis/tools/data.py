@@ -1,10 +1,18 @@
 import json
+import re
 from typing import Literal
 from ..models.connection import ConnectionDetails
 from ..strategies.factory import get_db_strategy
 
+_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$')
+
+def _validate_identifier(name: str) -> str:
+    if not _IDENTIFIER_RE.match(name):
+        raise ValueError(f"Invalid table name: '{name}'")
+    return name
+
 def tool_run_sql(
-    db_type: Literal["postgres", "mariadb", "mssql"],
+    db_type: Literal["postgres", "mariadb", "mysql", "mssql"],
     host: str,
     user: str,
     password: str,
@@ -32,7 +40,7 @@ def tool_run_sql(
         return f"Query Execution Error: {e}"
 
 def tool_get_table_data(
-    db_type: Literal["postgres", "mariadb", "mssql"],
+    db_type: Literal["postgres", "mariadb", "mysql", "mssql"],
     host: str,
     user: str,
     password: str,
@@ -45,6 +53,7 @@ def tool_get_table_data(
     Fetches the first N rows from a specific table.
     """
     try:
+        _validate_identifier(table_name)
         conn_details = ConnectionDetails(
             host=host, user=user, password=password, dbname=dbname, port=port
         )

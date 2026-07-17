@@ -1,3 +1,4 @@
+import re
 from abc import ABC, abstractmethod
 
 class DatabaseStrategy(ABC):
@@ -44,6 +45,14 @@ class DatabaseStrategy(ABC):
         :return: A string detailing the database schema.
         """
         pass
+
+    @staticmethod
+    def _validate_read_only_query(query: str) -> str:
+        cleaned = re.sub(r'(?m)^\s*(--|#).*$', '', query.strip())
+        cleaned = re.sub(r'(?m)^\s*/\*.*?\*/', '', cleaned).strip()
+        if not re.match(r'(SELECT|WITH)\s', cleaned, re.IGNORECASE):
+            raise ValueError("Security violation: Only SELECT/WITH queries are allowed.")
+        return cleaned
 
     @abstractmethod
     def execute_query(self, query: str) -> list[dict]:

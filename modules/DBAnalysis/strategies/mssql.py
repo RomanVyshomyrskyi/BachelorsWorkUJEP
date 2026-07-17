@@ -80,11 +80,10 @@ class MSSQLStrategy(DatabaseStrategy):
         if not self.connection:
             raise ConnectionError("Not connected to the database.")
         
-        if not query.strip().upper().startswith("SELECT"):
-             raise ValueError("Security violation: Only SELECT queries are allowed.")
+        cleaned = self._validate_read_only_query(query)
 
         with self.connection.cursor() as cursor:
-            cursor.execute(query)
+            cursor.execute(cleaned)
             if cursor.description:
                 columns = [desc[0] for desc in cursor.description]
                 results = []

@@ -28,7 +28,7 @@ class MariaDBStrategy(DatabaseStrategy):
         
         db_name = self.connection_details['dbname']
         with self.connection.cursor() as cursor:
-            cursor.execute(f"""
+            cursor.execute("""
                 SELECT
                     t.table_name,
                     c.column_name,
@@ -39,13 +39,13 @@ class MariaDBStrategy(DatabaseStrategy):
                 JOIN
                     information_schema.columns c ON t.table_name = c.table_name
                 WHERE
-                    t.table_schema = '{db_name}' AND t.table_type = 'BASE TABLE'
+                    t.table_schema = %s AND t.table_type = 'BASE TABLE'
                 ORDER BY
                     t.table_name, c.ordinal_position;
-            """,)
+            """, (db_name,))
             tables_and_columns = cursor.fetchall()
             
-            cursor.execute(f"""
+            cursor.execute("""
                 SELECT
                     kcu.table_name AS foreign_table,
                     kcu.column_name AS foreign_column,
@@ -54,8 +54,8 @@ class MariaDBStrategy(DatabaseStrategy):
                 FROM
                     information_schema.key_column_usage AS kcu
                 WHERE
-                    kcu.table_schema = '{db_name}' AND kcu.referenced_table_name IS NOT NULL;
-            """,)
+                    kcu.table_schema = %s AND kcu.referenced_table_name IS NOT NULL;
+            """, (db_name,))
             relationships = cursor.fetchall()
 
         return format_schema(db_name, "MariaDB", tables_and_columns, relationships)
@@ -64,11 +64,10 @@ class MariaDBStrategy(DatabaseStrategy):
         if not self.connection:
             raise ConnectionError("Not connected to the database.")
         
-        if not query.strip().upper().startswith("SELECT"):
-             raise ValueError("Security violation: Only SELECT queries are allowed.")
+        cleaned = self._validate_read_only_query(query)
 
         with self.connection.cursor() as cursor:
-            cursor.execute(query)
+            cursor.execute(cleaned)
             if cursor.description:
                 columns = [desc[0] for desc in cursor.description]
                 results = []

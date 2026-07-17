@@ -74,10 +74,10 @@ def _build_numeric_sql(schema: str, table: str, columns: List[str]) -> str:
   COUNT(*) - COUNT({q}) AS null_count,
   ROUND((COUNT(*) - COUNT({q})) * 100.0 / NULLIF(COUNT(*), 0), 2) AS null_pct,
   COUNT(DISTINCT {q}) AS distinct_count,
-  ROUND(MIN({q})::numeric, 6) AS min_val,
-  ROUND(MAX({q})::numeric, 6) AS max_val,
-  ROUND(AVG({q})::numeric, 6) AS avg_val,
-  ROUND(COALESCE(STDDEV({q}), 0)::numeric, 6) AS stddev_val
+  ROUND(CAST(MIN({q}) AS DECIMAL), 6) AS min_val,
+  ROUND(CAST(MAX({q}) AS DECIMAL), 6) AS max_val,
+  ROUND(CAST(AVG({q}) AS DECIMAL), 6) AS avg_val,
+  ROUND(CAST(COALESCE(STDDEV({q}), 0) AS DECIMAL), 6) AS stddev_val
 FROM {_quote(schema)}.{_quote(table)}""")
     return "\nUNION ALL\n".join(unions)
 
@@ -96,9 +96,9 @@ def _build_text_sql(schema: str, table: str, columns: List[str]) -> str:
   COUNT(*) - COUNT({q}) AS null_count,
   ROUND((COUNT(*) - COUNT({q})) * 100.0 / NULLIF(COUNT(*), 0), 2) AS null_pct,
   COUNT(DISTINCT {q}) AS distinct_count,
-  ROUND(MIN(LENGTH(CAST({q} AS TEXT)))::numeric, 0) AS min_length,
-  ROUND(MAX(LENGTH(CAST({q} AS TEXT)))::numeric, 0) AS max_length,
-  ROUND(AVG(LENGTH(CAST({q} AS TEXT)))::numeric, 2) AS avg_length
+   ROUND(CAST(MIN(LENGTH(CAST({q} AS CHAR))) AS DECIMAL), 0) AS min_length,
+   ROUND(CAST(MAX(LENGTH(CAST({q} AS CHAR))) AS DECIMAL), 0) AS max_length,
+   ROUND(CAST(AVG(LENGTH(CAST({q} AS CHAR))) AS DECIMAL), 2) AS avg_length
 FROM {_quote(schema)}.{_quote(table)}""")
     return "\nUNION ALL\n".join(unions)
 
@@ -117,8 +117,8 @@ def _build_date_sql(schema: str, table: str, columns: List[str]) -> str:
   COUNT(*) - COUNT({q}) AS null_count,
   ROUND((COUNT(*) - COUNT({q})) * 100.0 / NULLIF(COUNT(*), 0), 2) AS null_pct,
   COUNT(DISTINCT {q}) AS distinct_count,
-  MIN({q})::TEXT AS min_val,
-  MAX({q})::TEXT AS max_val
+   CAST(MIN({q}) AS CHAR) AS min_val,
+   CAST(MAX({q}) AS CHAR) AS max_val
 FROM {_quote(schema)}.{_quote(table)}""")
     return "\nUNION ALL\n".join(unions)
 

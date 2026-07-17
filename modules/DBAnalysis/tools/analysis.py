@@ -10,7 +10,7 @@ def tool_get_rules() -> str:
     return get_normalization_rules()
 
 def tool_analyze_db(
-    db_type: Literal["postgres", "mariadb", "mssql"],
+    db_type: Literal["postgres", "mariadb", "mysql", "mssql"],
     host: str,
     user: str,
     password: str,

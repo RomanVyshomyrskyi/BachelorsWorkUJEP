@@ -7,6 +7,13 @@ from modules.SupersetModule.api_client import execute_request
 from modules.SupersetModule.tools.general import impl_superset_api
 from modules.SupersetModule.tools.resources import impl_get_resource
 from modules.SupersetModule.tools.transfer import impl_transfer_item, transfer_dashboard as new_transfer_dashboard
+from modules.SupersetModule.exceptions import DashboardError
+from modules.SupersetModule.schemas.dashboard import (
+    DashboardListItem,
+    DashboardDetail,
+    DashboardGenerateResponse,
+    ChartLinkResult,
+)
 from modules.SupersetModule import rules
 
 logger = logging.getLogger(__name__)
@@ -19,18 +26,12 @@ async def generate_simple_dashboard_layout(
     chart_width: int = 6,
     chart_height: int = 50
 ) -> str:
-    """
-    Generates a basic, valid position_json structure for a Superset dashboard,
-    arranging a list of charts in a simple layout.
-    
-    Follows ROOT -> GRID -> ROW -> CHART hierarchy as required by Superset.
-    """
     ctx = manager.get_context(server_id)
     if not ctx:
-        return f"Error: Server '{server_id}' not found."
+        return DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json()
 
     if not chart_ids:
-        return "Error: At least one chart ID must be provided."
+        return DashboardError("At least one chart ID must be provided.").to_json()
 
     # Build chart info list with names
     chart_info = []
@@ -151,13 +152,10 @@ async def create_dashboard(
     roles: Optional[List[int]] = None,
     published: Optional[bool] = False
 ) -> str:
-    """
-    Creates a new dashboard on a Superset server.
-    """
     ctx = manager.get_context(server_id)
     if not ctx:
-        return f"Error: Server '{server_id}' not found."
-    
+        return DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json()
+
     try:
         dashboard_payload = {
             "dashboard_title": dashboard_title,
@@ -168,19 +166,21 @@ async def create_dashboard(
             "roles": roles if roles is not None else [],
             "published": published
         }
-        
-        # Remove None values
         dashboard_payload = {k: v for k, v in dashboard_payload.items() if v is not None}
 
         endpoint = "/api/v1/dashboard/"
         resp = await execute_request(ctx, "POST", endpoint, json=dashboard_payload)
         resp.raise_for_status()
-        
+
         return json.dumps(resp.json(), indent=2)
     except httpx.HTTPStatusError as e:
-        return f"Error creating dashboard: {e.response.status_code} - {e.response.text}"
+        return DashboardError(
+            f"HTTP {e.response.status_code} creating dashboard",
+            status_code=e.response.status_code,
+            details=e.response.text,
+        ).to_json()
     except Exception as e:
-        return f"An unexpected error occurred while creating the dashboard: {e}"
+        return DashboardError(f"Unexpected error creating dashboard: {e}", details=str(e)).to_json()
 
 async def get_dashboard_api_info(manager: ConnectionManager, server_id: str) -> str:
     return await impl_superset_api(manager, server_id, "GET", "/api/v1/dashboard/_info")
@@ -199,15 +199,12 @@ async def bulk_link_charts(
     dashboard_id: int,
     chart_ids: List[int]
 ) -> str:
-    """
-    Links multiple charts to a dashboard in bulk.
-    """
     results = []
     for cid in chart_ids:
         payload = json.dumps({"dashboards": [dashboard_id]})
         res = await impl_superset_api(manager, server_id, "PUT", f"/api/v1/chart/{cid}", json_body=payload)
         results.append(f"Chart {cid}: {res}")
-    
+
     return "\n".join(results)
 
 async def generate_robust_layout(
@@ -254,36 +251,19 @@ async def generate_dashboard(
     published: bool = False,
     layout_type: str = "robust"
 ) -> str:
-    """Create a new dashboard from chart IDs.
-    
-    This is the official tool name matching the Apache Superset MCP service.
-    It automatically generates the dashboard layout from the provided chart IDs.
-    
-    Args:
-        server_id: The ID of the configured Superset server.
-        dashboard_title: The title for the new dashboard.
-        chart_ids: List of chart IDs to include in the dashboard.
-        slug: Optional URL-friendly identifier.
-        json_metadata: Optional JSON string for dashboard metadata.
-        published: Whether the dashboard should be published.
-        layout_type: Layout style ('robust' or 'simple').
-    Returns:
-        JSON string containing the created dashboard.
-    """
     ctx = manager.get_context(server_id)
     if not ctx:
-        return f"Error: Server '{server_id}' not found."
-    
+        return DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json()
+
     if not chart_ids:
-        return "Error: At least one chart ID must be provided to generate a dashboard."
-    
+        return DashboardError("At least one chart ID must be provided.").to_json()
+
     try:
-        # Generate position_json layout
         if layout_type == "simple":
             position_json = _build_simple_layout_json(chart_ids)
         else:
             position_json = _build_robust_layout_json(chart_ids)
-        
+
         dashboard_payload = {
             "dashboard_title": dashboard_title,
             "position_json": position_json,
@@ -294,20 +274,23 @@ async def generate_dashboard(
             "published": published
         }
         dashboard_payload = {k: v for k, v in dashboard_payload.items() if v is not None}
-        
+
         endpoint = "/api/v1/dashboard/"
         resp = await execute_request(ctx, "POST", endpoint, json=dashboard_payload)
         resp.raise_for_status()
         result = resp.json()
-        
-        # Bulk link charts to dashboard
+
         await bulk_link_charts(manager, server_id, result.get("id"), chart_ids)
-        
+
         return json.dumps(result, indent=2)
     except httpx.HTTPStatusError as e:
-        return f"Error generating dashboard: {e.response.status_code} - {e.response.text}"
+        return DashboardError(
+            f"HTTP {e.response.status_code} generating dashboard",
+            status_code=e.response.status_code,
+            details=e.response.text,
+        ).to_json()
     except Exception as e:
-        return f"An unexpected error occurred while generating the dashboard: {e}"
+        return DashboardError(f"Unexpected error generating dashboard: {e}", details=str(e)).to_json()
 
 
 def _build_simple_layout_json(chart_ids: List[int]) -> str:
@@ -340,35 +323,20 @@ async def add_chart_to_existing_dashboard(
     dashboard_id: int,
     chart_id: int
 ) -> str:
-    """Add a chart to an existing dashboard.
-    
-    Updates the dashboard's position_json and links the chart.
-    This is the preferred tool for adding charts to EXISTING dashboards.
-    Only use generate_dashboard to create a brand-new dashboard.
-    
-    Args:
-        server_id: The ID of the configured Superset server.
-        dashboard_id: The ID of the existing dashboard.
-        chart_id: The ID of the chart to add.
-    Returns:
-        JSON string containing the updated dashboard info.
-    """
     ctx = manager.get_context(server_id)
     if not ctx:
-        return f"Error: Server '{server_id}' not found."
-    
+        return DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json()
+
     try:
-        # 1. Get existing dashboard
         dash_str = await impl_get_resource(manager, server_id, "dashboard", dashboard_id)
         dash_data = json.loads(dash_str)
-        
+
         if "Error" in dash_str or "not found" in dash_str.lower():
-            return f"Error: Dashboard '{dashboard_id}' not found. Details: {dash_str}"
-        
+            return DashboardError(f"Dashboard '{dashboard_id}' not found", details=dash_str).to_json()
+
         dash_result = dash_data.get("result", {})
         position_json_raw = dash_result.get("position_json", "{}")
-        
-        # 2. Update position_json
+
         if isinstance(position_json_raw, dict):
             position_json = position_json_raw
         else:
@@ -376,33 +344,34 @@ async def add_chart_to_existing_dashboard(
                 position_json = json.loads(position_json_raw)
             except (json.JSONDecodeError, TypeError):
                 position_json = {}
-        
-        # Add chart to layout
+
         position_json = _add_chart_to_position_json(position_json, chart_id)
-        
-        # 3. Update dashboard
+
         update_payload = {
             "position_json": json.dumps(position_json)
         }
-        
+
         endpoint = f"/api/v1/dashboard/{dashboard_id}"
         resp = await execute_request(ctx, "PUT", endpoint, json=update_payload)
         resp.raise_for_status()
-        
-        # 4. Link chart to dashboard
+
         await bulk_link_charts(manager, server_id, dashboard_id, [chart_id])
-        
+
         return json.dumps({
             "message": "Chart successfully added to dashboard",
             "dashboard_id": dashboard_id,
             "chart_id": chart_id,
             "result": resp.json()
         }, indent=2)
-        
+
     except httpx.HTTPStatusError as e:
-        return f"Error adding chart to dashboard: {e.response.status_code} - {e.response.text}"
+        return DashboardError(
+            f"HTTP {e.response.status_code} adding chart to dashboard",
+            status_code=e.response.status_code,
+            details=e.response.text,
+        ).to_json()
     except Exception as e:
-        return f"An unexpected error occurred while adding chart to dashboard: {e}"
+        return DashboardError(f"Unexpected error adding chart to dashboard: {e}", details=str(e)).to_json()
 
 
 def _add_chart_to_position_json(position_json: Dict, chart_id: int) -> Dict:

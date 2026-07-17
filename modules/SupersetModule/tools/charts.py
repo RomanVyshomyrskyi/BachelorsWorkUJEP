@@ -4,6 +4,15 @@ from typing import Optional, Union, Dict, Any
 from modules.SupersetModule.manager import ConnectionManager
 from modules.SupersetModule.api_client import execute_request
 from modules.SupersetModule.tools.general import impl_superset_api
+from modules.SupersetModule.exceptions import ChartError
+from modules.SupersetModule.schemas.chart import (
+    ChartListItem,
+    ChartDetail,
+    ChartPreviewResponse,
+    ChartDataResponse,
+    ChartTypeSchema,
+)
+from modules.SupersetModule.schemas.common import SupersetListResponse, SupersetDetailResponse
 from modules.SupersetModule import rules
 from modules.SupersetModule.superset_validation import (
     validate_chart_params,
@@ -24,33 +33,19 @@ async def create_chart(
     viz_type: str,
     datasource_id: int,
     datasource_type: str,
-    params: str, # JSON string
+    params: str,
     description: Optional[str] = None
 ) -> str:
-    """
-    Creates a new chart (slice) on a Superset server.
-    Validates and auto-fixes chart params before sending to API.
-    """
     ctx = manager.get_context(server_id)
     if not ctx:
-        return f"Error: Server '{server_id}' not found."
-    
+        return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
+
     try:
-        # Parse params JSON
         params_dict = json.loads(params) if params else {}
-        
-        # Auto-fix common mistakes
         fixed_params = auto_fix_chart_params(viz_type, params_dict)
-        
-        # Validate remaining issues
         errors = validate_chart_params(viz_type, fixed_params)
-        
-        # Build warning if there are remaining errors
-        warning = None
-        if errors:
-            warning = format_error_summary(errors)
-        
-        # Build chart payload with fixed params
+        warning = format_error_summary(errors) if errors else None
+
         chart_payload = {
             "slice_name": slice_name,
             "description": description,
@@ -59,21 +54,26 @@ async def create_chart(
             "datasource_type": datasource_type,
             "params": json.dumps(fixed_params),
         }
-        
+
         endpoint = "/api/v1/chart/"
         resp = await execute_request(ctx, "POST", endpoint, json=chart_payload)
         resp.raise_for_status()
         result = resp.json()
-        
-        # Append validation info to result
+
         if warning:
             result["_validation_warning"] = warning
-        
+
         return json.dumps(result, indent=2)
+    except json.JSONDecodeError as e:
+        return ChartError(f"Invalid JSON in params: {e}", details=str(e)).to_json()
     except httpx.HTTPStatusError as e:
-        return f"Error creating chart: {e.response.status_code} - {e.response.text}"
+        return ChartError(
+            f"HTTP {e.response.status_code} creating chart",
+            status_code=e.response.status_code,
+            details=e.response.text,
+        ).to_json()
     except Exception as e:
-        return f"An unexpected error occurred while creating the chart: {e}"
+        return ChartError(f"Unexpected error creating chart: {e}", details=str(e)).to_json()
 
 async def update_chart(
     manager: ConnectionManager,
@@ -81,9 +81,6 @@ async def update_chart(
     chart_id: int,
     json_body: str
 ) -> str:
-    """
-    Updates an existing chart.
-    """
     return await impl_superset_api(manager, server_id, "PUT", f"/api/v1/chart/{chart_id}", json_body=json_body)
 
 def get_standard_chart_params(viz_type: str, datasource_id: int, overrides_json: Optional[str] = None) -> str:
@@ -100,15 +97,6 @@ def get_chart_creation_rules() -> str:
 
 
 async def list_charts(manager: ConnectionManager, server_id: str) -> str:
-    """Lists all charts on a Superset server.
-    
-    Wrapper around GET /api/v1/chart/.
-    
-    Args:
-        server_id: The ID of the configured Superset server.
-    Returns:
-        JSON string containing the list of charts.
-    """
     return await impl_superset_api(manager, server_id, "GET", "/api/v1/chart/")
 
 
@@ -117,14 +105,6 @@ async def get_chart_info(
     server_id: str,
     chart_id: Union[int, str]
 ) -> str:
-    """Gets detailed information for a specific chart.
-    
-    Args:
-        server_id: The ID of the configured Superset server.
-        chart_id: The ID of the chart to retrieve.
-    Returns:
-        JSON string containing the chart details.
-    """
     return await impl_superset_api(
         manager, server_id, "GET", f"/api/v1/chart/{chart_id}"
     )
@@ -139,39 +119,20 @@ async def generate_chart(
     save_chart: bool = True,
     description: Optional[str] = None
 ) -> str:
-    """Create and optionally save a new chart.
-    
-    This is the official Apache MCP tool name. Use generate_explore_link
-    for exploration (no permanent chart created). Use generate_chart with
-    save_chart=True only when the user wants to save permanently.
-    
-    Args:
-        server_id: The ID of the configured Superset server.
-        dataset_id: The ID of the dataset to base the chart on.
-        config: JSON string of chart configuration (viz_type, metrics, etc.).
-        slice_name: Optional name for the chart. Defaults to "Chart from dataset {dataset_id}".
-        save_chart: If True, saves the chart permanently. If False, returns preview only.
-        description: Optional description.
-    Returns:
-        JSON string containing the chart result.
-    """
     ctx = manager.get_context(server_id)
     if not ctx:
-        return f"Error: Server '{server_id}' not found."
-    
+        return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
+
     try:
-        # Parse config
         chart_config = json.loads(config) if config else {}
-        
-        # Build form_data
+
         form_data: Dict[str, Any] = {
             "datasource_id": dataset_id,
             "datasource_type": "table",
         }
         form_data.update(chart_config)
-        
+
         if not save_chart:
-            # Return explore-style URL without saving
             base_url = ctx.config.base_url.rstrip("/")
             explore_url = f"{base_url}/explore/?form_data={json.dumps(form_data)}"
             return json.dumps({
@@ -179,10 +140,9 @@ async def generate_chart(
                 "saved": False,
                 "config": chart_config
             }, indent=2)
-        
-        # Build chart payload
+
         chart_name = slice_name or f"Chart from dataset {dataset_id}"
-        
+
         chart_payload = {
             "slice_name": chart_name,
             "datasource_id": dataset_id,
@@ -192,12 +152,12 @@ async def generate_chart(
         }
         if description:
             chart_payload["description"] = description
-        
+
         endpoint = "/api/v1/chart/"
         resp = await execute_request(ctx, "POST", endpoint, json=chart_payload)
         resp.raise_for_status()
         result = resp.json()
-        
+
         return json.dumps({
             "saved": True,
             "chart_id": result.get("id"),
@@ -205,13 +165,17 @@ async def generate_chart(
             "url": f"{ctx.config.base_url.rstrip('/')}/chart/{result.get('id')}/",
             "result": result
         }, indent=2)
-        
-    except httpx.HTTPStatusError as e:
-        return f"Error generating chart: {e.response.status_code} - {e.response.text}"
+
     except json.JSONDecodeError:
-        return f"Error: 'config' is not a valid JSON string."
+        return ChartError("'config' is not a valid JSON string.", details=config).to_json()
+    except httpx.HTTPStatusError as e:
+        return ChartError(
+            f"HTTP {e.response.status_code} generating chart",
+            status_code=e.response.status_code,
+            details=e.response.text,
+        ).to_json()
     except Exception as e:
-        return f"An unexpected error occurred while generating the chart: {e}"
+        return ChartError(f"Unexpected error generating chart: {e}", details=str(e)).to_json()
 
 
 async def get_chart_preview(
@@ -219,31 +183,22 @@ async def get_chart_preview(
     server_id: str,
     chart_id: Union[int, str]
 ) -> str:
-    """Get a visual preview of a chart with image URL.
-    
-    Returns a URL to a PNG preview image of the chart.
-    
-    Args:
-        server_id: The ID of the configured Superset server.
-        chart_id: The ID of the chart to preview.
-    Returns:
-        JSON string containing the preview URL.
-    """
     ctx = manager.get_context(server_id)
     if not ctx:
-        return f"Error: Server '{server_id}' not found."
-    
+        return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
+
     try:
         base_url = ctx.config.base_url.rstrip("/")
-        preview_url = f"{base_url}/chart/{chart_id}/data/"
-        
-        return json.dumps({
-            "preview_url": preview_url,
-            "chart_id": chart_id,
-            "note": "Use this URL to view the chart preview image."
-        }, indent=2)
+        preview_url = f"{base_url}/explore/?slice_id={chart_id}"
+        embed_url = f"{base_url}/superset/slice/{chart_id}/"
+
+        return ChartPreviewResponse(
+            preview_url=preview_url,
+            chart_id=int(chart_id),
+            embed_url=embed_url,
+        ).model_dump_json(indent=2)
     except Exception as e:
-        return f"An unexpected error occurred while getting chart preview: {e}"
+        return ChartError(f"Unexpected error getting chart preview: {e}", details=str(e)).to_json()
 
 
 async def get_chart_data(
@@ -251,31 +206,23 @@ async def get_chart_data(
     server_id: str,
     chart_id: Union[int, str]
 ) -> str:
-    """Get underlying chart data in text-friendly format.
-    
-    Returns the raw data that backs the chart, suitable for
-    programmatic analysis or reporting.
-    
-    Args:
-        server_id: The ID of the configured Superset server.
-        chart_id: The ID of the chart.
-    Returns:
-        JSON string containing the chart data.
-    """
     ctx = manager.get_context(server_id)
     if not ctx:
-        return f"Error: Server '{server_id}' not found."
-    
+        return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
+
     try:
         endpoint = f"/api/v1/chart/{chart_id}/data/"
         resp = await execute_request(ctx, "GET", endpoint)
         resp.raise_for_status()
-        
         return json.dumps(resp.json(), indent=2)
     except httpx.HTTPStatusError as e:
-        return f"Error getting chart data: {e.response.status_code} - {e.response.text}"
+        return ChartError(
+            f"HTTP {e.response.status_code} getting chart data",
+            status_code=e.response.status_code,
+            details=e.response.text,
+        ).to_json()
     except Exception as e:
-        return f"An unexpected error occurred while getting chart data: {e}"
+        return ChartError(f"Unexpected error getting chart data: {e}", details=str(e)).to_json()
 
 
 async def get_chart_type_schema(
@@ -283,17 +230,14 @@ async def get_chart_type_schema(
     server_id: str,
     chart_type: str
 ) -> str:
-    """Get schema for a specific chart type.
-    
-    Returns the expected parameters and configuration for a given
-    visualization type, useful for generating correct chart configs.
-    
-    Args:
-        server_id: The ID of the configured Superset server.
-        chart_type: The visualization type (e.g., 'xy', 'big_number', 'table').
-    Returns:
-        JSON string containing the chart type schema.
-    """
-    return await impl_superset_api(
-        manager, server_id, "GET", f"/api/v1/chart/schemas/{chart_type}/"
-    )
+    ctx = manager.get_context(server_id)
+    if not ctx:
+        return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
+
+    try:
+        result = await impl_superset_api(
+            manager, server_id, "GET", f"/api/v1/chart/schemas/{chart_type}/"
+        )
+        return ChartTypeSchema(chart_type=chart_type, schema_data={"raw": result}).model_dump_json(indent=2)
+    except Exception as e:
+        return ChartError(f"Unexpected error getting chart type schema: {e}", details=str(e)).to_json()

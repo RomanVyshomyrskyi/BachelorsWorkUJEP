@@ -1,7 +1,11 @@
 import json
+import httpx
 from typing import List, Dict, Any, Optional
 from modules.SupersetModule.manager import ConnectionManager
 from modules.SupersetModule.tools.general import impl_superset_api
+from modules.SupersetModule.api_client import execute_request
+from modules.SupersetModule.exceptions import ServerError
+from modules.SupersetModule.schemas.common import InstanceInfo, UserInfo, FeatureFlags
 
 
 async def get_schema(
@@ -9,52 +13,72 @@ async def get_schema(
     server_id: str,
     model_type: Optional[str] = None
 ) -> str:
-    """Get schema metadata for chart/dataset/dashboard/database models.
-    
-    Returns filterable columns, sortable columns, default columns, and
-    search columns for list tools. Use this before calling list_* tools
-    to discover available filter columns.
-    
-    Args:
-        server_id: The ID of the configured Superset server.
-        model_type: Optional type filter ('chart', 'dataset', 'dashboard', 'database').
-    Returns:
-        JSON string containing schema metadata.
-    """
-    endpoint = "/api/v1/metadata/"
-    params = {}
-    if model_type:
-        params["include"] = model_type
-    
-    return await impl_superset_api(
-        manager, server_id, "GET", endpoint, params=json.dumps(params) if params else None
-    )
+    ctx = manager.get_context(server_id)
+    if not ctx:
+        return ServerError(f"Server '{server_id}' not found.", status_code=404).to_json()
+
+    try:
+        endpoint = "/api/v1/metadata/"
+        params = {}
+        if model_type:
+            params["include"] = model_type
+
+        return await impl_superset_api(
+            manager, server_id, "GET", endpoint, params=json.dumps(params) if params else None
+        )
+    except Exception as e:
+        return ServerError(f"Error getting schema: {e}", details=str(e)).to_json()
 
 
 async def get_instance_info(manager: ConnectionManager, server_id: str) -> str:
-    """Get instance-wide statistics, metadata, and current user identity.
-    
-    Returns information about the current user, available features,
-    and instance metadata. Call this first after connecting to learn
-    the user's identity and capabilities.
-    
-    Args:
-        server_id: The ID of the configured Superset server.
-    Returns:
-        JSON string containing instance information.
-    """
-    # Get current user info
-    user_info = await impl_superset_api(manager, server_id, "GET", "/api/v1/me/")
-    
-    # Get feature availability
+    ctx = manager.get_context(server_id)
+    if not ctx:
+        return ServerError(f"Server '{server_id}' not found.", status_code=404).to_json()
+
     try:
-        feature_info = await impl_superset_api(manager, server_id, "GET", "/api/v1/feature-features/")
-    except Exception:
-        feature_info = '{"result": {}}'
-    
-    result = {
-        "user": json.loads(user_info),
-        "features": json.loads(feature_info)
-    }
-    
-    return json.dumps(result, indent=2)
+        user_info = await impl_superset_api(manager, server_id, "GET", "/api/v1/me/")
+        try:
+            feature_info = await impl_superset_api(manager, server_id, "GET", "/api/v1/feature-features/")
+        except Exception:
+            feature_info = '{"result": {}}'
+
+        result = {
+            "user": json.loads(user_info),
+            "features": json.loads(feature_info)
+        }
+
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        return ServerError(f"Error getting instance info: {e}", details=str(e)).to_json()
+
+
+async def health_check(manager: ConnectionManager, server_id: str) -> str:
+    ctx = manager.get_context(server_id)
+    if not ctx:
+        return ServerError(f"Server '{server_id}' not found.", status_code=404).to_json()
+
+    try:
+        resp = await execute_request(ctx, "GET", "/api/v1/health/")
+        status = "healthy" if resp.status_code == 200 else "degraded"
+        return json.dumps({
+            "status": status,
+            "server_id": server_id,
+            "base_url": ctx.config.base_url,
+            "authenticated": ctx.access_token is not None or ctx.session_cookie is not None,
+            "status_code": resp.status_code,
+        }, indent=2)
+    except httpx.HTTPStatusError as e:
+        return json.dumps({
+            "status": "unhealthy",
+            "server_id": server_id,
+            "base_url": ctx.config.base_url,
+            "error": f"HTTP {e.response.status_code}",
+            "status_code": e.response.status_code,
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({
+            "status": "unreachable",
+            "server_id": server_id,
+            "base_url": ctx.config.base_url,
+            "error": str(e),
+        }, indent=2)

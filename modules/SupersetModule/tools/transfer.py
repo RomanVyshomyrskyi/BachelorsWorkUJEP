@@ -9,6 +9,7 @@ from modules.SupersetModule.tools.resources import impl_get_resource, impl_list_
 from modules.SupersetModule.tools.datasets import create_dataset
 from modules.SupersetModule.tools.charts import create_chart
 from modules.SupersetModule.tools.sqllab import sqllab_execute_query, sqllab_get_query_results
+from modules.SupersetModule.exceptions import TransferError
 
 logger = logging.getLogger(__name__)
 
@@ -25,67 +26,82 @@ async def impl_transfer_item(
     target_ctx = manager.get_context(target_server_id)
 
     if not source_ctx or not target_ctx:
-        return "Error: Server not found."
+        return TransferError("Source or target server not found.", status_code=404).to_json()
 
     strategy = TRANSFER_STRATEGY.get(resource_type, "json_copy")
-    
+
     try:
         await ensure_auth(source_ctx)
         await ensure_auth(target_ctx)
-        
+
         if strategy == "export_import":
             q_param = json.dumps([item_id])
             endpoint_base = RESOURCE_ENDPOINTS.get(resource_type, f"/api/v1/{resource_type}")
             export_url = f"{endpoint_base}/export/"
-            
+
             logger.info(f"Exporting {resource_type} {item_id} from {source_server_id}...")
             export_resp = await execute_request(source_ctx, "GET", export_url, params={"q": q_param})
-            
+
             if export_resp.status_code != 200:
-                return f"Export failed: {export_resp.status_code} - {export_resp.text}"
-            
+                return TransferError(
+                    f"Export failed: HTTP {export_resp.status_code}",
+                    status_code=export_resp.status_code,
+                    details=export_resp.text,
+                ).to_json()
+
             import_url = f"{endpoint_base}/import/"
             file_name = f"export_{resource_type}_{item_id}.zip"
-            
+
             files = {'formData': (file_name, export_resp.content, 'application/zip')}
             data = {'overwrite': 'true', 'passwords': '{}'}
-            
+
             logger.info(f"Importing to {target_server_id}...")
             import_resp = await execute_request(target_ctx, "POST", import_url, files=files, data=data)
-            
+
             if import_resp.status_code not in [200, 201]:
-                return f"Import failed: {import_resp.status_code} - {import_resp.text}"
-            
-            return f"Successfully transferred {resource_type} {item_id}."
+                return TransferError(
+                    f"Import failed: HTTP {import_resp.status_code}",
+                    status_code=import_resp.status_code,
+                    details=import_resp.text,
+                ).to_json()
+
+            return json.dumps({"message": f"Successfully transferred {resource_type} {item_id}."})
 
         elif strategy == "json_copy":
             endpoint_base = RESOURCE_ENDPOINTS.get(resource_type, f"/api/v1/{resource_type}")
-            
+
             detail_url = f"{endpoint_base}/{item_id}"
             get_resp = await execute_request(source_ctx, "GET", detail_url)
             if get_resp.status_code != 200:
-                return f"Failed to get item from source: {get_resp.status_code}"
-            
+                return TransferError(
+                    f"Failed to get item from source: HTTP {get_resp.status_code}",
+                    status_code=get_resp.status_code,
+                ).to_json()
+
             item_data = get_resp.json().get("result")
             if not item_data:
-                return "Source item data not found in response."
+                return TransferError("Source item data not found in response.").to_json()
 
             params_to_remove = ['id', 'created_by', 'changed_by', 'created_on', 'changed_on', 'owners']
             payload = {k: v for k, v in item_data.items() if k not in params_to_remove}
-            
+
             post_url = f"{endpoint_base}/"
             create_resp = await execute_request(target_ctx, "POST", post_url, json=payload)
-            
+
             if create_resp.status_code not in [200, 201]:
-                return f"Failed to create on target: {create_resp.status_code} - {create_resp.text}"
-            
-            return f"Successfully transferred {resource_type} {item_id} (created new ID)."
+                return TransferError(
+                    f"Failed to create on target: HTTP {create_resp.status_code}",
+                    status_code=create_resp.status_code,
+                    details=create_resp.text,
+                ).to_json()
+
+            return json.dumps({"message": f"Successfully transferred {resource_type} {item_id} (created new ID)."})
 
         else:
-            return f"Unknown transfer strategy for {resource_type}"
+            return TransferError(f"Unknown transfer strategy for {resource_type}").to_json()
 
     except Exception as e:
-        return f"Transfer error: {e}"
+        return TransferError(f"Transfer error: {e}", details=str(e)).to_json()
 
 
 def _need_input(resource_type: str, source_id: Any, name: str, available: list) -> str:
@@ -315,7 +331,7 @@ async def transfer_dashboard(
         await ensure_auth(source_ctx)
         await ensure_auth(target_ctx)
     except Exception as e:
-        return f"Authentication failed: {e}"
+        return TransferError(f"Authentication failed: {e}", details=str(e)).to_json()
 
     parsed_db_mappings: Dict[int, int] = {}
     if db_mappings:
@@ -323,14 +339,14 @@ async def transfer_dashboard(
             raw = json.loads(db_mappings)
             parsed_db_mappings = {int(k): int(v) for k, v in raw.items()}
         except (json.JSONDecodeError, ValueError) as e:
-            return f"Invalid db_mappings JSON: {e}"
+            return TransferError("Invalid db_mappings JSON", details=str(e)).to_json()
 
     parsed_table_mappings: Dict[str, str] = {}
     if table_mappings:
         try:
             parsed_table_mappings = json.loads(table_mappings)
         except json.JSONDecodeError as e:
-            return f"Invalid table_mappings JSON: {e}"
+            return TransferError("Invalid table_mappings JSON", details=str(e)).to_json()
 
     logger.info(f"Fetching source dashboard {dashboard_id}...")
     dash_str = await impl_get_resource(manager, source_server_id, "dashboard", dashboard_id)

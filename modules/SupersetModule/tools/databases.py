@@ -1,20 +1,21 @@
 import json
+import httpx
 from typing import Optional
 from modules.SupersetModule.manager import ConnectionManager
 from modules.SupersetModule.tools.general import impl_superset_api
+from modules.SupersetModule.api_client import execute_request
+from modules.SupersetModule.exceptions import DatabaseError
 
 
 async def list_databases(manager: ConnectionManager, server_id: str) -> str:
-    """Lists all database connections on a Superset server.
-    
-    Wrapper around GET /api/v1/database/.
-    
-    Args:
-        server_id: The ID of the configured Superset server.
-    Returns:
-        JSON string containing the list of databases.
-    """
-    return await impl_superset_api(manager, server_id, "GET", "/api/v1/database/")
+    ctx = manager.get_context(server_id)
+    if not ctx:
+        return DatabaseError(f"Server '{server_id}' not found.", status_code=404).to_json()
+
+    try:
+        return await impl_superset_api(manager, server_id, "GET", "/api/v1/database/")
+    except Exception as e:
+        return DatabaseError(f"Error listing databases: {e}", details=str(e)).to_json()
 
 
 async def get_database_info(
@@ -22,14 +23,13 @@ async def get_database_info(
     server_id: str,
     database_id: int
 ) -> str:
-    """Gets detailed information for a specific database connection.
-    
-    Args:
-        server_id: The ID of the configured Superset server.
-        database_id: The ID of the database to retrieve.
-    Returns:
-        JSON string containing the database details.
-    """
-    return await impl_superset_api(
-        manager, server_id, "GET", f"/api/v1/database/{database_id}"
-    )
+    ctx = manager.get_context(server_id)
+    if not ctx:
+        return DatabaseError(f"Server '{server_id}' not found.", status_code=404).to_json()
+
+    try:
+        return await impl_superset_api(
+            manager, server_id, "GET", f"/api/v1/database/{database_id}"
+        )
+    except Exception as e:
+        return DatabaseError(f"Error getting database info: {e}", details=str(e)).to_json()

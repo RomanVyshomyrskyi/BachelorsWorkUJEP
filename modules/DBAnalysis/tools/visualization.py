@@ -3,71 +3,56 @@ import base64
 import io
 import pandas as pd
 import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from typing import Literal, Any
+from typing import Optional, Any
 from ..models.connection import ConnectionDetails
 from ..strategies.factory import get_db_strategy
+from ..db_manager import DbManager
 from modules.log_utils import LogCollector
+from .data import _resolve_config
 
-def _default_port(db_type: str) -> int:
-    return {"postgres": 5432, "mariadb": 3306, "mysql": 3306, "mssql": 1433}.get(db_type, 5432)
 
 def tool_generate_chart(
-    db_type: Literal["postgres", "mariadb", "mysql", "mssql"],
-    host: str,
-    user: str,
-    password: str,
-    dbname: str,
+    db_manager: Optional[DbManager],
     query: str,
     chart_type: str,
     x_column: str,
     y_column: str,
     title: str = "Database Analysis Chart",
-    port: int = 0
+    db_id: Optional[str] = None,
+    db_type: Optional[str] = None,
+    host: Optional[str] = None,
+    user: Optional[str] = None,
+    password: Optional[str] = None,
+    dbname: Optional[str] = None,
+    port: Optional[int] = None,
 ) -> Any:
-    """
-    Generates a chart visualization from a SQL query using Matplotlib.
-    
-    :param db_type: Type of database (postgres, mariadb, mssql)
-    :param host: Database host address
-    :param user: Database username
-    :param password: Database password
-    :param dbname: Database name
-    :param query: SQL SELECT query to fetch data
-    :param chart_type: Type of chart (bar, line, pie, scatter)
-    :param x_column: Column name for the X axis (or pie labels)
-    :param y_column: Column name for the Y axis (or pie values)
-    :param title: Title of the chart
-    :param port: Database port (default 5432)
-    """
     log = LogCollector(f"{__name__}.generate_chart")
-    if not port:
-        port = _default_port(db_type)
     try:
-        log.info(f"Generating {chart_type} chart from {db_type}://{host}:{port}/{dbname}")
-        conn_details = ConnectionDetails(
-            host=host, user=user, password=password, dbname=dbname, port=port
-        )
-        strategy = get_db_strategy(db_type, conn_details.model_dump())
-        
+        cfg = _resolve_config(db_manager, db_id, db_type, host, user, password, dbname, port)
+    except ValueError as e:
+        return str(e)
+    try:
+        log.info(f"Generating {chart_type} chart from {cfg['db_type']}://{cfg['host']}:{cfg['port']}/{cfg['dbname']}")
+        conn_details = ConnectionDetails(**cfg)
+        strategy = get_db_strategy(cfg['db_type'], conn_details.model_dump())
+
         with strategy as db_context:
             log.info(f"Executing chart query: {query[:200]}")
             data = db_context.execute_query(query)
-        
+
         if not data:
-            log.warning(f"No data returned for chart from {dbname}")
+            log.warning(f"No data returned for chart from {cfg['dbname']}")
             return "No data returned from query to visualize."
 
-        # 2. Create DataFrame
         df = pd.DataFrame(data)
-        
+
         if x_column not in df.columns or y_column not in df.columns:
             return f"Error: Columns {x_column} or {y_column} not found in query result keys: {list(df.columns)}"
 
-        # 3. Plotting with Matplotlib
         plt.figure(figsize=(10, 6))
-        
+
         if chart_type == "bar":
             plt.bar(df[x_column].astype(str), df[y_column])
             plt.xticks(rotation=45, ha='right')
@@ -87,21 +72,36 @@ def tool_generate_chart(
         plt.ylabel(y_column)
         plt.tight_layout()
 
-        # 4. Export to Image (PNG)
         buf = io.BytesIO()
         plt.savefig(buf, format='png')
         plt.close()
         img_bytes = buf.getvalue()
         img_base64 = base64.b64encode(img_bytes).decode('utf-8')
 
-        # 5. Return Rich Content (Image)
         return [
             {"type": "text", "text": f"Generated {chart_type} chart for query: {query}"},
             {"type": "image", "data": img_base64, "mimeType": "image/png"}
         ]
 
     except Exception as e:
+        log.error(f"Chart generation error for {cfg.get('dbname', db_id or '?')}: {e}")
         return f"Chart Generation Error: {str(e)}"
 
-def register_visualization_tools(mcp):
-    mcp.tool(name="generate_database_chart")(tool_generate_chart)
+
+def register_visualization_tools(mcp, db_manager=None):
+    @mcp.tool(name="generate_database_chart")
+    def generate_database_chart(
+        query: str,
+        chart_type: str,
+        x_column: str,
+        y_column: str,
+        title: str = "Database Analysis Chart",
+        db_id: Optional[str] = None,
+        db_type: Optional[str] = None,
+        host: Optional[str] = None,
+        user: Optional[str] = None,
+        password: Optional[str] = None,
+        dbname: Optional[str] = None,
+        port: Optional[int] = None,
+    ) -> Any:
+        return tool_generate_chart(db_manager, query, chart_type, x_column, y_column, title, db_id, db_type, host, user, password, dbname, port)

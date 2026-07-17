@@ -1,0 +1,34 @@
+{
+  "my_mariadb": {
+    "db_type": "mariadb",
+    "host": "localhost",
+    "port": 3306,
+    "dbname": "my_database",
+    "user": "my_user",
+    "password": "my_password"
+  },
+  "analytics_postgres": {
+    "db_type": "postgres",
+    "host": "pg.example.com",
+    "port": 5432,
+    "dbname": "analytics",
+    "user": "reader",
+    "password_env": "PG_PASSWORD"
+  },
+  "reports_mssql": {
+    "db_type": "mssql",
+    "host": "sql.example.com",
+    "port": 1433,
+    "dbname": "reports",
+    "user": "reporter",
+    "password": "secret"
+  },
+  "dev_mysql": {
+    "db_type": "mysql",
+    "host": "dev-db.internal",
+    "port": 3306,
+    "dbname": "dev_db",
+    "user": "dev_user",
+    "password_env": "DEV_DB_PASSWORD"
+  }
+}

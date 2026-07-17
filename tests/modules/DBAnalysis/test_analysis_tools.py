@@ -41,12 +41,13 @@ class TestToolAnalyzeDb:
                 mock_rules.return_value = "1NF: All values atomic"
                 
                 result = tool_analyze_db(
+                    None,
                     db_type="postgres",
                     host="localhost",
                     user="admin",
                     password="admin",
                     dbname="test_db",
-                    port=5432
+                    port=5432,
                 )
                 
                 assert isinstance(result, str)
@@ -62,6 +63,7 @@ class TestToolAnalyzeDb:
                 mock_rules.return_value = ""
                 
                 result = tool_analyze_db(
+                    None,
                     db_type="postgres",
                     host="localhost",
                     user="admin",
@@ -82,6 +84,7 @@ class TestToolAnalyzeDb:
                 mock_rules.return_value = "First Normal Form rule"
                 
                 result = tool_analyze_db(
+                    None,
                     db_type="postgres",
                     host="localhost",
                     user="admin",
@@ -104,6 +107,7 @@ class TestToolAnalyzeDb:
                 mock_get_strategy.return_value = mock_strategy
                 
                 result = tool_analyze_db(
+                    None,
                     db_type="postgres",
                     host="localhost",
                     user="admin",
@@ -126,6 +130,7 @@ class TestToolAnalyzeDb:
                 mock_get_strategy.return_value = mock_strategy
                 
                 result = tool_analyze_db(
+                    None,
                     db_type="postgres",
                     host="localhost",
                     user="admin",
@@ -141,14 +146,15 @@ class TestToolAnalyzeDb:
             mock_get_strategy.side_effect = ConnectionError("Failed to connect")
             
             result = tool_analyze_db(
+                None,
                 db_type="postgres",
                 host="localhost",
                 user="admin",
                 password="admin",
                 dbname="test_db",
-                port=5432
+                port=5432,
             )
-            
+
             assert "Error" in result
 
     def test_analyze_db_schema_error(self, valid_connection_details):
@@ -162,6 +168,7 @@ class TestToolAnalyzeDb:
                 mock_rules.return_value = ""
                 
                 result = tool_analyze_db(
+                    None,
                     db_type="postgres",
                     host="localhost",
                     user="admin",

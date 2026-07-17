@@ -1,61 +1,72 @@
-from typing import Literal
+from typing import Optional
 from ..models.connection import ConnectionDetails
 from ..strategies.factory import get_db_strategy
 from ..utils.rules_loader import get_normalization_rules
+from ..db_manager import DbManager
 from modules.log_utils import LogCollector
+from .data import _resolve_config
+
 
 def tool_get_rules() -> str:
-    """
-    Retrieves the current database normalization rules/standards.
-    """
     return get_normalization_rules()
 
+
 def tool_analyze_db(
-    db_type: Literal["postgres", "mariadb", "mysql", "mssql"],
-    host: str,
-    user: str,
-    password: str,
-    dbname: str,
-    port: int = 5432
+    db_manager: Optional[DbManager],
+    db_id: Optional[str] = None,
+    db_type: Optional[str] = None,
+    host: Optional[str] = None,
+    user: Optional[str] = None,
+    password: Optional[str] = None,
+    dbname: Optional[str] = None,
+    port: Optional[int] = None,
 ) -> str:
-    """
-    Connects to a database, extracts its schema, and returns it alongside normalization rules.
-    """
     log = LogCollector(f"{__name__}.analyze_db")
     try:
-        log.info(f"Connecting to {db_type}://{host}:{port}/{dbname}")
-        conn_details = ConnectionDetails(
-            host=host, user=user, password=password, dbname=dbname, port=port
-        )
-        
-        strategy = get_db_strategy(db_type, conn_details.model_dump())
+        cfg = _resolve_config(db_manager, db_id, db_type, host, user, password, dbname, port)
+    except ValueError as e:
+        return str(e)
+    try:
+        log.info(f"Connecting to {cfg['db_type']}://{cfg['host']}:{cfg['port']}/{cfg['dbname']}")
+        conn_details = ConnectionDetails(**cfg)
+        strategy = get_db_strategy(cfg['db_type'], conn_details.model_dump())
 
         with strategy as db_context:
             log.info("Extracting schema representation")
             schema_representation = db_context.get_schema_representation()
 
         rules = get_normalization_rules()
-        log.info(f"Schema extracted successfully from {dbname}")
+        log.info(f"Schema extracted successfully from {cfg['dbname']}")
 
-        result = f"""
+        return f"""
 ANALYSIS DATA RETRIEVED SUCCESSFULLY.
 
 --- NORMALIZATION RULES ---
 {rules}
 
---- DATABASE SCHEMA ({db_type}) ---
+--- DATABASE SCHEMA ({cfg['db_type']}) ---
 {schema_representation}
 
 --- INSTRUCTIONS FOR AI ---
 Please analyze the schema above based on the normalization rules provided.
 """
-        return result
 
     except Exception as e:
-        msg = f"Error analyzing {db_type} database {dbname}: {e}"
-        log.error(msg)
+        log.error(f"Error analyzing {cfg.get('dbname', db_id or '?')}: {e}")
         return f"Error: {e}"
 
-def register_analysis_tools(mcp):
+
+def register_analysis_tools(mcp, db_manager=None):
     mcp.tool(name="get_normalization_rules")(tool_get_rules)
-    mcp.tool(name="analyze_database_schema")(tool_analyze_db)
+
+    @mcp.tool(name="analyze_database_schema")
+    def analyze_database_schema(
+        db_id: Optional[str] = None,
+        db_type: Optional[str] = None,
+        host: Optional[str] = None,
+        user: Optional[str] = None,
+        password: Optional[str] = None,
+        dbname: Optional[str] = None,
+        port: Optional[int] = None,
+    ) -> str:
+        return tool_analyze_db(db_manager, db_id, db_type, host, user, password, dbname, port)

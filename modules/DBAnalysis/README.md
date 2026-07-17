@@ -1,6 +1,203 @@
 # DBAnalysis Module
 
-This module provides tools to analyze relational database schemas for normalization compliance and perform data visualization.
+This module provides tools to analyze relational database schemas for normalization compliance, execute read-only SQL queries, preview table data, and generate charts from database results.
+
+---
+
+## Quick Start
+
+Run the full Docker Compose environment (PostgreSQL, MariaDB, MSSQL + FastMCP server):
+
+```bash
+docker-compose up --build
+```
+
+Credentials are managed in `.env`. See [Working with Docker Test Databases](#working-with-docker-test-databases) below for details.
+
+---
+
+## Configuring Database Connections
+
+You can connect to a database in two ways:
+
+### 1. Pre-configured via `databases.json` (use `db_id`)
+
+Edit `modules/DBAnalysis/databases.json` (copy from `databases.json.example` if needed):
+
+```json
+{
+  "my_mariadb": {
+    "db_type": "mariadb",
+    "host": "localhost",
+    "port": 3306,
+    "dbname": "my_database",
+    "user": "my_user",
+    "password": "my_password"
+  },
+  "analytics_postgres": {
+    "db_type": "postgres",
+    "host": "pg.example.com",
+    "port": 5432,
+    "dbname": "analytics",
+    "user": "reader",
+    "password_env": "PG_PASSWORD"
+  }
+}
+```
+
+Then reference it by `db_id` in any tool call (the `password` is resolved from the JSON, or from the env var named in `password_env`):
+
+```
+analyze_database_schema(db_id="analytics_postgres")
+```
+
+### 2. Inline connection parameters (no config file needed)
+
+Every tool accepts direct connection parameters. No `databases.json` entry required:
+
+```
+analyze_database_schema(
+  db_type="postgres",
+  host="localhost",
+  port=5432,
+  dbname="my_db",
+  user="admin",
+  password="secret"
+)
+```
+
+### Password from Environment Variables
+
+Use `password_env` in `databases.json` to avoid hardcoding secrets:
+
+```json
+{
+  "my_db": {
+    "db_type": "postgres",
+    "host": "localhost",
+    "port": 5432,
+    "dbname": "mydb",
+    "user": "admin",
+    "password_env": "MY_DB_PASSWORD"
+  }
+}
+```
+
+The module calls `os.getenv("MY_DB_PASSWORD")` at runtime. Falls back to `password` if the env var is not set.
+
+---
+
+## Available Tools
+
+| MCP Tool | Description |
+|---|---|
+| `get_normalization_rules` | Returns the database normalization rules (1NF, 2NF, 3NF) |
+| `analyze_database_schema` | Extracts full schema + normalization rules for AI analysis |
+| `run_read_only_sql` | Safely executes `SELECT` queries and returns JSON results |
+| `get_table_data` | Previews rows from a specific table (with safety limit) |
+| `generate_database_chart` | Runs a query and returns a PNG bar/line/scatter/pie chart |
+
+Every tool (except `get_normalization_rules`) accepts either `db_id` or the full set of connection fields (`db_type`, `host`, `user`, `password`, `dbname`, `port`).
+
+---
+
+## Usage Examples
+
+### Analyze a database schema for normalization compliance
+
+```json
+{
+  "name": "analyze_database_schema",
+  "arguments": {
+    "db_id": "analytics_postgres"
+  }
+}
+```
+
+### Run a read-only SQL query
+
+```json
+{
+  "name": "run_read_only_sql",
+  "arguments": {
+    "query": "SELECT table_name, table_rows FROM information_schema.tables WHERE table_schema = 'public'",
+    "db_id": "analytics_postgres"
+  }
+}
+```
+
+### Preview table data
+
+```json
+{
+  "name": "get_table_data",
+  "arguments": {
+    "table_name": "users",
+    "db_id": "analytics_postgres",
+    "limit": 50
+  }
+}
+```
+
+### Generate a chart
+
+```json
+{
+  "name": "generate_database_chart",
+  "arguments": {
+    "query": "SELECT category, COUNT(*) as count FROM products GROUP BY category",
+    "chart_type": "bar",
+    "x_column": "category",
+    "y_column": "count",
+    "title": "Products by Category",
+    "db_id": "analytics_postgres"
+  }
+}
+```
+
+### Connect inline (no config file)
+
+```json
+{
+  "name": "run_read_only_sql",
+  "arguments": {
+    "db_type": "postgres",
+    "host": "localhost",
+    "port": 5432,
+    "dbname": "Postgres_Test_DB",
+    "user": "admin",
+    "password": "admin",
+    "query": "SELECT current_database()"
+  }
+}
+```
+
+---
+
+## Supported Database Types
+
+| db_type   | Driver           | Default Port |
+|-----------|------------------|--------------|
+| `postgres`| `psycopg2`       | 5432         |
+| `mariadb` | `mysql.connector`| 3306         |
+| `mysql`   | `mysql.connector`| 3306         |
+| `mssql`   | `pyodbc`         | 1433         |
+
+MSSQL requires "ODBC Driver 17 for SQL Server" installed in the environment.
+
+---
+
+## Working with Docker Test Databases
+
+The project's `docker-compose.yml` launches three test databases. Credentials are set in `.env`:
+
+| Service      | Host (internal) | `.env` User       | `.env` Password         | `.env` Database     |
+|-------------|----------------|-------------------|-------------------------|---------------------|
+| `postgres-db`| `postgres-db`  | `POSTGRES_USER`   | `POSTGRES_PASSWORD`     | `POSTGRES_DB`       |
+| `mariadb-db` | `mariadb-db`   | `root`            | `MARIADB_ROOT_PASSWORD` | `MARIADB_DATABASE` |
+| `mssql-db`   | `mssql-db`     | `sa`              | `MSSQL_SA_PASSWORD`     | (none)              |
+
+**Important:** The hostnames to use from inside the Docker network are the service names (e.g., `postgres-db`, `mariadb-db`, `mssql-db`), not `localhost`. From outside Docker (your host machine), use `localhost` and the mapped ports (5432, 3306, 1433).
 
 ---
 

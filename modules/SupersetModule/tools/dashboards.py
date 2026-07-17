@@ -1,5 +1,4 @@
 import json
-import logging
 import httpx
 from typing import List, Dict, Any, Optional, Union
 from modules.SupersetModule.manager import ConnectionManager
@@ -16,8 +15,9 @@ from modules.SupersetModule.schemas.dashboard import (
 )
 from modules.SupersetModule import rules
 from modules.SupersetModule.superset_mermaid import dashboard_to_mermaid
+from modules.SupersetModule.log_utils import LogCollector
 
-logger = logging.getLogger(__name__)
+log = LogCollector(__name__)
 
 async def generate_simple_dashboard_layout(
     manager: ConnectionManager,
@@ -29,10 +29,10 @@ async def generate_simple_dashboard_layout(
 ) -> str:
     ctx = manager.get_context(server_id)
     if not ctx:
-        return DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json()
+        return log.collect(DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json())
 
     if not chart_ids:
-        return DashboardError("At least one chart ID must be provided.").to_json()
+        return log.collect(DashboardError("At least one chart ID must be provided.").to_json())
 
     # Build chart info list with names
     chart_info = []
@@ -42,12 +42,12 @@ async def generate_simple_dashboard_layout(
             chart_details = json.loads(chart_details_str)
             slice_name = chart_details.get("result", {}).get("slice_name", f"Chart {chart_id}")
         except (json.JSONDecodeError, AttributeError):
-            logger.warning(f"Could not fetch slice_name for chart {chart_id}. Using default name.")
+            log.warning(f"Could not fetch slice_name for chart {chart_id}. Using default name.")
             slice_name = f"Chart {chart_id}"
         chart_info.append({"id": chart_id, "name": slice_name})
 
     layout = _build_simple_layout(chart_info, layout_type, chart_width, chart_height)
-    return json.dumps(layout, indent=2)
+    return log.collect(json.dumps(layout, indent=2))
 
 
 def _build_simple_layout(
@@ -155,7 +155,7 @@ async def create_dashboard(
 ) -> str:
     ctx = manager.get_context(server_id)
     if not ctx:
-        return DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json()
+        return log.collect(DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json())
 
     try:
         dashboard_payload = {
@@ -183,15 +183,15 @@ async def create_dashboard(
         except Exception:
             result["_mermaid_graph"] = None
 
-        return json.dumps(result, indent=2)
+        return log.collect(json.dumps(result, indent=2))
     except httpx.HTTPStatusError as e:
-        return DashboardError(
+        return log.collect(DashboardError(
             f"HTTP {e.response.status_code} creating dashboard",
             status_code=e.response.status_code,
             details=e.response.text,
-        ).to_json()
+        ).to_json())
     except Exception as e:
-        return DashboardError(f"Unexpected error creating dashboard: {e}", details=str(e)).to_json()
+        return log.collect(DashboardError(f"Unexpected error creating dashboard: {e}", details=str(e)).to_json())
 
 async def get_dashboard_api_info(manager: ConnectionManager, server_id: str) -> str:
     return await impl_superset_api(manager, server_id, "GET", "/api/v1/dashboard/_info")
@@ -236,7 +236,7 @@ async def generate_robust_layout(
             chart_info.append({"id": cid, "name": f"Chart {cid}"})
     
     layout = rules.generate_robust_dashboard_layout(chart_info)
-    return json.dumps(layout, indent=2)
+    return log.collect(json.dumps(layout, indent=2))
 
 def get_dashboard_creation_rules() -> str:
     return rules.get_dashboard_creation_rules()
@@ -264,10 +264,10 @@ async def generate_dashboard(
 ) -> str:
     ctx = manager.get_context(server_id)
     if not ctx:
-        return DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json()
+        return log.collect(DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json())
 
     if not chart_ids:
-        return DashboardError("At least one chart ID must be provided.").to_json()
+        return log.collect(DashboardError("At least one chart ID must be provided.").to_json())
 
     try:
         if layout_type == "simple":
@@ -301,15 +301,15 @@ async def generate_dashboard(
         except Exception:
             result["_mermaid_graph"] = None
 
-        return json.dumps(result, indent=2)
+        return log.collect(json.dumps(result, indent=2))
     except httpx.HTTPStatusError as e:
-        return DashboardError(
+        return log.collect(DashboardError(
             f"HTTP {e.response.status_code} generating dashboard",
             status_code=e.response.status_code,
             details=e.response.text,
-        ).to_json()
+        ).to_json())
     except Exception as e:
-        return DashboardError(f"Unexpected error generating dashboard: {e}", details=str(e)).to_json()
+        return log.collect(DashboardError(f"Unexpected error generating dashboard: {e}", details=str(e)).to_json())
 
 
 def _build_simple_layout_json(chart_ids: List[int]) -> str:
@@ -321,7 +321,7 @@ def _build_simple_layout_json(chart_ids: List[int]) -> str:
             "name": f"Chart {cid}"
         })
     layout = _build_simple_layout(chart_info, "row_of_charts", 6, 50)
-    return json.dumps(layout)
+    return log.collect(json.dumps(layout))
 
 
 def _build_robust_layout_json(chart_ids: List[int]) -> str:
@@ -333,7 +333,7 @@ def _build_robust_layout_json(chart_ids: List[int]) -> str:
             "name": f"Chart {cid}"
         })
     layout = rules.generate_robust_dashboard_layout(chart_info)
-    return json.dumps(layout)
+    return log.collect(json.dumps(layout))
 
 
 async def add_chart_to_existing_dashboard(
@@ -344,14 +344,14 @@ async def add_chart_to_existing_dashboard(
 ) -> str:
     ctx = manager.get_context(server_id)
     if not ctx:
-        return DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json()
+        return log.collect(DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json())
 
     try:
         dash_str = await impl_get_resource(manager, server_id, "dashboard", dashboard_id)
         dash_data = json.loads(dash_str)
 
         if "Error" in dash_str or "not found" in dash_str.lower():
-            return DashboardError(f"Dashboard '{dashboard_id}' not found", details=dash_str).to_json()
+            return log.collect(DashboardError(f"Dashboard '{dashboard_id}' not found", details=dash_str).to_json())
 
         dash_result = dash_data.get("result", {})
         position_json_raw = dash_result.get("position_json", "{}")
@@ -390,21 +390,21 @@ async def add_chart_to_existing_dashboard(
         except Exception:
             result_data["_mermaid_graph"] = None
 
-        return json.dumps({
+        return log.collect(json.dumps({
             "message": "Chart successfully added to dashboard",
             "dashboard_id": dashboard_id,
             "chart_id": chart_id,
             "result": result_data
-        }, indent=2)
+        }, indent=2))
 
     except httpx.HTTPStatusError as e:
-        return DashboardError(
+        return log.collect(DashboardError(
             f"HTTP {e.response.status_code} adding chart to dashboard",
             status_code=e.response.status_code,
             details=e.response.text,
-        ).to_json()
+        ).to_json())
     except Exception as e:
-        return DashboardError(f"Unexpected error adding chart to dashboard: {e}", details=str(e)).to_json()
+        return log.collect(DashboardError(f"Unexpected error adding chart to dashboard: {e}", details=str(e)).to_json())
 
 
 def _add_chart_to_position_json(position_json: Dict, chart_id: int) -> Dict:

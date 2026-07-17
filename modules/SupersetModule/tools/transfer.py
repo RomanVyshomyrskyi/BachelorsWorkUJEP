@@ -1,6 +1,5 @@
 import json
 import asyncio
-import logging
 import time
 from typing import Union, Optional, Dict, Any, Tuple, List
 from modules.SupersetModule.manager import ConnectionManager
@@ -11,8 +10,7 @@ from modules.SupersetModule.tools.datasets import create_dataset
 from modules.SupersetModule.tools.charts import create_chart
 from modules.SupersetModule.tools.sqllab import sqllab_execute_query, sqllab_get_query_results
 from modules.SupersetModule.exceptions import TransferError
-
-logger = logging.getLogger(__name__)
+from modules.SupersetModule.log_utils import LogCollector
 
 NEED_INPUT_PREFIX = "NEED_INPUT:"
 
@@ -27,9 +25,11 @@ async def impl_transfer_item(
     target_ctx = manager.get_context(target_server_id)
 
     if not source_ctx or not target_ctx:
-        return TransferError("Source or target server not found.", status_code=404).to_json()
+        return log_impl.collect(TransferError("Source or target server not found.", status_code=404).to_json())
 
     strategy = TRANSFER_STRATEGY.get(resource_type, "json_copy")
+
+    log_impl = LogCollector(__name__)
 
     try:
         await ensure_auth(source_ctx)
@@ -40,15 +40,15 @@ async def impl_transfer_item(
             endpoint_base = RESOURCE_ENDPOINTS.get(resource_type, f"/api/v1/{resource_type}")
             export_url = f"{endpoint_base}/export/"
 
-            logger.info(f"Exporting {resource_type} {item_id} from {source_server_id}...")
+            log_impl.info(f"Exporting {resource_type} {item_id} from {source_server_id}...")
             export_resp = await execute_request(source_ctx, "GET", export_url, params={"q": q_param})
 
             if export_resp.status_code != 200:
-                return TransferError(
+                return log_impl.collect(TransferError(
                     f"Export failed: HTTP {export_resp.status_code}",
                     status_code=export_resp.status_code,
                     details=export_resp.text,
-                ).to_json()
+                ).to_json())
 
             import_url = f"{endpoint_base}/import/"
             file_name = f"export_{resource_type}_{item_id}.zip"
@@ -56,17 +56,17 @@ async def impl_transfer_item(
             files = {'formData': (file_name, export_resp.content, 'application/zip')}
             data = {'overwrite': 'true', 'passwords': '{}'}
 
-            logger.info(f"Importing to {target_server_id}...")
+            log_impl.info(f"Importing to {target_server_id}...")
             import_resp = await execute_request(target_ctx, "POST", import_url, files=files, data=data)
 
             if import_resp.status_code not in [200, 201]:
-                return TransferError(
+                return log_impl.collect(TransferError(
                     f"Import failed: HTTP {import_resp.status_code}",
                     status_code=import_resp.status_code,
                     details=import_resp.text,
-                ).to_json()
+                ).to_json())
 
-            return json.dumps({"message": f"Successfully transferred {resource_type} {item_id}."})
+            return log_impl.collect(json.dumps({"message": f"Successfully transferred {resource_type} {item_id}."}))
 
         elif strategy == "json_copy":
             endpoint_base = RESOURCE_ENDPOINTS.get(resource_type, f"/api/v1/{resource_type}")
@@ -74,14 +74,14 @@ async def impl_transfer_item(
             detail_url = f"{endpoint_base}/{item_id}"
             get_resp = await execute_request(source_ctx, "GET", detail_url)
             if get_resp.status_code != 200:
-                return TransferError(
+                return log_impl.collect(TransferError(
                     f"Failed to get item from source: HTTP {get_resp.status_code}",
                     status_code=get_resp.status_code,
-                ).to_json()
+                ).to_json())
 
             item_data = get_resp.json().get("result")
             if not item_data:
-                return TransferError("Source item data not found in response.").to_json()
+                return log_impl.collect(TransferError("Source item data not found in response.").to_json())
 
             params_to_remove = ['id', 'created_by', 'changed_by', 'created_on', 'changed_on', 'owners']
             payload = {k: v for k, v in item_data.items() if k not in params_to_remove}
@@ -90,19 +90,19 @@ async def impl_transfer_item(
             create_resp = await execute_request(target_ctx, "POST", post_url, json=payload)
 
             if create_resp.status_code not in [200, 201]:
-                return TransferError(
+                return log_impl.collect(TransferError(
                     f"Failed to create on target: HTTP {create_resp.status_code}",
                     status_code=create_resp.status_code,
                     details=create_resp.text,
-                ).to_json()
+                ).to_json())
 
-            return json.dumps({"message": f"Successfully transferred {resource_type} {item_id} (created new ID)."})
+            return log_impl.collect(json.dumps({"message": f"Successfully transferred {resource_type} {item_id} (created new ID)."}))
 
         else:
-            return TransferError(f"Unknown transfer strategy for {resource_type}").to_json()
+            return log_impl.collect(TransferError(f"Unknown transfer strategy for {resource_type}").to_json())
 
     except Exception as e:
-        return TransferError(f"Transfer error: {e}", details=str(e)).to_json()
+        return log_impl.collect(TransferError(f"Transfer error: {e}", details=str(e)).to_json())
 
 
 def _need_input(resource_type: str, source_id: Any, name: str, available: list) -> str:
@@ -410,11 +410,13 @@ async def transfer_dashboard(
     if not source_ctx or not target_ctx:
         return "Error: Source or target server not found."
 
+    log = LogCollector(__name__)
+
     try:
         await ensure_auth(source_ctx)
         await ensure_auth(target_ctx)
     except Exception as e:
-        return TransferError(f"Authentication failed: {e}", details=str(e)).to_json()
+        return log.collect(TransferError(f"Authentication failed: {e}", details=str(e)).to_json())
 
     parsed_db_mappings: Dict[int, int] = {}
     if db_mappings:
@@ -422,14 +424,14 @@ async def transfer_dashboard(
             raw = json.loads(db_mappings)
             parsed_db_mappings = {int(k): int(v) for k, v in raw.items()}
         except (json.JSONDecodeError, ValueError) as e:
-            return TransferError("Invalid db_mappings JSON", details=str(e)).to_json()
+            return log.collect(TransferError("Invalid db_mappings JSON", details=str(e)).to_json())
 
     parsed_table_mappings: Dict[str, str] = {}
     if table_mappings:
         try:
             parsed_table_mappings = json.loads(table_mappings)
         except json.JSONDecodeError as e:
-            return TransferError("Invalid table_mappings JSON", details=str(e)).to_json()
+            return log.collect(TransferError("Invalid table_mappings JSON", details=str(e)).to_json())
 
     transfer_start = time.time()
     report: Dict[str, Any] = {
@@ -448,13 +450,9 @@ async def transfer_dashboard(
         "diffs": [],
     }
 
-    _logs: List[str] = []
-    def _log(msg: str) -> None:
-        logger.info(msg)
-        _logs.append(msg)
-    report["_logs"] = _logs
+    report["_logs"] = log._logs
 
-    _log(f"Fetching source dashboard {dashboard_id}...")
+    log.info(f"Fetching source dashboard {dashboard_id}...")
     dash_str = await impl_get_resource(manager, source_server_id, "dashboard", dashboard_id)
     dash_data = _parse_json_result(dash_str)
     if not dash_data:
@@ -479,7 +477,7 @@ async def transfer_dashboard(
         "charts": [],
     }
 
-    _log(f"Dashboard '{dashboard_title}' ({dashboard_id}) has {len(source_chart_ids)} charts")
+    log.info(f"Dashboard '{dashboard_title}' ({dashboard_id}) has {len(source_chart_ids)} charts")
 
     chart_details = []
     for sc in source_charts:
@@ -520,7 +518,7 @@ async def transfer_dashboard(
         report["errors"].append("No datasources found in source charts")
         return json.dumps(report, indent=2, default=str)
 
-    _log(f"Dashboard requires {len(unique_ds_ids)} unique datasets")
+    log.info(f"Dashboard requires {len(unique_ds_ids)} unique datasets")
 
     dest_matches = await _find_matching_charts_at_destination(manager, target_server_id, source_charts)
     for cd in chart_details:
@@ -545,7 +543,7 @@ async def transfer_dashboard(
                 "diff": diff_text,
             })
 
-    _log(f"Phase 1: Resolving {len(unique_ds_ids)} unique datasources (reverse hierarchy)...")
+    log.info(f"Phase 1: Resolving {len(unique_ds_ids)} unique datasources (reverse hierarchy)...")
     ds_mapping: Dict[int, Tuple[int, str]] = {}
     ds_errors = 0
     for old_ds_id, ds_type in unique_ds_ids.items():
@@ -574,14 +572,14 @@ async def transfer_dashboard(
             report["errors"].append(f"Dataset {old_ds_id}: {err}")
         else:
             ds_mapping[old_ds_id] = (new_ds_id, resolved_ds_type or ds_type)
-            _log(f"  Dataset {old_ds_id} -> {new_ds_id}")
+            log.info(f"  Dataset {old_ds_id} -> {new_ds_id}")
         report["execution"]["datasets"].append(entry)
 
     if ds_errors > 0:
         report["success_rate"] = f"0% — dataset resolution failed"
         return json.dumps(report, indent=2, default=str)
 
-    _log(f"Phase 2: Recreating {len(source_chart_ids)} charts...")
+    log.info(f"Phase 2: Recreating {len(source_chart_ids)} charts...")
     chart_id_mapping: Dict[int, int] = {}
     chart_errors = 0
     for cd in chart_details:
@@ -605,7 +603,7 @@ async def transfer_dashboard(
             report["errors"].append(f"Chart {cid} ('{cd['slice_name']}'): {err}")
         else:
             chart_id_mapping[cid] = new_cid
-            _log(f"  Chart {cid} ('{cd['slice_name']}') -> {new_cid}")
+            log.info(f"  Chart {cid} ('{cd['slice_name']}') -> {new_cid}")
         report["execution"]["charts"].append(entry)
 
     if chart_errors > 0:
@@ -613,7 +611,7 @@ async def transfer_dashboard(
         return json.dumps(report, indent=2, default=str)
 
     from modules.SupersetModule.tools.dashboards import create_dashboard, bulk_link_charts
-    _log(f"Phase 3: Creating dashboard...")
+    log.info(f"Phase 3: Creating dashboard...")
     t0 = time.time()
     position_json_raw = dash_result.get("position_json", "{}")
     json_metadata_raw = dash_result.get("json_metadata", "{}")

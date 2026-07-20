@@ -1,23 +1,23 @@
 import json
- import httpx
- import time
- from typing import List, Dict, Any, Optional, Union
- from modules.SupersetModule.manager import ConnectionManager
- from modules.SupersetModule.api_client import execute_request
- from modules.SupersetModule.tools.general import impl_superset_api
- from modules.SupersetModule.tools.resources import impl_get_resource
- from modules.SupersetModule.tools.transfer import impl_transfer_item, transfer_dashboard as new_transfer_dashboard
- from modules.SupersetModule.exceptions import DashboardError
- from modules.SupersetModule.schemas.dashboard import (
+import httpx
+import time
+from typing import List, Dict, Any, Optional, Union
+from modules.SupersetModule.manager import ConnectionManager
+from modules.SupersetModule.api_client import execute_request
+from modules.SupersetModule.tools.general import impl_superset_api
+from modules.SupersetModule.tools.resources import impl_get_resource
+from modules.SupersetModule.tools.transfer import impl_transfer_item, transfer_dashboard as new_transfer_dashboard
+from modules.SupersetModule.exceptions import DashboardError
+from modules.SupersetModule.schemas.dashboard import (
      DashboardListItem,
      DashboardDetail,
      DashboardGenerateResponse,
      ChartLinkResult,
  )
- from modules.SupersetModule import rules
- from modules.SupersetModule.superset_mermaid import dashboard_to_mermaid
- from modules.log_utils import LogCollector
- from modules.metrics import get_metrics
+from modules.SupersetModule import rules
+from modules.SupersetModule.superset_mermaid import dashboard_to_mermaid
+from modules.log_utils import LogCollector
+from modules.metrics import get_metrics
 
 log = LogCollector(__name__)
 

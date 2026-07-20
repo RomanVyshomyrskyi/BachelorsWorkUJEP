@@ -1,27 +1,27 @@
 import json
- import httpx
- import time
- from typing import Optional, Union, Dict, Any
- from modules.SupersetModule.manager import ConnectionManager
- from modules.SupersetModule.api_client import execute_request
- from modules.SupersetModule.tools.general import impl_superset_api
- from modules.SupersetModule.exceptions import ChartError
- from modules.SupersetModule.schemas.chart import (
-     ChartListItem,
-     ChartDetail,
-     ChartPreviewResponse,
-     ChartDataResponse,
-     ChartTypeSchema,
+import httpx
+import time
+from typing import Optional, Union, Dict, Any
+from modules.SupersetModule.manager import ConnectionManager
+from modules.SupersetModule.api_client import execute_request
+from modules.SupersetModule.tools.general import impl_superset_api
+from modules.SupersetModule.exceptions import ChartError
+from modules.SupersetModule.schemas.chart import (
+    ChartListItem,
+    ChartDetail,
+    ChartPreviewResponse,
+    ChartDataResponse,
+    ChartTypeSchema,
  )
- from modules.SupersetModule.schemas.common import SupersetListResponse, SupersetDetailResponse
- from modules.SupersetModule import rules
- from modules.SupersetModule.superset_validation import (
-     validate_chart_params,
-     auto_fix_chart_params,
-     format_error_summary,
+from modules.SupersetModule.schemas.common import SupersetListResponse, SupersetDetailResponse
+from modules.SupersetModule import rules
+from modules.SupersetModule.superset_validation import (
+    validate_chart_params,
+    auto_fix_chart_params,
+    format_error_summary,
  )
- from modules.SupersetModule.superset_mermaid import chart_to_mermaid
- from modules.metrics import get_metrics
+from modules.SupersetModule.superset_mermaid import chart_to_mermaid
+from modules.metrics import get_metrics
 
 async def get_chart_api_info(manager: ConnectionManager, server_id: str) -> str:
     """
@@ -30,72 +30,72 @@ async def get_chart_api_info(manager: ConnectionManager, server_id: str) -> str:
     return await impl_superset_api(manager, server_id, "GET", "/api/v1/chart/_info")
 
 async def create_chart(
-     manager: ConnectionManager,
-     server_id: str,
-     slice_name: str,
-     viz_type: str,
-     datasource_id: int,
-     datasource_type: str,
-     params: str,
-     description: Optional[str] = None
+    manager: ConnectionManager,
+    server_id: str,
+    slice_name: str,
+    viz_type: str,
+    datasource_id: int,
+    datasource_type: str,
+    params: str,
+    description: Optional[str] = None
  ) -> str:
-     ctx = manager.get_context(server_id)
-     if not ctx:
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="superset_create_chart", status="error").inc()
-         mc.record_error(tool="superset_create_chart", error_message=f"Server '{server_id}' not found.")
-         return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
+    ctx = manager.get_context(server_id)
+    if not ctx:
+        mc = get_metrics()
+        mc.tool_calls.labels(tool="superset_create_chart", status="error").inc()
+        mc.record_error(tool="superset_create_chart", error_message=f"Server '{server_id}' not found.")
+        return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
 
-     start_time = time.monotonic()
-     try:
-         params_dict = json.loads(params) if params else {}
-         fixed_params = auto_fix_chart_params(viz_type, params_dict)
-         errors = validate_chart_params(viz_type, fixed_params)
-         warning = format_error_summary(errors) if errors else None
+    start_time = time.monotonic()
+    try:
+        params_dict = json.loads(params) if params else {}
+        fixed_params = auto_fix_chart_params(viz_type, params_dict)
+        errors = validate_chart_params(viz_type, fixed_params)
+        warning = format_error_summary(errors) if errors else None
 
-         chart_payload = {
-             "slice_name": slice_name,
-             "description": description,
-             "viz_type": viz_type,
-             "datasource_id": datasource_id,
-             "datasource_type": datasource_type,
-             "params": json.dumps(fixed_params),
-         }
+        chart_payload = {
+            "slice_name": slice_name,
+            "description": description,
+            "viz_type": viz_type,
+            "datasource_id": datasource_id,
+            "datasource_type": datasource_type,
+            "params": json.dumps(fixed_params),
+        }
 
-         endpoint = "/api/v1/chart/"
-         resp = await execute_request(ctx, "POST", endpoint, json=chart_payload)
-         resp.raise_for_status()
-         result = resp.json()
+        endpoint = "/api/v1/chart/"
+        resp = await execute_request(ctx, "POST", endpoint, json=chart_payload)
+        resp.raise_for_status()
+        result = resp.json()
 
-         if warning:
-             result["_validation_warning"] = warning
+        if warning:
+            result["_validation_warning"] = warning
 
-         try:
-             result["_mermaid_graph"] = chart_to_mermaid(viz_type, fixed_params, slice_name)
-         except Exception:
-             result["_mermaid_graph"] = None
+        try:
+            result["_mermaid_graph"] = chart_to_mermaid(viz_type, fixed_params, slice_name)
+        except Exception:
+            result["_mermaid_graph"] = None
 
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="superset_create_chart", status="success").inc()
-         mc.tool_duration.labels(tool="superset_create_chart").observe(time.monotonic() - start_time)
-         mc.resources_created.labels(resource_type="chart").inc()
-         return json.dumps(result, indent=2)
-     except json.JSONDecodeError as e:
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="superset_create_chart", status="error").inc()
-         mc.record_error(tool="superset_create_chart", error_message=f"Invalid JSON in params: {e}")
-         return ChartError(f"Invalid JSON in params: {e}", details=str(e)).to_json()
-     except httpx.HTTPStatusError as e:
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="superset_create_chart", status="error").inc()
-         mc.record_error(tool="superset_create_chart", error_message=f"HTTP {e.response.status_code} creating chart", status_code=e.response.status_code)
-         return ChartError(
-             f"HTTP {e.response.status_code} creating chart",
-             status_code=e.response.status_code,
-             details=e.response.text,
-         ).to_json()
+        mc = get_metrics()
+        mc.tool_calls.labels(tool="superset_create_chart", status="success").inc()
+        mc.tool_duration.labels(tool="superset_create_chart").observe(time.monotonic() - start_time)
+        mc.resources_created.labels(resource_type="chart").inc()
+        return json.dumps(result, indent=2)
+    except json.JSONDecodeError as e:
+        mc = get_metrics()
+        mc.tool_calls.labels(tool="superset_create_chart", status="error").inc()
+        mc.record_error(tool="superset_create_chart", error_message=f"Invalid JSON in params: {e}")
+        return ChartError(f"Invalid JSON in params: {e}", details=str(e)).to_json()
+    except httpx.HTTPStatusError as e:
+        mc = get_metrics()
+        mc.tool_calls.labels(tool="superset_create_chart", status="error").inc()
+        mc.record_error(tool="superset_create_chart", error_message=f"HTTP {e.response.status_code} creating chart", status_code=e.response.status_code)
+        return ChartError(
+            f"HTTP {e.response.status_code} creating chart",
+            status_code=e.response.status_code,
+            details=e.response.text,
+        ).to_json()
     except Exception as e:
-        return ChartError(f"Unexpected error creating chart: {e}", details=str(e)).to_json()
+       return ChartError(f"Unexpected error creating chart: {e}", details=str(e)).to_json()
 
 async def update_chart(
     manager: ConnectionManager,
@@ -128,102 +128,102 @@ async def get_chart_info(
     chart_id: Union[int, str]
 ) -> str:
     return await impl_superset_api(
-        manager, server_id, "GET", f"/api/v1/chart/{chart_id}"
+       manager, server_id, "GET", f"/api/v1/chart/{chart_id}"
     )
 
 async def generate_chart(
-     manager: ConnectionManager,
-     server_id: str,
-     dataset_id: int,
-     config: str,
-     slice_name: Optional[str] = None,
-     save_chart: bool = True,
-     description: Optional[str] = None
+    manager: ConnectionManager,
+    server_id: str,
+    dataset_id: int,
+    config: str,
+    slice_name: Optional[str] = None,
+    save_chart: bool = True,
+    description: Optional[str] = None
  ) -> str:
-     ctx = manager.get_context(server_id)
-     if not ctx:
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="superset_generate_chart", status="error").inc()
-         mc.record_error(tool="superset_generate_chart", error_message=f"Server '{server_id}' not found.")
-         return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
+    ctx = manager.get_context(server_id)
+    if not ctx:
+        mc = get_metrics()
+        mc.tool_calls.labels(tool="superset_generate_chart", status="error").inc()
+        mc.record_error(tool="superset_generate_chart", error_message=f"Server '{server_id}' not found.")
+        return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
 
-     start_time = time.monotonic()
-     try:
-         chart_config = json.loads(config) if config else {}
+    start_time = time.monotonic()
+    try:
+        chart_config = json.loads(config) if config else {}
 
-         form_data: Dict[str, Any] = {
-             "datasource_id": dataset_id,
-             "datasource_type": "table",
-         }
+        form_data: Dict[str, Any] = {
+            "datasource_id": dataset_id,
+            "datasource_type": "table",
+        }
 
-         form_data.update(chart_config)
+        form_data.update(chart_config)
 
-         if not save_chart:
-             base_url = ctx.config.base_url.rstrip("/")
-             explore_url = f"{base_url}/explore/?form_data={json.dumps(form_data)}"
-             mc = get_metrics()
-             mc.tool_calls.labels(tool="superset_generate_chart", status="success").inc()
-             mc.tool_duration.labels(tool="superset_generate_chart").observe(time.monotonic() - start_time)
-             return json.dumps({
-                 "url": explore_url,
-                 "saved": False,
-                 "config": chart_config
-             }, indent=2)
+        if not save_chart:
+            base_url = ctx.config.base_url.rstrip("/")
+            explore_url = f"{base_url}/explore/?form_data={json.dumps(form_data)}"
+            mc = get_metrics()
+            mc.tool_calls.labels(tool="superset_generate_chart", status="success").inc()
+            mc.tool_duration.labels(tool="superset_generate_chart").observe(time.monotonic() - start_time)
+            return json.dumps({
+                "url": explore_url,
+                "saved": False,
+                "config": chart_config
+            }, indent=2)
 
-         chart_name = slice_name or f"Chart from dataset {dataset_id}"
+        chart_name = slice_name or f"Chart from dataset {dataset_id}"
 
-         chart_payload = {
-             "slice_name": chart_name,
-             "datasource_id": dataset_id,
-             "datasource_type": "table",
-             "viz_type": chart_config.get("viz_type", "table"),
-             "params": json.dumps(form_data),
-         }
-         if description:
-             chart_payload["description"] = description
+        chart_payload = {
+            "slice_name": chart_name,
+            "datasource_id": dataset_id,
+            "datasource_type": "table",
+            "viz_type": chart_config.get("viz_type", "table"),
+            "params": json.dumps(form_data),
+        }
+        if description:
+            chart_payload["description"] = description
 
-         endpoint = "/api/v1/chart/"
-         resp = await execute_request(ctx, "POST", endpoint, json=chart_payload)
-         resp.raise_for_status()
-         result = resp.json()
+        endpoint = "/api/v1/chart/"
+        resp = await execute_request(ctx, "POST", endpoint, json=chart_payload)
+        resp.raise_for_status()
+        result = resp.json()
 
-         try:
-             viz = chart_config.get("viz_type", "table")
-             result["_mermaid_graph"] = chart_to_mermaid(viz, chart_config, chart_name)
-         except Exception:
-             result["_mermaid_graph"] = None
+        try:
+            viz = chart_config.get("viz_type", "table")
+            result["_mermaid_graph"] = chart_to_mermaid(viz, chart_config, chart_name)
+        except Exception:
+            result["_mermaid_graph"] = None
 
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="superset_generate_chart", status="success").inc()
-         mc.tool_duration.labels(tool="superset_generate_chart").observe(time.monotonic() - start_time)
-         mc.resources_created.labels(resource_type="chart").inc()
-         return json.dumps({
-             "saved": True,
-             "chart_id": result.get("id"),
-             "slice_name": chart_name,
-             "url": f"{ctx.config.base_url.rstrip('/')}/chart/{result.get('id')}/",
-             "result": result
-         }, indent=2)
+        mc = get_metrics()
+        mc.tool_calls.labels(tool="superset_generate_chart", status="success").inc()
+        mc.tool_duration.labels(tool="superset_generate_chart").observe(time.monotonic() - start_time)
+        mc.resources_created.labels(resource_type="chart").inc()
+        return json.dumps({
+            "saved": True,
+            "chart_id": result.get("id"),
+            "slice_name": chart_name,
+            "url": f"{ctx.config.base_url.rstrip('/')}/chart/{result.get('id')}/",
+            "result": result
+        }, indent=2)
 
-     except json.JSONDecodeError:
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="superset_generate_chart", status="error").inc()
-         mc.record_error(tool="superset_generate_chart", error_message="'config' is not a valid JSON string.")
-         return ChartError("'config' is not a valid JSON string.", details=config).to_json()
-     except httpx.HTTPStatusError as e:
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="superset_generate_chart", status="error").inc()
-         mc.record_error(tool="superset_generate_chart", error_message=f"HTTP {e.response.status_code} generating chart", status_code=e.response.status_code)
-         return ChartError(
-             f"HTTP {e.response.status_code} generating chart",
-             status_code=e.response.status_code,
-             details=e.response.text,
-         ).to_json()
-     except Exception as e:
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="superset_generate_chart", status="error").inc()
-         mc.record_error(tool="superset_generate_chart", error_message=str(e))
-         return ChartError(f"Unexpected error generating chart: {e}", details=str(e)).to_json()
+    except json.JSONDecodeError:
+        mc = get_metrics()
+        mc.tool_calls.labels(tool="superset_generate_chart", status="error").inc()
+        mc.record_error(tool="superset_generate_chart", error_message="'config' is not a valid JSON string.")
+        return ChartError("'config' is not a valid JSON string.", details=config).to_json()
+    except httpx.HTTPStatusError as e:
+        mc = get_metrics()
+        mc.tool_calls.labels(tool="superset_generate_chart", status="error").inc()
+        mc.record_error(tool="superset_generate_chart", error_message=f"HTTP {e.response.status_code} generating chart", status_code=e.response.status_code)
+        return ChartError(
+            f"HTTP {e.response.status_code} generating chart",
+            status_code=e.response.status_code,
+            details=e.response.text,
+        ).to_json()
+    except Exception as e:
+        mc = get_metrics()
+        mc.tool_calls.labels(tool="superset_generate_chart", status="error").inc()
+        mc.record_error(tool="superset_generate_chart", error_message=str(e))
+        return ChartError(f"Unexpected error generating chart: {e}", details=str(e)).to_json()
 
 
 async def get_chart_preview(
@@ -233,20 +233,20 @@ async def get_chart_preview(
 ) -> str:
     ctx = manager.get_context(server_id)
     if not ctx:
-        return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
+       return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
 
     try:
-        base_url = ctx.config.base_url.rstrip("/")
-        preview_url = f"{base_url}/explore/?slice_id={chart_id}"
-        embed_url = f"{base_url}/superset/slice/{chart_id}/"
+       base_url = ctx.config.base_url.rstrip("/")
+       preview_url = f"{base_url}/explore/?slice_id={chart_id}"
+       embed_url = f"{base_url}/superset/slice/{chart_id}/"
 
-        return ChartPreviewResponse(
-            preview_url=preview_url,
-            chart_id=int(chart_id),
-            embed_url=embed_url,
-        ).model_dump_json(indent=2)
+       return ChartPreviewResponse(
+           preview_url=preview_url,
+           chart_id=int(chart_id),
+           embed_url=embed_url,
+       ).model_dump_json(indent=2)
     except Exception as e:
-        return ChartError(f"Unexpected error getting chart preview: {e}", details=str(e)).to_json()
+       return ChartError(f"Unexpected error getting chart preview: {e}", details=str(e)).to_json()
 
 
 async def get_chart_data(
@@ -256,21 +256,21 @@ async def get_chart_data(
 ) -> str:
     ctx = manager.get_context(server_id)
     if not ctx:
-        return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
+       return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
 
     try:
-        endpoint = f"/api/v1/chart/{chart_id}/data/"
-        resp = await execute_request(ctx, "GET", endpoint)
-        resp.raise_for_status()
-        return json.dumps(resp.json(), indent=2)
+       endpoint = f"/api/v1/chart/{chart_id}/data/"
+       resp = await execute_request(ctx, "GET", endpoint)
+       resp.raise_for_status()
+       return json.dumps(resp.json(), indent=2)
     except httpx.HTTPStatusError as e:
-        return ChartError(
-            f"HTTP {e.response.status_code} getting chart data",
-            status_code=e.response.status_code,
-            details=e.response.text,
-        ).to_json()
+       return ChartError(
+           f"HTTP {e.response.status_code} getting chart data",
+           status_code=e.response.status_code,
+           details=e.response.text,
+       ).to_json()
     except Exception as e:
-        return ChartError(f"Unexpected error getting chart data: {e}", details=str(e)).to_json()
+       return ChartError(f"Unexpected error getting chart data: {e}", details=str(e)).to_json()
 
 
 async def get_chart_type_schema(
@@ -280,12 +280,12 @@ async def get_chart_type_schema(
 ) -> str:
     ctx = manager.get_context(server_id)
     if not ctx:
-        return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
+       return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
 
     try:
-        result = await impl_superset_api(
-            manager, server_id, "GET", f"/api/v1/chart/schemas/{chart_type}/"
-        )
-        return ChartTypeSchema(chart_type=chart_type, schema_data={"raw": result}).model_dump_json(indent=2)
+       result = await impl_superset_api(
+           manager, server_id, "GET", f"/api/v1/chart/schemas/{chart_type}/"
+       )
+       return ChartTypeSchema(chart_type=chart_type, schema_data={"raw": result}).model_dump_json(indent=2)
     except Exception as e:
-        return ChartError(f"Unexpected error getting chart type schema: {e}", details=str(e)).to_json()
+       return ChartError(f"Unexpected error getting chart type schema: {e}", details=str(e)).to_json()

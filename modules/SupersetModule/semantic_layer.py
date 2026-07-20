@@ -1,13 +1,13 @@
 import json
- import logging
- import time
- from typing import Any, Dict, List, Optional, Tuple
+import logging
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
- from modules.SupersetModule.tools.sqllab import sqllab_execute_query, sqllab_get_query_results
- from modules.SupersetModule.tools.datasets import get_database_schema as _get_schema
- from modules.metrics import get_metrics
+from modules.SupersetModule.tools.sqllab import sqllab_execute_query, sqllab_get_query_results
+from modules.SupersetModule.tools.datasets import get_database_schema as _get_schema
+from modules.metrics import get_metrics
 
- logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 NUMERIC_KEYWORDS = {
     "numeric", "integer", "bigint", "smallint", "decimal", "float",
@@ -63,6 +63,7 @@ def _escape(val: str) -> str:
 
 
 def _build_numeric_sql(schema: str, table: str, columns: List[str]) -> str:
+    start_time = time.monotonic()
     if not columns:
         return ""
     unions = []
@@ -76,15 +77,16 @@ def _build_numeric_sql(schema: str, table: str, columns: List[str]) -> str:
   COUNT(*) - COUNT({q}) AS null_count,
   ROUND((COUNT(*) - COUNT({q})) * 100.0 / NULLIF(COUNT(*), 0), 2) AS null_pct,
   COUNT(DISTINCT {q}) AS distinct_count,
-  ROUND(CAST(MIN({q}) AS DECIMAL), 6) AS min_val,
-  ROUND(CAST(MAX({q}) AS DECIMAL), 6) AS max_val,
-  ROUND(CAST(AVG({q}) AS DECIMAL), 6) AS avg_val,
-  ROUND(CAST(COALESCE(STDDEV({q}), 0) AS DECIMAL), 6) AS stddev_val
+  ROUND(MIN({q})::numeric, 6) AS min_val,
+  ROUND(MAX({q})::numeric, 6) AS max_val,
+  ROUND(AVG({q})::numeric, 6) AS avg_val,
+  ROUND(COALESCE(STDDEV({q}), 0)::numeric, 6) AS stddev_val
 FROM {_quote(schema)}.{_quote(table)}""")
     return "\nUNION ALL\n".join(unions)
 
 
 def _build_text_sql(schema: str, table: str, columns: List[str]) -> str:
+    start_time = time.monotonic()
     if not columns:
         return ""
     unions = []
@@ -98,14 +100,15 @@ def _build_text_sql(schema: str, table: str, columns: List[str]) -> str:
   COUNT(*) - COUNT({q}) AS null_count,
   ROUND((COUNT(*) - COUNT({q})) * 100.0 / NULLIF(COUNT(*), 0), 2) AS null_pct,
   COUNT(DISTINCT {q}) AS distinct_count,
-   ROUND(CAST(MIN(LENGTH(CAST({q} AS CHAR))) AS DECIMAL), 0) AS min_length,
-   ROUND(CAST(MAX(LENGTH(CAST({q} AS CHAR))) AS DECIMAL), 0) AS max_length,
-   ROUND(CAST(AVG(LENGTH(CAST({q} AS CHAR))) AS DECIMAL), 2) AS avg_length
+  ROUND(MIN(LENGTH(CAST({q} AS TEXT)))::numeric, 0) AS min_length,
+  ROUND(MAX(LENGTH(CAST({q} AS TEXT)))::numeric, 0) AS max_length,
+  ROUND(AVG(LENGTH(CAST({q} AS TEXT)))::numeric, 2) AS avg_length
 FROM {_quote(schema)}.{_quote(table)}""")
     return "\nUNION ALL\n".join(unions)
 
 
 def _build_date_sql(schema: str, table: str, columns: List[str]) -> str:
+    start_time = time.monotonic()
     if not columns:
         return ""
     unions = []
@@ -119,8 +122,8 @@ def _build_date_sql(schema: str, table: str, columns: List[str]) -> str:
   COUNT(*) - COUNT({q}) AS null_count,
   ROUND((COUNT(*) - COUNT({q})) * 100.0 / NULLIF(COUNT(*), 0), 2) AS null_pct,
   COUNT(DISTINCT {q}) AS distinct_count,
-   CAST(MIN({q}) AS CHAR) AS min_val,
-   CAST(MAX({q}) AS CHAR) AS max_val
+  MIN({q})::TEXT AS min_val,
+  MAX({q})::TEXT AS max_val
 FROM {_quote(schema)}.{_quote(table)}""")
     return "\nUNION ALL\n".join(unions)
 
@@ -172,16 +175,15 @@ async def _run_row_count(
 
 
 async def profile_table(
-     manager,
-     server_id: str,
-     database_id: int,
-     schema: str,
-     table: str,
-     columns: Optional[List[Dict[str, Any]]] = None,
- ) -> str:
-     start_time = time.monotonic()
-     try:
-         if not columns:
+    manager,
+    server_id: str,
+    database_id: int,
+    schema: str,
+    table: str,
+    columns: Optional[List[Dict[str, Any]]] = None,
+) -> str:
+    start_time = time.monotonic()
+    if not columns:
         schema_raw = await _get_schema(manager, server_id, database_id, schema)
         try:
             schema_data = json.loads(schema_raw)
@@ -277,19 +279,14 @@ async def profile_table(
     top_cols = (numeric_cols + text_cols + date_cols)[:5]
     for col in top_cols:
         sql = _build_top_values_sql(schema, table, col, limit=10)
-ok, data = await _run_sql_and_get_data(manager, server_id, database_id, sql, schema)
-         if ok:
-             result["top_values"][col] = data
+        ok, data = await _run_sql_and_get_data(manager, server_id, database_id, sql, schema)
+        if ok:
+            result["top_values"][col] = data
 
-     mc = get_metrics()
-     mc.tool_calls.labels(tool="semantic_profile_table", status="success").inc()
-     mc.tool_duration.labels(tool="semantic_profile_table").observe(time.monotonic() - start_time)
-     return json.dumps(result, indent=2, default=str)
-     except Exception as e:
-     mc = get_metrics()
-     mc.tool_calls.labels(tool="semantic_profile_table", status="error").inc()
-     mc.record_error(tool="semantic_profile_table", error_message=str(e))
-     raise
+    mc = get_metrics()
+    mc.tool_calls.labels(tool="semantic_profile_table", status="success").inc()
+    mc.tool_duration.labels(tool="semantic_profile_table").observe(time.monotonic() - start_time)
+    return json.dumps(result, indent=2, default=str)
 
 
 def _is_metric_candidate(col: Dict[str, Any]) -> bool:
@@ -302,181 +299,163 @@ def _is_dimension_candidate(col: Dict[str, Any]) -> bool:
 
 
 async def suggest_metrics(
-     manager,
-     server_id: str,
-     database_id: int,
-     schema: str,
-     table: str,
- ) -> str:
-     start_time = time.monotonic()
-     try:
-         schema_raw = await _get_schema(manager, server_id, database_id, schema)
-         try:
-             schema_data = json.loads(schema_raw)
-         except (json.JSONDecodeError, TypeError):
-             return schema_raw if isinstance(schema_raw, str) else json.dumps({"error": True, "message": str(schema_raw)})
-         tables = schema_data.get("tables", [])
-         match = [t for t in tables if t.get("table_name", "").lower() == table.lower()]
-         if not match:
-             return json.dumps({"error": True, "message": f"Table '{table}' not found"})
-         columns = match[0].get("columns", [])
+    manager,
+    server_id: str,
+    database_id: int,
+    schema: str,
+    table: str,
+) -> str:
+    start_time = time.monotonic()
+    schema_raw = await _get_schema(manager, server_id, database_id, schema)
+    try:
+        schema_data = json.loads(schema_raw)
+    except (json.JSONDecodeError, TypeError):
+        return schema_raw if isinstance(schema_raw, str) else json.dumps({"error": True, "message": str(schema_raw)})
+    tables = schema_data.get("tables", [])
+    match = [t for t in tables if t.get("table_name", "").lower() == table.lower()]
+    if not match:
+        return json.dumps({"error": True, "message": f"Table '{table}' not found"})
+    columns = match[0].get("columns", [])
 
-         candidates = [c for c in columns if _is_metric_candidate(c)]
-         result = {
-             "table": table,
-             "schema": schema,
-             "suggested_metrics": [],
-         }
-for c in candidates:
-         col = c["column_name"]
-         result["suggested_metrics"].append({
-             "column_name": col,
-             "data_type": c.get("data_type", ""),
-             "suggestions": [
-                 {"name": f"sum_{col}", "expression": f"SUM({col})", "type": "SUM"},
-                 {"name": f"avg_{col}", "expression": f"AVG({col})", "type": "AVG"},
-                 {"name": f"count_{col}", "expression": f"COUNT({col})", "type": "COUNT"},
-                 {"name": f"min_{col}", "expression": f"MIN({col})", "type": "MIN"},
-                 {"name": f"max_{col}", "expression": f"MAX({col})", "type": "MAX"},
-             ],
-         })
-     mc = get_metrics()
-     mc.tool_calls.labels(tool="semantic_suggest_metrics", status="success").inc()
-     mc.tool_duration.labels(tool="semantic_suggest_metrics").observe(time.monotonic() - start_time)
-     return json.dumps(result, indent=2)
-     except Exception as e:
-     mc = get_metrics()
-     mc.tool_calls.labels(tool="semantic_suggest_metrics", status="error").inc()
-     mc.record_error(tool="semantic_suggest_metrics", error_message=str(e))
-     raise
+    candidates = [c for c in columns if _is_metric_candidate(c)]
+    result = {
+        "table": table,
+        "schema": schema,
+        "suggested_metrics": [],
+    }
+    for c in candidates:
+        col = c["column_name"]
+        result["suggested_metrics"].append({
+            "column_name": col,
+            "data_type": c.get("data_type", ""),
+            "suggestions": [
+                {"name": f"sum_{col}", "expression": f"SUM({col})", "type": "SUM"},
+                {"name": f"avg_{col}", "expression": f"AVG({col})", "type": "AVG"},
+                {"name": f"count_{col}", "expression": f"COUNT({col})", "type": "COUNT"},
+                {"name": f"min_{col}", "expression": f"MIN({col})", "type": "MIN"},
+                {"name": f"max_{col}", "expression": f"MAX({col})", "type": "MAX"},
+            ],
+        })
+    mc = get_metrics()
+    mc.tool_calls.labels(tool="semantic_suggest_metrics", status="success").inc()
+    mc.tool_duration.labels(tool="semantic_suggest_metrics").observe(time.monotonic() - start_time)
+    return json.dumps(result, indent=2)
 
 
 async def suggest_dimensions(
-     manager,
-     server_id: str,
-     database_id: int,
-     schema: str,
-     table: str,
- ) -> str:
-     start_time = time.monotonic()
-     try:
-         schema_raw = await _get_schema(manager, server_id, database_id, schema)
-         try:
-             schema_data = json.loads(schema_raw)
-         except (json.JSONDecodeError, TypeError):
-             return schema_raw if isinstance(schema_raw, str) else json.dumps({"error": True, "message": str(schema_raw)})
-         tables = schema_data.get("tables", [])
-         match = [t for t in tables if t.get("table_name", "").lower() == table.lower()]
-         if not match:
-             return json.dumps({"error": True, "message": f"Table '{table}' not found"})
-         columns = match[0].get("columns", [])
+    manager,
+    server_id: str,
+    database_id: int,
+    schema: str,
+    table: str,
+) -> str:
+    start_time = time.monotonic()
+    schema_raw = await _get_schema(manager, server_id, database_id, schema)
+    try:
+        schema_data = json.loads(schema_raw)
+    except (json.JSONDecodeError, TypeError):
+        return schema_raw if isinstance(schema_raw, str) else json.dumps({"error": True, "message": str(schema_raw)})
+    tables = schema_data.get("tables", [])
+    match = [t for t in tables if t.get("table_name", "").lower() == table.lower()]
+    if not match:
+        return json.dumps({"error": True, "message": f"Table '{table}' not found"})
+    columns = match[0].get("columns", [])
 
-         candidates = [c for c in columns if _is_dimension_candidate(c)]
-         result = {
-             "table": table,
-             "schema": schema,
-             "suggested_dimensions": [],
-         }
-         for c in candidates:
-             cat = _classify_column(c["data_type"])
-             col = c["column_name"]
-             suggestion = {
-                 "column_name": col,
-                 "data_type": c.get("data_type", ""),
-                 "category": cat,
-             }
-             if cat == "text":
-                 suggestion["usage"] = "Group By / Filter / Slice"
-suggestion["example_aggregations"] = ["COUNT(DISTINCT)", "COUNT(*)"]
-         elif cat == "date":
-             suggestion["usage"] = "Time range filter / Trend axis"
-             suggestion["example_aggregations"] = ["DATE_TRUNC('month', ...)", "EXTRACT(YEAR FROM ...)"]
-         elif cat == "boolean":
-             suggestion["usage"] = "Flag filter / Segmentation"
-             suggestion["example_aggregations"] = ["COUNT(*)", "SUM(CASE WHEN ...)"]
-         result["suggested_dimensions"].append(suggestion)
-     mc = get_metrics()
-     mc.tool_calls.labels(tool="semantic_suggest_dimensions", status="success").inc()
-     mc.tool_duration.labels(tool="semantic_suggest_dimensions").observe(time.monotonic() - start_time)
-     return json.dumps(result, indent=2)
-     except Exception as e:
-     mc = get_metrics()
-     mc.tool_calls.labels(tool="semantic_suggest_dimensions", status="error").inc()
-     mc.record_error(tool="semantic_suggest_dimensions", error_message=str(e))
-     raise
+    candidates = [c for c in columns if _is_dimension_candidate(c)]
+    result = {
+        "table": table,
+        "schema": schema,
+        "suggested_dimensions": [],
+    }
+    for c in candidates:
+        cat = _classify_column(c["data_type"])
+        col = c["column_name"]
+        suggestion = {
+            "column_name": col,
+            "data_type": c.get("data_type", ""),
+            "category": cat,
+        }
+        if cat == "text":
+            suggestion["usage"] = "Group By / Filter / Slice"
+            suggestion["example_aggregations"] = ["COUNT(DISTINCT)", "COUNT(*)"]
+        elif cat == "date":
+            suggestion["usage"] = "Time range filter / Trend axis"
+            suggestion["example_aggregations"] = ["DATE_TRUNC('month', ...)", "EXTRACT(YEAR FROM ...)"]
+        elif cat == "boolean":
+            suggestion["usage"] = "Flag filter / Segmentation"
+            suggestion["example_aggregations"] = ["COUNT(*)", "SUM(CASE WHEN ...)"]
+        result["suggested_dimensions"].append(suggestion)
+    mc = get_metrics()
+    mc.tool_calls.labels(tool="semantic_suggest_dimensions", status="success").inc()
+    mc.tool_duration.labels(tool="semantic_suggest_dimensions").observe(time.monotonic() - start_time)
+    return json.dumps(result, indent=2)
 
 
 async def get_data_dictionary(
-     manager,
-     server_id: str,
-     database_id: int,
-     schema: str,
-     table: str,
-     include_statistics: bool = True,
- ) -> str:
-     start_time = time.monotonic()
-     try:
-         schema_raw = await _get_schema(manager, server_id, database_id, schema)
-         try:
-             schema_data = json.loads(schema_raw)
-         except (json.JSONDecodeError, TypeError):
-             return schema_raw if isinstance(schema_raw, str) else json.dumps({"error": True, "message": str(schema_raw)})
-         tables = schema_data.get("tables", [])
-         match = [t for t in tables if t.get("table_name", "").lower() == table.lower()]
-         if not match:
-             return json.dumps({"error": True, "message": f"Table '{table}' not found"})
-         columns = match[0].get("columns", [])
+    manager,
+    server_id: str,
+    database_id: int,
+    schema: str,
+    table: str,
+    include_statistics: bool = True,
+) -> str:
+    start_time = time.monotonic()
+    schema_raw = await _get_schema(manager, server_id, database_id, schema)
+    try:
+        schema_data = json.loads(schema_raw)
+    except (json.JSONDecodeError, TypeError):
+        return schema_raw if isinstance(schema_raw, str) else json.dumps({"error": True, "message": str(schema_raw)})
+    tables = schema_data.get("tables", [])
+    match = [t for t in tables if t.get("table_name", "").lower() == table.lower()]
+    if not match:
+        return json.dumps({"error": True, "message": f"Table '{table}' not found"})
+    columns = match[0].get("columns", [])
 
-         profile = {}
-         if include_statistics:
-             profile_raw = await profile_table(manager, server_id, database_id, schema, table, columns=columns)
-             try:
-                 profile = json.loads(profile_raw)
-             except (json.JSONDecodeError, TypeError):
-                 pass
+    profile = {}
+    if include_statistics:
+        profile_raw = await profile_table(manager, server_id, database_id, schema, table, columns=columns)
+        try:
+            profile = json.loads(profile_raw)
+        except (json.JSONDecodeError, TypeError):
+            pass
 
-         dictionary = {
-             "table": table,
-             "schema": schema,
-             "database_id": database_id,
-             "row_count": profile.get("row_count") if include_statistics else None,
-             "columns": [],
-         }
+    dictionary = {
+        "table": table,
+        "schema": schema,
+        "database_id": database_id,
+        "row_count": profile.get("row_count") if include_statistics else None,
+        "columns": [],
+    }
 
-         for col in columns:
-             col_name = col["column_name"]
-             col_type = col.get("data_type", "")
-             cat = _classify_column(col_type)
-             entry: Dict[str, Any] = {
-                 "column_name": col_name,
-                 "data_type": col_type,
-                 "category": cat,
-             }
-             if cat == "numeric":
-                 entry["recommended_role"] = "metric"
-                 entry["suggested_aggregations"] = ["SUM", "AVG", "MIN", "MAX", "COUNT"]
-             elif cat == "text":
-                 entry["recommended_role"] = "dimension"
-                 entry["suggested_uses"] = ["group by", "filter", "label"]
-             elif cat == "date":
-                 entry["recommended_role"] = "dimension"
-                 entry["suggested_uses"] = ["time range", "trend", "period comparison"]
-             if include_statistics:
-                 stats = (
-                     profile.get("numeric_columns", {}).get(col_name)
-                     or profile.get("text_columns", {}).get(col_name)
-                     or profile.get("date_columns", {}).get(col_name)
-                 )
-                 if stats:
-                     entry["statistics"] = stats
-             dictionary["columns"].append(entry)
+    for col in columns:
+        col_name = col["column_name"]
+        col_type = col.get("data_type", "")
+        cat = _classify_column(col_type)
+        entry: Dict[str, Any] = {
+            "column_name": col_name,
+            "data_type": col_type,
+            "category": cat,
+        }
+        if cat == "numeric":
+            entry["recommended_role"] = "metric"
+            entry["suggested_aggregations"] = ["SUM", "AVG", "MIN", "MAX", "COUNT"]
+        elif cat == "text":
+            entry["recommended_role"] = "dimension"
+            entry["suggested_uses"] = ["group by", "filter", "label"]
+        elif cat == "date":
+            entry["recommended_role"] = "dimension"
+            entry["suggested_uses"] = ["time range", "trend", "period comparison"]
+        if include_statistics:
+            stats = (
+                profile.get("numeric_columns", {}).get(col_name)
+                or profile.get("text_columns", {}).get(col_name)
+                or profile.get("date_columns", {}).get(col_name)
+            )
+            if stats:
+                entry["statistics"] = stats
+        dictionary["columns"].append(entry)
 
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="semantic_get_data_dictionary", status="success").inc()
-         mc.tool_duration.labels(tool="semantic_get_data_dictionary").observe(time.monotonic() - start_time)
-         return json.dumps(dictionary, indent=2, default=str)
-     except Exception as e:
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="semantic_get_data_dictionary", status="error").inc()
-         mc.record_error(tool="semantic_get_data_dictionary", error_message=str(e))
-         raise
+    mc = get_metrics()
+    mc.tool_calls.labels(tool="semantic_get_data_dictionary", status="success").inc()
+    mc.tool_duration.labels(tool="semantic_get_data_dictionary").observe(time.monotonic() - start_time)
+    return json.dumps(dictionary, indent=2, default=str)

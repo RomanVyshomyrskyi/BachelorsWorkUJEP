@@ -1,12 +1,12 @@
 import json
- import httpx
- import time
- from typing import Optional, Dict, Any
- from modules.SupersetModule.manager import ConnectionManager
- from modules.SupersetModule.api_client import execute_request
- from modules.SupersetModule.exceptions import SqlLabError
- from modules.SupersetModule.schemas.sqllab import SqlLabUrlResponse
- from modules.metrics import get_metrics
+import httpx
+import time
+from typing import Optional, Dict, Any
+from modules.SupersetModule.manager import ConnectionManager
+from modules.SupersetModule.api_client import execute_request
+from modules.SupersetModule.exceptions import SqlLabError
+from modules.SupersetModule.schemas.sqllab import SqlLabUrlResponse
+from modules.metrics import get_metrics
 
 async def sqllab_execute_query(
      manager: ConnectionManager,

@@ -1,17 +1,17 @@
 import json
- import asyncio
- import time
- from typing import Union, Optional, Dict, Any, Tuple, List
- from modules.SupersetModule.manager import ConnectionManager
- from modules.SupersetModule.models import TRANSFER_STRATEGY, RESOURCE_ENDPOINTS
- from modules.SupersetModule.api_client import ensure_auth, execute_request
- from modules.SupersetModule.tools.resources import impl_get_resource, impl_list_resources
- from modules.SupersetModule.tools.datasets import create_dataset
- from modules.SupersetModule.tools.charts import create_chart
- from modules.SupersetModule.tools.sqllab import sqllab_execute_query, sqllab_get_query_results
- from modules.SupersetModule.exceptions import TransferError
- from modules.log_utils import LogCollector
- from modules.metrics import get_metrics
+import asyncio
+import time
+from typing import Union, Optional, Dict, Any, Tuple, List
+from modules.SupersetModule.manager import ConnectionManager
+from modules.SupersetModule.models import TRANSFER_STRATEGY, RESOURCE_ENDPOINTS
+from modules.SupersetModule.api_client import ensure_auth, execute_request
+from modules.SupersetModule.tools.resources import impl_get_resource, impl_list_resources
+from modules.SupersetModule.tools.datasets import create_dataset
+from modules.SupersetModule.tools.charts import create_chart
+from modules.SupersetModule.tools.sqllab import sqllab_execute_query, sqllab_get_query_results
+from modules.SupersetModule.exceptions import TransferError
+from modules.log_utils import LogCollector
+from modules.metrics import get_metrics
 
 NEED_INPUT_PREFIX = "NEED_INPUT:"
 
@@ -398,77 +398,67 @@ async def _find_matching_charts_at_destination(
 
 
 async def transfer_dashboard(
-     manager: ConnectionManager,
-     source_server_id: str,
-     target_server_id: str,
-     dashboard_id: int,
-     db_mappings: Optional[str] = None,
-     table_mappings: Optional[str] = None
- ) -> str:
-     mc = get_metrics()
-     source_ctx = manager.get_context(source_server_id)
-     target_ctx = manager.get_context(target_server_id)
+    manager: ConnectionManager,
+    source_server_id: str,
+    target_server_id: str,
+    dashboard_id: int,
+    db_mappings: Optional[str] = None,
+    table_mappings: Optional[str] = None
+) -> str:
+    source_ctx = manager.get_context(source_server_id)
+    target_ctx = manager.get_context(target_server_id)
 
-     if not source_ctx or not target_ctx:
-         mc.tool_calls.labels(tool="superset_transfer_dashboard", status="error").inc()
-         mc.record_error(tool="superset_transfer_dashboard", error_message="Source or target server not found.")
-         return "Error: Source or target server not found."
+    if not source_ctx or not target_ctx:
+        return "Error: Source or target server not found."
 
-     log = LogCollector(__name__)
-     transfer_start = time.monotonic()
-     transfer_status = "failed"
-     transfer_items_count = 0
-     transfer_items_failed = 0
+    mc = get_metrics()
+    transfer_start = time.monotonic()
+    log = LogCollector(__name__)
 
-     try:
-         await ensure_auth(source_ctx)
-         await ensure_auth(target_ctx)
-     except Exception as e:
-         mc.tool_calls.labels(tool="superset_transfer_dashboard", status="error").inc()
-         mc.record_error(tool="superset_transfer_dashboard", error_message=f"Authentication failed: {e}")
-         return log.collect(TransferError(f"Authentication failed: {e}", details=str(e)).to_json())
+    try:
+        await ensure_auth(source_ctx)
+        await ensure_auth(target_ctx)
+    except Exception as e:
+        return log.collect(TransferError(f"Authentication failed: {e}", details=str(e)).to_json())
 
-     parsed_db_mappings: Dict[int, int] = {}
-     if db_mappings:
-         try:
-             raw = json.loads(db_mappings)
-             parsed_db_mappings = {int(k): int(v) for k, v in raw.items()}
-         except (json.JSONDecodeError, ValueError) as e:
-             mc.tool_calls.labels(tool="superset_transfer_dashboard", status="error").inc()
-             mc.record_error(tool="superset_transfer_dashboard", error_message="Invalid db_mappings JSON")
-             return log.collect(TransferError("Invalid db_mappings JSON", details=str(e)).to_json())
+    parsed_db_mappings: Dict[int, int] = {}
+    if db_mappings:
+        try:
+            raw = json.loads(db_mappings)
+            parsed_db_mappings = {int(k): int(v) for k, v in raw.items()}
+        except (json.JSONDecodeError, ValueError) as e:
+            return log.collect(TransferError("Invalid db_mappings JSON", details=str(e)).to_json())
 
-     parsed_table_mappings: Dict[str, str] = {}
-     if table_mappings:
-         try:
-             parsed_table_mappings = json.loads(table_mappings)
-         except json.JSONDecodeError as e:
-             mc.tool_calls.labels(tool="superset_transfer_dashboard", status="error").inc()
-             mc.record_error(tool="superset_transfer_dashboard", error_message="Invalid table_mappings JSON")
-             return log.collect(TransferError("Invalid table_mappings JSON", details=str(e)).to_json())
+    parsed_table_mappings: Dict[str, str] = {}
+    if table_mappings:
+        try:
+            parsed_table_mappings = json.loads(table_mappings)
+        except json.JSONDecodeError as e:
+            return log.collect(TransferError("Invalid table_mappings JSON", details=str(e)).to_json())
 
-     report: Dict[str, Any] = {
-         "source": {"server_id": source_server_id, "base_url": getattr(source_ctx.config, "base_url", "")},
-         "destination": {"server_id": target_server_id, "base_url": getattr(target_ctx.config, "base_url", "")},
-         "dashboard": {},
-         "datasets": [],
-         "charts": [],
-         "execution": {
-             "datasets": [],
-             "charts": [],
-             "dashboard": {},
-         },
-         "success_rate": "",
-         "errors": [],
-         "diffs": [],
-     }
+    transfer_start = time.time()
+    report: Dict[str, Any] = {
+        "source": {"server_id": source_server_id, "base_url": getattr(source_ctx.config, "base_url", "")},
+        "destination": {"server_id": target_server_id, "base_url": getattr(target_ctx.config, "base_url", "")},
+        "dashboard": {},
+        "datasets": [],
+        "charts": [],
+        "execution": {
+            "datasets": [],
+            "charts": [],
+            "dashboard": {},
+        },
+        "success_rate": "",
+        "errors": [],
+        "diffs": [],
+    }
 
-     report["_logs"] = log._logs
+    report["_logs"] = log._logs
 
-     log.info(f"Fetching source dashboard {dashboard_id}...")
-     dash_str = await impl_get_resource(manager, source_server_id, "dashboard", dashboard_id)
-     dash_data = _parse_json_result(dash_str)
-     if not dash_data:
+    log.info(f"Fetching source dashboard {dashboard_id}...")
+    dash_str = await impl_get_resource(manager, source_server_id, "dashboard", dashboard_id)
+    dash_data = _parse_json_result(dash_str)
+    if not dash_data:
         return f"Could not get dashboard {dashboard_id} from source: {dash_str}"
 
     dash_result = dash_data.get("result", {})
@@ -697,26 +687,20 @@ async def transfer_dashboard(
     report["success_rate"] = f"{pct}% ({total_ok}/{total_items} items succeeded)"
     report["total_duration_ms"] = int((time.time() - transfer_start) * 1000)
 
-summary = {
-         "message": "Dashboard transferred successfully",
-         "source": f"{source_server_id} -> {target_server_id}",
-         "source_dashboard_id": dashboard_id,
-         "target_dashboard_id": new_dash_id,
-         "datasource_mapping": {str(k): v[0] for k, v in ds_mapping.items()},
-         "chart_mapping": {str(k): v for k, v in chart_id_mapping.items()},
-         "link_result": link_result,
-         "_report": report,
-     }
-     transfer_status = "success"
-     mc.tool_calls.labels(tool="superset_transfer_dashboard", status=transfer_status).inc()
-     mc.tool_duration.labels(tool="superset_transfer_dashboard").observe(time.monotonic() - transfer_start)
-     mc.transfers_total.labels(status=transfer_status).inc()
-     mc.transfers_items.labels(status="success", item_type="dataset").inc(len(unique_ds_ids) - ds_errors)
-     mc.transfers_items.labels(status="success", item_type="chart").inc(len(source_chart_ids) - chart_errors)
-     mc.transfers_items.labels(status="success", item_type="dashboard").inc(1 if "Error" not in str(new_dash_str) else 0)
-     mc.transfers_items.labels(status="failed", item_type="dataset").inc(ds_errors)
-     mc.transfers_items.labels(status="failed", item_type="chart").inc(chart_errors)
-     return json.dumps(summary, indent=2, default=str)
+    summary = {
+        "message": "Dashboard transferred successfully",
+        "source": f"{source_server_id} -> {target_server_id}",
+        "source_dashboard_id": dashboard_id,
+        "target_dashboard_id": new_dash_id,
+        "datasource_mapping": {str(k): v[0] for k, v in ds_mapping.items()},
+        "chart_mapping": {str(k): v for k, v in chart_id_mapping.items()},
+        "link_result": link_result,
+        "_report": report,
+    }
+    mc.tool_calls.labels(tool="superset_transfer_dashboard", status="success").inc()
+    mc.tool_duration.labels(tool="superset_transfer_dashboard").observe(time.monotonic() - transfer_start)
+    mc.transfers_total.labels(status="success").inc()
+    return json.dumps(summary, indent=2, default=str)
 
 
 def _remap_chart_ids_in_position_json(position_json: Dict, chart_id_mapping: Dict[int, int]) -> Dict:

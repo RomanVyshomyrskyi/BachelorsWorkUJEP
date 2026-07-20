@@ -63,6 +63,7 @@ def resolve_column_name(
     
     Returns:
         The actual column name from the dataset, or None if not found.
+        Returns requested_column if no columns to check against.
     """
     if not dataset_columns:
         return requested_column  # No columns to check against
@@ -70,13 +71,13 @@ def resolve_column_name(
     if case_sensitive:
         for col in dataset_columns:
             if col.get("column_name") == requested_column:
-                return requested_column
+                return col.get("column_name")
         return None
     else:
         requested_lower = requested_column.lower()
         for col in dataset_columns:
             if col.get("column_name", "").lower() == requested_lower:
-                return requested_column
+                return col.get("column_name")
         return None
 
 

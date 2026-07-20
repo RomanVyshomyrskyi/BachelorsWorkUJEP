@@ -130,6 +130,6 @@ def tool_get_table_data(
         log.error(f"Data retrieval error for {table_name}: {e}")
         return f"Data Retrieval Error: {e}"
 
-def register_data_tools(mcp):
+def register_data_tools(mcp, db_manager=None):
     mcp.tool(name="run_read_only_sql")(tool_run_sql)
     mcp.tool(name="get_table_data")(tool_get_table_data)

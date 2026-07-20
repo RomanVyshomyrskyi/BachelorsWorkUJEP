@@ -105,5 +105,5 @@ def tool_generate_chart(
     except Exception as e:
         return f"Chart Generation Error: {str(e)}"
 
-def register_visualization_tools(mcp):
+def register_visualization_tools(mcp, db_manager=None):
     mcp.tool(name="generate_database_chart")(tool_generate_chart)

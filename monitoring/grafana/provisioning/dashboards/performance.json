@@ -12,7 +12,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -90,7 +90,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -166,7 +166,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -242,7 +242,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -318,7 +318,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -397,7 +397,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -468,107 +468,33 @@
     },
     {
       "datasource": {
-        "type": "datasource",
-        "uid": "-- Grafana --"
+        "type": "text",
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "filterable": true,
-            "inspect": true
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1
-              },
-              {
-                "color": "green",
-                "value": 10
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "error_message"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 600
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "timestamp"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 220
-              }
-            ]
-          }
-        ]
+        "defaults": {},
+        "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 4,
         "w": 24,
         "x": 0,
         "y": 24
       },
       "id": 7,
       "options": {
-        "footer": {
-          "fields": "",
-          "reducer": [
-            "sum"
-          ],
-          "show": false
-        },
-        "showHeader": true,
-        "sortBy": []
+        "content": "**Recent Errors** are tracked in an in-memory buffer (last 100 errors).\n\nTo view the full list, call the `/errors` HTTP endpoint:\n```bash\ncurl http://localhost:8000/errors\n```\n\nThis endpoint returns a JSON array with:\n- `tool`: the MCP tool name\n- `timestamp`: when the error occurred\n- `error_message`: the error details\n- `status_code`: HTTP status code if applicable\n\nErrors are automatically cleared when the service restarts.",
+        "mode": "markdown"
       },
       "pluginVersion": "10.4.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "editorMode": "code",
-          "queryType": "timeSeriesQuery",
-          "refId": "A",
-          "type": "annotations"
-        }
-      ],
-      "title": "Recent Errors (from in-memory buffer - refresh via /errors endpoint)",
-      "description": "See the /errors HTTP endpoint for the live list of recent errors. This panel shows error count by tool.",
-      "type": "table"
+      "targets": [],
+      "title": "Recent Errors (see /errors endpoint)",
+      "type": "text"
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -644,7 +570,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {

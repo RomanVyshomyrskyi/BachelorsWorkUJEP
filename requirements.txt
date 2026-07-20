@@ -15,3 +15,4 @@ pytest
 pytest-asyncio
 pytest-mock
 python-dotenv
+ prometheus_client

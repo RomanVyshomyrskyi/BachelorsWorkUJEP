@@ -985,6 +985,7 @@ TYPE_MAP: Dict[str, str] = {
     "mixed_timeseries": "mixed_timeseries",
     "word_cloud": "word_cloud",
     "world_map": "world_map",
+    "map": "world_map",
     "parallel": "parallel",
 }
 

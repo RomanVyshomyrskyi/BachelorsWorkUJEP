@@ -22,6 +22,7 @@ from modules.SupersetModule.superset_validation import (
  )
 from modules.SupersetModule.superset_mermaid import chart_to_mermaid
 from modules.SupersetModule.resolver import resolve_chart_params
+from modules.SupersetModule.chart_strategies import TYPE_MAP
 from modules.metrics import get_metrics
 
 async def get_chart_api_info(manager: ConnectionManager, server_id: str) -> str:
@@ -29,6 +30,10 @@ async def get_chart_api_info(manager: ConnectionManager, server_id: str) -> str:
     Retrieves metadata about the chart API.
     """
     return await impl_superset_api(manager, server_id, "GET", "/api/v1/chart/_info")
+
+def _resolve_viz_type(viz_type: str) -> str:
+    """Resolve a generic viz_type to the actual Superset viz_type using TYPE_MAP."""
+    return TYPE_MAP.get(viz_type, viz_type)
 
 def _extract_columns_from_dataset_response(response_str: str) -> List[Dict[str, Any]]:
     """Extract columns list from dataset API response."""
@@ -62,8 +67,9 @@ async def create_chart(
 
     start_time = time.monotonic()
     try:
+        actual_viz_type = _resolve_viz_type(viz_type)
         params_dict = json.loads(params) if params else {}
-        fixed_params = auto_fix_chart_params(viz_type, params_dict)
+        fixed_params = auto_fix_chart_params(actual_viz_type, params_dict)
         
         dataset_columns = []
         try:
@@ -81,7 +87,7 @@ async def create_chart(
         else:
             warning = None
         
-        errors = validate_chart_params(viz_type, fixed_params)
+        errors = validate_chart_params(actual_viz_type, fixed_params)
         validation_errors = format_error_summary(errors) if errors else None
         
         if validation_errors:
@@ -93,7 +99,7 @@ async def create_chart(
         chart_payload = {
             "slice_name": slice_name,
             "description": description,
-            "viz_type": viz_type,
+            "viz_type": actual_viz_type,
             "datasource_id": datasource_id,
             "datasource_type": datasource_type,
             "params": json.dumps(fixed_params),
@@ -108,7 +114,7 @@ async def create_chart(
             result["_validation_warning"] = warning
 
         try:
-            result["_mermaid_graph"] = chart_to_mermaid(viz_type, fixed_params, slice_name)
+            result["_mermaid_graph"] = chart_to_mermaid(actual_viz_type, fixed_params, slice_name)
         except Exception:
             result["_mermaid_graph"] = None
 
@@ -189,14 +195,16 @@ async def generate_chart(
         chart_config = json.loads(config) if config else {}
 
         viz_type = chart_config.get("viz_type", "table")
+        actual_viz_type = _resolve_viz_type(viz_type)
         form_data: Dict[str, Any] = {
             "datasource_id": dataset_id,
             "datasource_type": "table",
             "datasource": f"{dataset_id}__table",
         }
         form_data.update(chart_config)
+        form_data["viz_type"] = actual_viz_type
 
-        fixed_params = auto_fix_chart_params(viz_type, form_data)
+        fixed_params = auto_fix_chart_params(actual_viz_type, form_data)
         
         dataset_columns = []
         try:
@@ -214,7 +222,7 @@ async def generate_chart(
         else:
             validation_warning = None
         
-        errors = validate_chart_params(viz_type, fixed_params)
+        errors = validate_chart_params(actual_viz_type, fixed_params)
         validation_errors = format_error_summary(errors) if errors else None
         
         if validation_errors and not validation_warning:
@@ -243,7 +251,7 @@ async def generate_chart(
             "slice_name": chart_name,
             "datasource_id": dataset_id,
             "datasource_type": "table",
-            "viz_type": viz_type,
+            "viz_type": actual_viz_type,
             "params": json.dumps(fixed_params),
         }
         if description:
@@ -255,7 +263,7 @@ async def generate_chart(
         result = resp.json()
 
         try:
-            result["_mermaid_graph"] = chart_to_mermaid(viz_type, fixed_params, chart_name)
+            result["_mermaid_graph"] = chart_to_mermaid(actual_viz_type, fixed_params, chart_name)
         except Exception:
             result["_mermaid_graph"] = None
 

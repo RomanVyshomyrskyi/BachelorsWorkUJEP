@@ -29,14 +29,23 @@ def build_adhoc_dimension(column_name: str) -> Dict[str, Any]:
 
 def parse_metric_string(metric_str: str) -> Tuple[str, str]:
     """
-    Parse a metric string like 'SUM(sales)' into (aggregate, column_name).
+    Parse a metric string like 'SUM(sales)' or 'sum__sales' into (aggregate, column_name).
     
-    Returns ('AVG', 'unknown') if the metric doesn't match a known pattern.
+    Handles multiple formats:
+    - SQL expression: 'SUM(sales)', 'AVG(price)', 'COUNT(id)'
+    - SQL-style: 'sum__sales', 'avg__count', 'max__value'
+    - Simple: 'count'
+    
+    Returns (aggregate, column_name) tuple.
     """
     metric_str = metric_str.strip()
-    if metric_str.lower() == "count":
+    metric_lower = metric_str.lower()
+    
+    # Handle 'count' as a special case
+    if metric_lower == "count":
         return ("COUNT", "count")
     
+    # Handle SQL expression format: SUM(column), AVG(column), etc.
     match = re.match(
         r"^(SUM|AVG|MIN|MAX|COUNT|COUNT_DISTINCT)\s*\(\s*(.+?)\s*\)$",
         metric_str,
@@ -45,6 +54,16 @@ def parse_metric_string(metric_str: str) -> Tuple[str, str]:
     if match:
         return (match.group(1).upper(), match.group(2).strip())
     
+    # Handle SQL-style metric names: sum__sales, avg__count, max__value
+    match = re.match(
+        r"^(sum|avg|min|max|count|count_distinct)__(.+)$",
+        metric_str,
+        re.IGNORECASE,
+    )
+    if match:
+        return (match.group(1).upper(), match.group(2))
+    
+    # Fallback: treat entire string as column name with AVG aggregation
     return ("AVG", metric_str)
 
 
@@ -140,6 +159,10 @@ def _resolve_single_metric(
     elif actual != col_name:
         warnings.append(f"Metric column '{col_name}' renamed to '{actual}' to match dataset")
         return f"{agg}({actual})"
+    elif metric_str != f"{agg}({col_name})":
+        # Convert SQL-style names (sum__sales) to proper format (SUM(sales))
+        warnings.append(f"Metric '{metric_str}' converted to '{agg}({col_name})' for Superset")
+        return f"{agg}({col_name})"
     
     return metric_str
 

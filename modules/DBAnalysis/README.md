@@ -83,7 +83,7 @@ Use `password_env` in `databases.json` to avoid hardcoding secrets:
 }
 ```
 
-The module calls `os.getenv("MY_DB_PASSWORD")` at runtime. Falls back to `password` if the env var is not set.
+The module calls `os.getenv("MY_DB_PASSWORD")` at runtime. If the env var is not set and no fallback `password` is provided, a warning is logged.
 
 ---
 
@@ -176,14 +176,34 @@ Every tool (except `get_normalization_rules`) accepts either `db_id` or the full
 
 ## Supported Database Types
 
-| db_type   | Driver           | Default Port |
-|-----------|------------------|--------------|
-| `postgres`| `psycopg2`       | 5432         |
-| `mariadb` | `mysql.connector`| 3306         |
-| `mysql`   | `mysql.connector`| 3306         |
-| `mssql`   | `pyodbc`         | 1433         |
+### Direct Database Connections
 
-MSSQL requires "ODBC Driver 17 for SQL Server" installed in the environment.
+| db_type | Driver | Default Port | Docker Image | System Requirements |
+|---------|--------|--------------|--------------|---------------------|
+| `postgres` | `psycopg2` | 5432 | `postgres:14-alpine` | `libpq-dev` |
+| `mariadb` | `mysql.connector` | 3306 | `mariadb:10.8` | None (pure Python) |
+| `mysql` | `mysql.connector` | 3306 | `mariadb:10.8` | None (pure Python) |
+| `mssql` | `pyodbc` | 1433 | `mcr.microsoft.com/mssql/server:2019-latest` | ODBC Driver 17 for SQL Server, `unixodbc-dev` |
+
+**Security Features:**
+- All queries are validated using `sqlparse` AST parsing to block write operations (INSERT, UPDATE, DELETE, DROP, ALTER, etc.)
+- Multi-statement queries are blocked (prevents `SELECT 1; DROP TABLE users`)
+- Stored procedures with `sp_` and `xp_` prefixes are blocked
+- Row limits enforced: 1000 rows for SQL queries, 100 rows for table previews
+- Query timeout: 30 seconds per query
+- Error messages are sanitized to prevent schema/DB info leakage
+
+---
+
+### Indirect Database Access via Superset
+
+The `SupersetModule` communicates with any database backend supported by **Apache Superset** via HTTP API. This includes:
+- PostgreSQL
+- MySQL / MariaDB
+- Microsoft SQL Server
+- And any other database configured in your Superset instance
+
+See the [SupersetModule README](../SupersetModule/README.md) for details.
 
 ---
 
@@ -191,13 +211,23 @@ MSSQL requires "ODBC Driver 17 for SQL Server" installed in the environment.
 
 The project's `docker-compose.yml` launches three test databases. Credentials are set in `.env`:
 
-| Service      | Host (internal) | `.env` User       | `.env` Password         | `.env` Database     |
-|-------------|----------------|-------------------|-------------------------|---------------------|
-| `postgres-db`| `postgres-db`  | `POSTGRES_USER`   | `POSTGRES_PASSWORD`     | `POSTGRES_DB`       |
-| `mariadb-db` | `mariadb-db`   | `root`            | `MARIADB_ROOT_PASSWORD` | `MARIADB_DATABASE` |
-| `mssql-db`   | `mssql-db`     | `sa`              | `MSSQL_SA_PASSWORD`     | (none)              |
+| Service | Image | Container Name | Internal Host | `.env` User | `.env` Password | `.env` Database |
+|---------|-------|---------------|---------------|-------------|-----------------|-----------------|
+| `postgres-db` | `postgres:14-alpine` | `postgres-test-db` | `postgres-db` | `POSTGRES_USER` | `POSTGRES_PASSWORD` | `POSTGRES_DB` |
+| `mariadb-db` | `mariadb:10.8` | `mariadb-test-db` | `mariadb-db` | `root` | `MARIADB_ROOT_PASSWORD` | `MARIADB_DATABASE` |
+| `mssql-db` | `mcr.microsoft.com/mssql/server:2019-latest` | `mssql-test-db` | `mssql-db` | `sa` | `MSSQL_SA_PASSWORD` | (none, use `sa` as user) |
 
 **Important:** The hostnames to use from inside the Docker network are the service names (e.g., `postgres-db`, `mariadb-db`, `mssql-db`), not `localhost`. From outside Docker (your host machine), use `localhost` and the mapped ports (5432, 3306, 1433).
+
+### System Dependencies (for non-Docker installs)
+
+To run database drivers without Docker, install these system packages:
+
+| Database | Package |
+|----------|---------|
+| PostgreSQL | `libpq-dev` |
+| MSSQL | `unixodbc-dev`, ODBC Driver 17 for SQL Server |
+| MariaDB/MySQL | None (pure Python driver) |
 
 ---
 
@@ -222,15 +252,19 @@ The project's `docker-compose.yml` launches three test databases. Credentials ar
 #### `run_read_only_sql(db_type, host, user, password, dbname, query, port)`
 - **What it does**: Safely executes a SELECT query and returns the data.
 - **How it does it**:
-    1. Validates that the query starts with `SELECT` (basic security check).
-    2. Uses the database-specific strategy to execute the raw SQL.
-    3. Converts the resulting rows (tuples) into a list of dictionaries mapping column names to values.
+    1. Validates the query using `sqlparse` AST parsing to ensure it's read-only (blocks INSERT, UPDATE, DELETE, DROP, ALTER, etc.)
+    2. Blocks multi-statement queries and dangerous stored procedures (`sp_`, `xp_`)
+    3. Enforces a 30-second timeout and 1000-row limit
+    4. Uses the database-specific strategy to execute the raw SQL
+    5. Converts the resulting rows into a list of dictionaries mapping column names to values
 
 #### `get_table_data(db_type, host, user, password, dbname, table_name, limit, port)`
 - **What it does**: Quickly previews data from a specific table.
 - **How it does it**:
-    1. Constructs a `SELECT * FROM {table} LIMIT {limit}` query (or `TOP` for MSSQL).
-    2. Reuses the `run_read_only_sql` logic via the strategy's `execute_query` method.
+    1. Validates the table name format to prevent injection
+    2. Clamps the limit to 100 rows maximum
+    3. Constructs a `SELECT * FROM {table} LIMIT {limit}` query (or `TOP` for MSSQL)
+    4. Reuses the strategy's `execute_query` method with the same security validation
 
 ### Visualization Tools (`tools/visualization.py`)
 

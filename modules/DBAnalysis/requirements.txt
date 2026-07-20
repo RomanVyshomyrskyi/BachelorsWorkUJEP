@@ -1,6 +1,9 @@
 # This file contains dependencies specific to the DBAnalysis module.
 # These will be installed by the Dockerfile.
 
+# SQL parsing for security validation
+sqlparse
+
 # Driver for PostgreSQL
 psycopg2-binary
 

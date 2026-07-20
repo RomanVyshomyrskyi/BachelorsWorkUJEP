@@ -9,8 +9,9 @@ from typing import Optional, Any
 from ..models.connection import ConnectionDetails
 from ..strategies.factory import get_db_strategy
 from ..db_manager import DbManager
+from ..strategies.base import MAX_ROWS
 from modules.log_utils import LogCollector
-from .data import _resolve_config
+from .data import _resolve_config, _sanitize_error
 
 
 def tool_generate_chart(
@@ -27,20 +28,29 @@ def tool_generate_chart(
     password: Optional[str] = None,
     dbname: Optional[str] = None,
     port: Optional[int] = None,
+    max_rows: int = MAX_ROWS,
 ) -> Any:
     log = LogCollector(f"{__name__}.generate_chart")
     try:
         cfg = _resolve_config(db_manager, db_id, db_type, host, user, password, dbname, port)
     except ValueError as e:
         return str(e)
-    try:
-        log.info(f"Generating {chart_type} chart from {cfg['db_type']}://{cfg['host']}:{cfg['port']}/{cfg['dbname']}")
-        conn_details = ConnectionDetails(**cfg)
-        strategy = get_db_strategy(cfg['db_type'], conn_details.model_dump())
 
+    if not query or not query.strip():
+        return "Query cannot be empty"
+
+    # Clamp max_rows to prevent memory exhaustion
+    if max_rows > MAX_ROWS:
+        max_rows = MAX_ROWS
+
+    log.info(f"Generating {chart_type} chart from {cfg['db_type']}://{cfg['host']}:{cfg['port']}/{cfg['dbname']}")
+    conn_details = ConnectionDetails(**cfg)
+    strategy = get_db_strategy(cfg['db_type'], conn_details.model_dump())
+
+    try:
         with strategy as db_context:
             log.info(f"Executing chart query: {query[:200]}")
-            data = db_context.execute_query(query)
+            data = db_context.execute_query(query, max_rows=max_rows)
 
         if not data:
             log.warning(f"No data returned for chart from {cfg['dbname']}")
@@ -49,7 +59,7 @@ def tool_generate_chart(
         df = pd.DataFrame(data)
 
         if x_column not in df.columns or y_column not in df.columns:
-            return f"Error: Columns {x_column} or {y_column} not found in query result keys: {list(df.columns)}"
+            return f"Error: The specified columns were not found in the query result. Please verify column names."
 
         plt.figure(figsize=(10, 6))
 
@@ -79,13 +89,19 @@ def tool_generate_chart(
         img_base64 = base64.b64encode(img_bytes).decode('utf-8')
 
         return [
-            {"type": "text", "text": f"Generated {chart_type} chart for query: {query}"},
+            {"type": "text", "text": f"Generated {chart_type} chart"},
             {"type": "image", "data": img_base64, "mimeType": "image/png"}
         ]
 
+    except TimeoutError as e:
+        return str(e)
+    except RuntimeError as e:
+        return _sanitize_error(e)
+    except ValueError as e:
+        return str(e)
     except Exception as e:
-        log.error(f"Chart generation error for {cfg.get('dbname', db_id or '?')}: {e}")
-        return f"Chart Generation Error: {str(e)}"
+        log.error(f"Chart generation error: {e}")
+        return _sanitize_error(e)
 
 
 def register_visualization_tools(mcp, db_manager=None):

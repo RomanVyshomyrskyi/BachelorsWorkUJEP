@@ -216,6 +216,11 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Get schema for a specific chart type (expected params/config)."""
         return await charts.get_chart_type_schema(manager, server_id, chart_type)
 
+    @mcp.tool(name="superset_get_all_chart_schemas")
+    async def tool_get_all_chart_schemas(server_id: str) -> str:
+        """Discover ALL chart types from Superset and return a consolidated Markdown reference. Use BEFORE generating charts to get the complete, up-to-date list of chart types with their required parameters. Cached for 24 hours."""
+        return await charts.get_all_chart_schemas(manager, server_id)
+
     @mcp.tool(name="generate_dashboard")
     async def tool_generate_dashboard(server_id: str, dashboard_title: str, chart_ids: List[int], slug: Optional[str] = None, json_metadata: Optional[str] = None, published: bool = False, layout_type: str = "robust") -> str:
         """Create a new dashboard from chart IDs with auto-generated layout."""

@@ -4,7 +4,7 @@ from ..strategies.factory import get_db_strategy
 from ..utils.rules_loader import get_normalization_rules
 from ..db_manager import DbManager
 from modules.log_utils import LogCollector
-from .data import _resolve_config
+from .data import _resolve_config, _sanitize_error
 
 
 def tool_get_rules() -> str:
@@ -26,11 +26,12 @@ def tool_analyze_db(
         cfg = _resolve_config(db_manager, db_id, db_type, host, user, password, dbname, port)
     except ValueError as e:
         return str(e)
-    try:
-        log.info(f"Connecting to {cfg['db_type']}://{cfg['host']}:{cfg['port']}/{cfg['dbname']}")
-        conn_details = ConnectionDetails(**cfg)
-        strategy = get_db_strategy(cfg['db_type'], conn_details.model_dump())
 
+    log.info(f"Connecting to {cfg['db_type']}://{cfg['host']}:{cfg['port']}/{cfg['dbname']}")
+    conn_details = ConnectionDetails(**cfg)
+    strategy = get_db_strategy(cfg['db_type'], conn_details.model_dump())
+
+    try:
         with strategy as db_context:
             log.info("Extracting schema representation")
             schema_representation = db_context.get_schema_representation()
@@ -51,9 +52,13 @@ ANALYSIS DATA RETRIEVED SUCCESSFULLY.
 Please analyze the schema above based on the normalization rules provided.
 """
 
+    except TimeoutError as e:
+        return str(e)
+    except RuntimeError as e:
+        return _sanitize_error(e)
     except Exception as e:
-        log.error(f"Error analyzing {cfg.get('dbname', db_id or '?')}: {e}")
-        return f"Error: {e}"
+        log.error(f"Error analyzing database: {e}")
+        return _sanitize_error(e)
 
 
 def register_analysis_tools(mcp, db_manager=None):

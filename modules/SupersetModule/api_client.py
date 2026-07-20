@@ -1,11 +1,12 @@
 import os
-import logging
-import base64
-import time
-import json
-import httpx
-from typing import Optional
-from modules.SupersetModule.config import SupersetContext
+ import logging
+ import base64
+ import time
+ import json
+ import httpx
+ from typing import Optional
+ from modules.SupersetModule.config import SupersetContext
+ from modules.metrics import get_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -187,34 +188,46 @@ async def ensure_auth(ctx: SupersetContext):
 
 
 async def execute_request(
-    ctx: SupersetContext,
-    method: str,
-    endpoint: str,
-    **kwargs
-) -> httpx.Response:
-    """Executes an HTTP request with automatic token refresh on 401.
-    
-    If a 401 is received, clears the cached token, forces re-authentication,
-    and retries the request once. This handles both expired tokens and
-    unexpected authorization failures.
-    """
-    await ensure_auth(ctx)
+     ctx: SupersetContext,
+     method: str,
+     endpoint: str,
+     **kwargs
+ ) -> httpx.Response:
+     """Executes an HTTP request with automatic token refresh on 401.
+     
+     If a 401 is received, clears the cached token, forces re-authentication,
+     and retries the request once. This handles both expired tokens and
+     unexpected authorization failures.
+     """
+     mc = get_metrics()
+     start_time = time.monotonic()
+     
+     await ensure_auth(ctx)
 
-    try:
-        resp = await ctx.client.request(method, endpoint, **kwargs)
+     try:
+         resp = await ctx.client.request(method, endpoint, **kwargs)
 
-        if resp.status_code == 401:
-            logger.info(f"401 received for {ctx.server_id} on {method} {endpoint}. Re-authenticating...")
-            ctx.access_token = None
-            ctx.session_cookie = None
-            await ensure_auth(ctx)
+         if resp.status_code == 401:
+             logger.info(f"401 received for {ctx.server_id} on {method} {endpoint}. Re-authenticating...")
+             ctx.access_token = None
+             ctx.session_cookie = None
+             await ensure_auth(ctx)
 
-            resp = await ctx.client.request(method, endpoint, **kwargs)
+             resp = await ctx.client.request(method, endpoint, **kwargs)
 
-        return resp
+         elapsed = time.monotonic() - start_time
+         status = str(resp.status_code)
+         mc.api_requests.labels(method=method, endpoint=endpoint, status_code=status).inc()
 
-    except httpx.HTTPStatusError:
-        raise
-    except Exception as e:
-        logger.error(f"Request failed for {ctx.server_id} on {method} {endpoint}: {e}")
-        raise
+         return resp
+
+     except httpx.HTTPStatusError as e:
+         elapsed = time.monotonic() - start_time
+         status = str(e.response.status_code)
+         mc.api_requests.labels(method=method, endpoint=endpoint, status_code=status).inc()
+         raise
+     except Exception as e:
+         elapsed = time.monotonic() - start_time
+         mc.api_requests.labels(method=method, endpoint=endpoint, status_code="error").inc()
+         logger.error(f"Request failed for {ctx.server_id} on {method} {endpoint}: {e}")
+         raise

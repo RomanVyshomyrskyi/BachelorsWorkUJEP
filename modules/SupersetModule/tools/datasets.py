@@ -1,15 +1,17 @@
 import json
-import asyncio
-import httpx
-from typing import List, Optional, Dict, Any, Union
-from modules.SupersetModule.manager import ConnectionManager
-from modules.SupersetModule.api_client import execute_request
-from modules.SupersetModule.tools.resources import impl_get_resource
-from modules.SupersetModule.tools.sqllab import sqllab_execute_query, sqllab_get_query_results
-from modules.SupersetModule.tools.general import impl_superset_api
-from modules.SupersetModule.exceptions import DatasetError
-from modules.SupersetModule.schemas.dataset import DatabaseSchemaResponse
-from modules.log_utils import LogCollector
+ import asyncio
+ import httpx
+ import time
+ from typing import List, Optional, Dict, Any, Union
+ from modules.SupersetModule.manager import ConnectionManager
+ from modules.SupersetModule.api_client import execute_request
+ from modules.SupersetModule.tools.resources import impl_get_resource
+ from modules.SupersetModule.tools.sqllab import sqllab_execute_query, sqllab_get_query_results
+ from modules.SupersetModule.tools.general import impl_superset_api
+ from modules.SupersetModule.exceptions import DatasetError
+ from modules.SupersetModule.schemas.dataset import DatabaseSchemaResponse
+ from modules.log_utils import LogCollector
+ from modules.metrics import get_metrics
 
 log = LogCollector(__name__)
 
@@ -46,117 +48,160 @@ async def get_dataset_info(
 
 
 async def create_virtual_dataset(
-    manager: ConnectionManager,
-    server_id: str,
-    dataset_name: str,
-    database_id: int,
-    sql: str,
-    schema: Optional[str] = None,
-    description: Optional[str] = None,
-    default_endpoint_id: Optional[int] = None,
-    columns_json: Optional[str] = None,
-    metrics_json: Optional[str] = None
-) -> str:
-    ctx = manager.get_context(server_id)
-    if not ctx:
-        return log.collect(DatasetError(f"Server '{server_id}' not found.", status_code=404).to_json())
+     manager: ConnectionManager,
+     server_id: str,
+     dataset_name: str,
+     database_id: int,
+     sql: str,
+     schema: Optional[str] = None,
+     description: Optional[str] = None,
+     default_endpoint_id: Optional[int] = None,
+     columns_json: Optional[str] = None,
+     metrics_json: Optional[str] = None
+ ) -> str:
+     ctx = manager.get_context(server_id)
+     if not ctx:
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
+         mc.record_error(tool="superset_create_virtual_dataset", error_message=f"Server '{server_id}' not found.")
+         return log.collect(DatasetError(f"Server '{server_id}' not found.", status_code=404).to_json())
 
-    try:
-        dataset_payload: Dict[str, Any] = {
-            "table_name": dataset_name,
-            "database": database_id,
-            "sql": sql,
-        }
-        if schema:
-            dataset_payload["schema"] = schema
-        if description:
-            dataset_payload["description"] = description
-        if default_endpoint_id:
-            dataset_payload["default_endpoint_id"] = default_endpoint_id
-        if columns_json:
-            try:
-                dataset_payload["columns"] = json.loads(columns_json)
-            except json.JSONDecodeError:
-                return log.collect(DatasetError("'columns_json' is not a valid JSON string.", details=columns_json).to_json())
-        if metrics_json:
-            try:
-                dataset_payload["metrics"] = json.loads(metrics_json)
-            except json.JSONDecodeError:
-                return log.collect(DatasetError("'metrics_json' is not a valid JSON string.", details=metrics_json).to_json())
+     start_time = time.monotonic()
+     try:
+         dataset_payload: Dict[str, Any] = {
+             "table_name": dataset_name,
+             "database": database_id,
+             "sql": sql,
+         }
+         if schema:
+             dataset_payload["schema"] = schema
+         if description:
+             dataset_payload["description"] = description
+         if default_endpoint_id:
+             dataset_payload["default_endpoint_id"] = default_endpoint_id
+         if columns_json:
+             try:
+                 dataset_payload["columns"] = json.loads(columns_json)
+             except json.JSONDecodeError:
+                 mc = get_metrics()
+                 mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
+                 mc.record_error(tool="superset_create_virtual_dataset", error_message="Invalid JSON in columns_json")
+                 return log.collect(DatasetError("'columns_json' is not a valid JSON string.", details=columns_json).to_json())
+         if metrics_json:
+             try:
+                 dataset_payload["metrics"] = json.loads(metrics_json)
+             except json.JSONDecodeError:
+                 mc = get_metrics()
+                 mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
+                 mc.record_error(tool="superset_create_virtual_dataset", error_message="Invalid JSON in metrics_json")
+                 return log.collect(DatasetError("'metrics_json' is not a valid JSON string.", details=metrics_json).to_json())
 
-        endpoint = "/api/v1/dataset/"
-        resp = await execute_request(ctx, "POST", endpoint, json=dataset_payload)
-        resp.raise_for_status()
+         endpoint = "/api/v1/dataset/"
+         resp = await execute_request(ctx, "POST", endpoint, json=dataset_payload)
+         resp.raise_for_status()
 
-        return log.collect(json.dumps(resp.json(), indent=2))
-    except httpx.HTTPStatusError as e:
-        log.error(f"HTTPStatusError creating virtual dataset for {server_id}: {e.response.status_code} - {e.response.text}")
-        return log.collect(DatasetError(
-            f"HTTP {e.response.status_code} creating virtual dataset",
-            status_code=e.response.status_code,
-            details=e.response.text,
-        ).to_json())
-    except Exception as e:
-        log.error(f"Unexpected error creating virtual dataset for {server_id}: {e}")
-        return log.collect(DatasetError(f"Unexpected error creating virtual dataset: {e}", details=str(e)).to_json())
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="success").inc()
+         mc.tool_duration.labels(tool="superset_create_virtual_dataset").observe(time.monotonic() - start_time)
+         mc.resources_created.labels(resource_type="dataset").inc()
+         return log.collect(json.dumps(resp.json(), indent=2))
+     except httpx.HTTPStatusError as e:
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
+         mc.record_error(tool="superset_create_virtual_dataset", error_message=f"HTTP {e.response.status_code} creating virtual dataset", status_code=e.response.status_code)
+         log.error(f"HTTPStatusError creating virtual dataset for {server_id}: {e.response.status_code} - {e.response.text}")
+         return log.collect(DatasetError(
+             f"HTTP {e.response.status_code} creating virtual dataset",
+             status_code=e.response.status_code,
+             details=e.response.text,
+         ).to_json())
+     except Exception as e:
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
+         mc.record_error(tool="superset_create_virtual_dataset", error_message=str(e))
+         log.error(f"Unexpected error creating virtual dataset for {server_id}: {e}")
+         return log.collect(DatasetError(f"Unexpected error creating virtual dataset: {e}", details=str(e)).to_json())
 
 
 async def create_dataset(
-    manager: ConnectionManager,
-    server_id: str,
-    table_name: str,
-    database_id: int,
-    schema: Optional[str] = None,
-    owners: Optional[List[int]] = None,
-    metrics_json: Optional[str] = None,
-    columns_json: Optional[str] = None,
-    sql_expression: Optional[str] = None
-) -> str:
-    ctx = manager.get_context(server_id)
-    if not ctx:
-        return log.collect(DatasetError(f"Server '{server_id}' not found.", status_code=404).to_json())
+     manager: ConnectionManager,
+     server_id: str,
+     table_name: str,
+     database_id: int,
+     schema: Optional[str] = None,
+     owners: Optional[List[int]] = None,
+     metrics_json: Optional[str] = None,
+     columns_json: Optional[str] = None,
+     sql_expression: Optional[str] = None
+ ) -> str:
+     ctx = manager.get_context(server_id)
+     if not ctx:
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
+         mc.record_error(tool="superset_create_dataset", error_message=f"Server '{server_id}' not found.")
+         return log.collect(DatasetError(f"Server '{server_id}' not found.", status_code=404).to_json())
 
-    try:
-        dataset_payload: Dict[str, Any] = {
-            "table_name": table_name,
-            "database": database_id,
-        }
-        if schema:
-            dataset_payload["schema"] = schema
-        if owners is not None:
-            dataset_payload["owners"] = owners
-        if metrics_json:
-            try:
-                dataset_payload["metrics"] = json.loads(metrics_json)
-            except json.JSONDecodeError:
-                return log.collect(DatasetError("'metrics_json' is not valid JSON.", details=metrics_json).to_json())
-        if columns_json:
-            try:
-                dataset_payload["columns"] = json.loads(columns_json)
-            except json.JSONDecodeError:
-                return log.collect(DatasetError("'columns_json' is not valid JSON.", details=columns_json).to_json())
-        if sql_expression:
-            dataset_payload["sql_expression"] = sql_expression
+     start_time = time.monotonic()
+     try:
+         dataset_payload: Dict[str, Any] = {
+             "table_name": table_name,
+             "database": database_id,
+         }
+         if schema:
+             dataset_payload["schema"] = schema
+         if owners is not None:
+             dataset_payload["owners"] = owners
+         if metrics_json:
+             try:
+                 dataset_payload["metrics"] = json.loads(metrics_json)
+             except json.JSONDecodeError:
+                 mc = get_metrics()
+                 mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
+                 mc.record_error(tool="superset_create_dataset", error_message="Invalid JSON in metrics_json")
+                 return log.collect(DatasetError("'metrics_json' is not valid JSON.", details=metrics_json).to_json())
+         if columns_json:
+             try:
+                 dataset_payload["columns"] = json.loads(columns_json)
+             except json.JSONDecodeError:
+                 mc = get_metrics()
+                 mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
+                 mc.record_error(tool="superset_create_dataset", error_message="Invalid JSON in columns_json")
+                 return log.collect(DatasetError("'columns_json' is not valid JSON.", details=columns_json).to_json())
+         if sql_expression:
+             dataset_payload["sql_expression"] = sql_expression
 
-        db_check_result = await impl_get_resource(manager, server_id, "database", database_id)
-        if "Error" in db_check_result or "not found" in db_check_result.lower():
-            return log.collect(DatasetError(f"Database ID '{database_id}' not found", details=db_check_result).to_json())
+         db_check_result = await impl_get_resource(manager, server_id, "database", database_id)
+         if "Error" in db_check_result or "not found" in db_check_result.lower():
+             mc = get_metrics()
+             mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
+             mc.record_error(tool="superset_create_dataset", error_message=f"Database ID '{database_id}' not found")
+             return log.collect(DatasetError(f"Database ID '{database_id}' not found", details=db_check_result).to_json())
 
-        endpoint = "/api/v1/dataset/"
-        resp = await execute_request(ctx, "POST", endpoint, json=dataset_payload)
-        resp.raise_for_status()
+         endpoint = "/api/v1/dataset/"
+         resp = await execute_request(ctx, "POST", endpoint, json=dataset_payload)
+         resp.raise_for_status()
 
-        return log.collect(json.dumps(resp.json(), indent=2))
-    except httpx.HTTPStatusError as e:
-        log.error(f"HTTPStatusError creating dataset for {server_id}: {e.response.status_code} - {e.response.text}")
-        return log.collect(DatasetError(
-            f"HTTP {e.response.status_code} creating dataset",
-            status_code=e.response.status_code,
-            details=e.response.text,
-        ).to_json())
-    except Exception as e:
-        log.error(f"Unexpected error creating dataset for {server_id}: {e}")
-        return log.collect(DatasetError(f"Unexpected error creating dataset: {e}", details=str(e)).to_json())
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_create_dataset", status="success").inc()
+         mc.tool_duration.labels(tool="superset_create_dataset").observe(time.monotonic() - start_time)
+         mc.resources_created.labels(resource_type="dataset").inc()
+         return log.collect(json.dumps(resp.json(), indent=2))
+     except httpx.HTTPStatusError as e:
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
+         mc.record_error(tool="superset_create_dataset", error_message=f"HTTP {e.response.status_code} creating dataset", status_code=e.response.status_code)
+         log.error(f"HTTPStatusError creating dataset for {server_id}: {e.response.status_code} - {e.response.text}")
+         return log.collect(DatasetError(
+             f"HTTP {e.response.status_code} creating dataset",
+             status_code=e.response.status_code,
+             details=e.response.text,
+         ).to_json())
+     except Exception as e:
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
+         mc.record_error(tool="superset_create_dataset", error_message=str(e))
+         log.error(f"Unexpected error creating dataset for {server_id}: {e}")
+         return log.collect(DatasetError(f"Unexpected error creating dataset: {e}", details=str(e)).to_json())
 
 async def get_database_schema(
     manager: ConnectionManager,

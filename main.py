@@ -5,9 +5,10 @@ import importlib.util
 import logging
 from fastmcp import FastMCP
 from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
-import uvicorn
-from modules.registry import ModuleRegistry, resolve_dependency_order
+from fastapi.responses import RedirectResponse, Response
+ import uvicorn
+ from modules.registry import ModuleRegistry, resolve_dependency_order
+ from modules.metrics import get_metrics
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -219,13 +220,26 @@ except Exception as e:
     logging.error(f"Failed to mount FastMCP app: {e}")
 
 # 3. Add redirects for the default paths to maintain compatibility
-@app.get("/sse")
-async def handle_sse_redirect():
-    return RedirectResponse(url="/mcp/sse")
+ @app.get("/sse")
+ async def handle_sse_redirect():
+     return RedirectResponse(url="/mcp/sse")
 
-@app.get("/messages")
-async def handle_messages_redirect():
-    return RedirectResponse(url="/mcp/messages")
+ @app.get("/messages")
+ async def handle_messages_redirect():
+     return RedirectResponse(url="/mcp/messages")
+
+# 4. Add observability endpoints
+ @app.get("/metrics")
+ async def prometheus_metrics():
+from modules.metrics import get_metrics
+ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+     mc = get_metrics()
+     return Response(content=str(generate_latest()), media_type=CONTENT_TYPE_LATEST)
+
+ @app.get("/errors")
+ async def get_recent_errors():
+     mc = get_metrics()
+     return mc.get_errors()
 
 # --- Entry Point ---
 if __name__ == "__main__":

@@ -1,21 +1,23 @@
 import json
-import httpx
-from typing import List, Dict, Any, Optional, Union
-from modules.SupersetModule.manager import ConnectionManager
-from modules.SupersetModule.api_client import execute_request
-from modules.SupersetModule.tools.general import impl_superset_api
-from modules.SupersetModule.tools.resources import impl_get_resource
-from modules.SupersetModule.tools.transfer import impl_transfer_item, transfer_dashboard as new_transfer_dashboard
-from modules.SupersetModule.exceptions import DashboardError
-from modules.SupersetModule.schemas.dashboard import (
-    DashboardListItem,
-    DashboardDetail,
-    DashboardGenerateResponse,
-    ChartLinkResult,
-)
-from modules.SupersetModule import rules
-from modules.SupersetModule.superset_mermaid import dashboard_to_mermaid
-from modules.log_utils import LogCollector
+ import httpx
+ import time
+ from typing import List, Dict, Any, Optional, Union
+ from modules.SupersetModule.manager import ConnectionManager
+ from modules.SupersetModule.api_client import execute_request
+ from modules.SupersetModule.tools.general import impl_superset_api
+ from modules.SupersetModule.tools.resources import impl_get_resource
+ from modules.SupersetModule.tools.transfer import impl_transfer_item, transfer_dashboard as new_transfer_dashboard
+ from modules.SupersetModule.exceptions import DashboardError
+ from modules.SupersetModule.schemas.dashboard import (
+     DashboardListItem,
+     DashboardDetail,
+     DashboardGenerateResponse,
+     ChartLinkResult,
+ )
+ from modules.SupersetModule import rules
+ from modules.SupersetModule.superset_mermaid import dashboard_to_mermaid
+ from modules.log_utils import LogCollector
+ from modules.metrics import get_metrics
 
 log = LogCollector(__name__)
 
@@ -143,55 +145,69 @@ async def get_dashboard_info(
 
 
 async def create_dashboard(
-    manager: ConnectionManager,
-    server_id: str,
-    dashboard_title: str,
-    position_json: str,
-    slug: Optional[str] = None,
-    json_metadata: Optional[str] = None,
-    owners: Optional[List[int]] = None,
-    roles: Optional[List[int]] = None,
-    published: Optional[bool] = False
-) -> str:
-    ctx = manager.get_context(server_id)
-    if not ctx:
-        return log.collect(DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json())
+     manager: ConnectionManager,
+     server_id: str,
+     dashboard_title: str,
+     position_json: str,
+     slug: Optional[str] = None,
+     json_metadata: Optional[str] = None,
+     owners: Optional[List[int]] = None,
+     roles: Optional[List[int]] = None,
+     published: Optional[bool] = False
+ ) -> str:
+     ctx = manager.get_context(server_id)
+     if not ctx:
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_create_dashboard", status="error").inc()
+         mc.record_error(tool="superset_create_dashboard", error_message=f"Server '{server_id}' not found.")
+         return log.collect(DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json())
 
-    try:
-        dashboard_payload = {
-            "dashboard_title": dashboard_title,
-            "position_json": position_json,
-            "slug": slug,
-            "json_metadata": json_metadata,
-            "owners": owners if owners is not None else [],
-            "roles": roles if roles is not None else [],
-            "published": published
-        }
-        dashboard_payload = {k: v for k, v in dashboard_payload.items() if v is not None}
+     start_time = time.monotonic()
+     try:
+         dashboard_payload = {
+             "dashboard_title": dashboard_title,
+             "position_json": position_json,
+             "slug": slug,
+             "json_metadata": json_metadata,
+             "owners": owners if owners is not None else [],
+             "roles": roles if roles is not None else [],
+             "published": published
+         }
+         dashboard_payload = {k: v for k, v in dashboard_payload.items() if v is not None}
 
-        endpoint = "/api/v1/dashboard/"
-        resp = await execute_request(ctx, "POST", endpoint, json=dashboard_payload)
-        resp.raise_for_status()
-        result = resp.json()
+         endpoint = "/api/v1/dashboard/"
+         resp = await execute_request(ctx, "POST", endpoint, json=dashboard_payload)
+         resp.raise_for_status()
+         result = resp.json()
 
-        try:
-            result["_mermaid_graph"] = dashboard_to_mermaid(
-                dashboard_title,
-                chart_ids=[],
-                chart_info=result.get("charts", []),
-            )
-        except Exception:
-            result["_mermaid_graph"] = None
+         try:
+             result["_mermaid_graph"] = dashboard_to_mermaid(
+                 dashboard_title,
+                 chart_ids=[],
+                 chart_info=result.get("charts", []),
+             )
+         except Exception:
+             result["_mermaid_graph"] = None
 
-        return log.collect(json.dumps(result, indent=2))
-    except httpx.HTTPStatusError as e:
-        return log.collect(DashboardError(
-            f"HTTP {e.response.status_code} creating dashboard",
-            status_code=e.response.status_code,
-            details=e.response.text,
-        ).to_json())
-    except Exception as e:
-        return log.collect(DashboardError(f"Unexpected error creating dashboard: {e}", details=str(e)).to_json())
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_create_dashboard", status="success").inc()
+         mc.tool_duration.labels(tool="superset_create_dashboard").observe(time.monotonic() - start_time)
+         mc.resources_created.labels(resource_type="dashboard").inc()
+         return log.collect(json.dumps(result, indent=2))
+     except httpx.HTTPStatusError as e:
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_create_dashboard", status="error").inc()
+         mc.record_error(tool="superset_create_dashboard", error_message=f"HTTP {e.response.status_code} creating dashboard", status_code=e.response.status_code)
+         return log.collect(DashboardError(
+             f"HTTP {e.response.status_code} creating dashboard",
+             status_code=e.response.status_code,
+             details=e.response.text,
+         ).to_json())
+     except Exception as e:
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_create_dashboard", status="error").inc()
+         mc.record_error(tool="superset_create_dashboard", error_message=str(e))
+         return log.collect(DashboardError(f"Unexpected error creating dashboard: {e}", details=str(e)).to_json())
 
 async def get_dashboard_api_info(manager: ConnectionManager, server_id: str) -> str:
     return await impl_superset_api(manager, server_id, "GET", "/api/v1/dashboard/_info")
@@ -253,63 +269,81 @@ async def transfer_dashboard(
 
 
 async def generate_dashboard(
-    manager: ConnectionManager,
-    server_id: str,
-    dashboard_title: str,
-    chart_ids: List[int],
-    slug: Optional[str] = None,
-    json_metadata: Optional[str] = None,
-    published: bool = False,
-    layout_type: str = "robust"
-) -> str:
-    ctx = manager.get_context(server_id)
-    if not ctx:
-        return log.collect(DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json())
+     manager: ConnectionManager,
+     server_id: str,
+     dashboard_title: str,
+     chart_ids: List[int],
+     slug: Optional[str] = None,
+     json_metadata: Optional[str] = None,
+     published: bool = False,
+     layout_type: str = "robust"
+ ) -> str:
+     ctx = manager.get_context(server_id)
+     if not ctx:
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_generate_dashboard", status="error").inc()
+         mc.record_error(tool="superset_generate_dashboard", error_message=f"Server '{server_id}' not found.")
+         return log.collect(DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json())
 
-    if not chart_ids:
-        return log.collect(DashboardError("At least one chart ID must be provided.").to_json())
+     if not chart_ids:
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_generate_dashboard", status="error").inc()
+         mc.record_error(tool="superset_generate_dashboard", error_message="At least one chart ID must be provided.")
+         return log.collect(DashboardError("At least one chart ID must be provided.").to_json())
 
-    try:
-        if layout_type == "simple":
-            position_json = _build_simple_layout_json(chart_ids)
-        else:
-            position_json = _build_robust_layout_json(chart_ids)
+     start_time = time.monotonic()
+     try:
+         if layout_type == "simple":
+             position_json = _build_simple_layout_json(chart_ids)
+         else:
+             position_json = _build_robust_layout_json(chart_ids)
 
-        dashboard_payload = {
-            "dashboard_title": dashboard_title,
-            "position_json": position_json,
-            "slug": slug,
-            "json_metadata": json_metadata,
-            "owners": [],
-            "roles": [],
-            "published": published
-        }
-        dashboard_payload = {k: v for k, v in dashboard_payload.items() if v is not None}
+         dashboard_payload = {
+             "dashboard_title": dashboard_title,
+             "position_json": position_json,
+             "slug": slug,
+             "json_metadata": json_metadata,
+             "owners": [],
+             "roles": [],
+             "published": published
+         }
+         dashboard_payload = {k: v for k, v in dashboard_payload.items() if v is not None}
 
-        endpoint = "/api/v1/dashboard/"
-        resp = await execute_request(ctx, "POST", endpoint, json=dashboard_payload)
-        resp.raise_for_status()
-        result = resp.json()
+         endpoint = "/api/v1/dashboard/"
+         resp = await execute_request(ctx, "POST", endpoint, json=dashboard_payload)
+         resp.raise_for_status()
+         result = resp.json()
 
-        await bulk_link_charts(manager, server_id, result.get("id"), chart_ids)
+         await bulk_link_charts(manager, server_id, result.get("id"), chart_ids)
 
-        try:
-            result["_mermaid_graph"] = dashboard_to_mermaid(
-                dashboard_title,
-                chart_ids=chart_ids,
-            )
-        except Exception:
-            result["_mermaid_graph"] = None
+         try:
+             result["_mermaid_graph"] = dashboard_to_mermaid(
+                 dashboard_title,
+                 chart_ids=chart_ids,
+             )
+         except Exception:
+             result["_mermaid_graph"] = None
 
-        return log.collect(json.dumps(result, indent=2))
-    except httpx.HTTPStatusError as e:
-        return log.collect(DashboardError(
-            f"HTTP {e.response.status_code} generating dashboard",
-            status_code=e.response.status_code,
-            details=e.response.text,
-        ).to_json())
-    except Exception as e:
-        return log.collect(DashboardError(f"Unexpected error generating dashboard: {e}", details=str(e)).to_json())
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_generate_dashboard", status="success").inc()
+         mc.tool_duration.labels(tool="superset_generate_dashboard").observe(time.monotonic() - start_time)
+         mc.resources_created.labels(resource_type="dashboard").inc()
+         mc.dashboards_generated.labels(layout_type=layout_type).inc()
+         return log.collect(json.dumps(result, indent=2))
+     except httpx.HTTPStatusError as e:
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_generate_dashboard", status="error").inc()
+         mc.record_error(tool="superset_generate_dashboard", error_message=f"HTTP {e.response.status_code} generating dashboard", status_code=e.response.status_code)
+         return log.collect(DashboardError(
+             f"HTTP {e.response.status_code} generating dashboard",
+             status_code=e.response.status_code,
+             details=e.response.text,
+         ).to_json())
+     except Exception as e:
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_generate_dashboard", status="error").inc()
+         mc.record_error(tool="superset_generate_dashboard", error_message=str(e))
+         return log.collect(DashboardError(f"Unexpected error generating dashboard: {e}", details=str(e)).to_json())
 
 
 def _build_simple_layout_json(chart_ids: List[int]) -> str:

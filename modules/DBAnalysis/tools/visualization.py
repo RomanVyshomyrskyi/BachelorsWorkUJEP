@@ -1,17 +1,19 @@
 import json
-import base64
-import io
-import pandas as pd
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-from typing import Optional, Any
-from ..models.connection import ConnectionDetails
-from ..strategies.factory import get_db_strategy
-from ..db_manager import DbManager
-from ..strategies.base import MAX_ROWS
-from modules.log_utils import LogCollector
-from .data import _resolve_config, _sanitize_error
+ import base64
+ import io
+ import time
+ import pandas as pd
+ import matplotlib
+ matplotlib.use('Agg')
+ import matplotlib.pyplot as plt
+ from typing import Optional, Any
+ from ..models.connection import ConnectionDetails
+ from ..strategies.factory import get_db_strategy
+ from ..db_manager import DbManager
+ from ..strategies.base import MAX_ROWS
+ from modules.log_utils import LogCollector
+ from .data import _resolve_config, _sanitize_error
+ from modules.metrics import get_metrics
 
 
 def tool_generate_chart(
@@ -105,19 +107,30 @@ def tool_generate_chart(
 
 
 def register_visualization_tools(mcp, db_manager=None):
-    @mcp.tool(name="generate_database_chart")
-    def generate_database_chart(
-        query: str,
-        chart_type: str,
-        x_column: str,
-        y_column: str,
-        title: str = "Database Analysis Chart",
-        db_id: Optional[str] = None,
-        db_type: Optional[str] = None,
-        host: Optional[str] = None,
-        user: Optional[str] = None,
-        password: Optional[str] = None,
-        dbname: Optional[str] = None,
-        port: Optional[int] = None,
-    ) -> Any:
-        return tool_generate_chart(db_manager, query, chart_type, x_column, y_column, title, db_id, db_type, host, user, password, dbname, port)
+     @mcp.tool(name="generate_database_chart")
+     def generate_database_chart(
+         query: str,
+         chart_type: str,
+         x_column: str,
+         y_column: str,
+         title: str = "Database Analysis Chart",
+         db_id: Optional[str] = None,
+         db_type: Optional[str] = None,
+         host: Optional[str] = None,
+         user: Optional[str] = None,
+         password: Optional[str] = None,
+         dbname: Optional[str] = None,
+         port: Optional[int] = None,
+     ) -> Any:
+         mc = get_metrics()
+         start = time.monotonic()
+         try:
+             result = tool_generate_chart(db_manager, query, chart_type, x_column, y_column, title, db_id, db_type, host, user, password, dbname, port)
+             mc.charts_generated.labels(chart_type=chart_type).inc()
+             mc.tool_calls.labels(tool="db_analysis_generate_chart", status="success").inc()
+             mc.tool_duration.labels(tool="db_analysis_generate_chart").observe(time.monotonic() - start)
+             return result
+         except Exception as e:
+             mc.tool_calls.labels(tool="db_analysis_generate_chart", status="error").inc()
+             mc.record_error(tool="db_analysis_generate_chart", error_message=str(e))
+             raise

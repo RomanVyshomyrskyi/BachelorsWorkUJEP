@@ -12,7 +12,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -77,7 +77,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(tool_calls_total[5m])",
+          "expr": "increase(tool_calls_total[1h])",
           "legendFormat": "{{tool}}",
           "refId": "A"
         }
@@ -88,7 +88,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -146,7 +146,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -202,7 +202,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum(rate(tool_calls_total{status=\"success\"}[5m])) / sum(rate(tool_calls_total[5m])) * 100",
+          "expr": "sum(increase(tool_calls_total{status=\"success\"}[1h])) / sum(increase(tool_calls_total[1h])) * 100",
           "legendFormat": "Success Rate",
           "refId": "A"
         }
@@ -213,7 +213,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -278,7 +278,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(queries_executed_total[5m])",
+          "expr": "increase(queries_executed_total[1h])",
           "legendFormat": "{{source}}",
           "refId": "A"
         }
@@ -289,7 +289,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -354,7 +354,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(db_queries_total[5m])",
+          "expr": "increase(db_queries_total[1h])",
           "legendFormat": "{{db_type}}",
           "refId": "A"
         }
@@ -365,7 +365,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "PBFA97CFB590B2093"
       },
       "fieldConfig": {
         "defaults": {
@@ -433,7 +433,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum by (tool) (rate(tool_calls_total{status=\"error\"}[5m]))",
+          "expr": "sum by (tool) (increase(tool_calls_total{status=\"error\"}[1h]))",
           "legendFormat": "{{tool}}",
           "refId": "A"
         }

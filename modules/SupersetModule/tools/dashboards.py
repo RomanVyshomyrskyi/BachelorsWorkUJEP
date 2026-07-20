@@ -227,11 +227,19 @@ async def bulk_link_charts(
     chart_ids: List[int]
 ) -> str:
     results = []
+    errors = []
     for cid in chart_ids:
-        payload = json.dumps({"dashboards": [dashboard_id]})
-        res = await impl_superset_api(manager, server_id, "PUT", f"/api/v1/chart/{cid}", json_body=payload)
-        results.append(f"Chart {cid}: {res}")
+        try:
+            payload = json.dumps({"dashboards": [dashboard_id]})
+            res = await impl_superset_api(manager, server_id, "PUT", f"/api/v1/chart/{cid}", json_body=payload)
+            results.append(f"Chart {cid}: linked successfully")
+        except Exception as e:
+            error_msg = f"Chart {cid}: failed to link - {str(e)}"
+            errors.append(error_msg)
+            results.append(error_msg)
 
+    if errors:
+        return "WARNING: Some charts failed to link:\n" + "\n".join(errors)
     return "\n".join(results)
 
 async def generate_robust_layout(

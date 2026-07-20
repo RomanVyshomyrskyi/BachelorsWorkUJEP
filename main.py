@@ -234,7 +234,7 @@ async def handle_messages_redirect():
 async def prometheus_metrics():
     from modules.metrics import get_metrics
     mc = get_metrics()
-    return Response(content=str(generate_latest()), media_type=CONTENT_TYPE_LATEST)
+    return Response(content=generate_latest().decode(), media_type=CONTENT_TYPE_LATEST)
 
 @app.get("/errors")
 async def get_recent_errors():

@@ -44,10 +44,20 @@ class DbManager:
                     logger.warning(f"Database '{db_id}' missing user. Skipping.")
                     continue
 
-                password = config_data.get("password") or ""
+                password = config_data.get("password")
                 password_env = config_data.get("password_env")
                 if password_env:
-                    password = os.getenv(password_env) or password
+                    env_password = os.getenv(password_env)
+                    if env_password:
+                        password = env_password
+                    elif password is None:
+                        logger.warning(
+                            f"Database '{db_id}': password_env '{password_env}' is not set "
+                            "and no fallback password is configured"
+                        )
+                if password is None:
+                    logger.warning(f"Database '{db_id}': No password configured")
+                    password = ""
 
                 port = config_data.get("port") or _default_port(db_type)
 

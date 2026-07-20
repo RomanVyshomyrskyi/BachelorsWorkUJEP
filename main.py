@@ -127,13 +127,17 @@ app = FastAPI(
     version="1.1.0"
 )
 
-# Enable CORS to allow Open Web UI to connect
+# Enable CORS for trusted origins only
 from fastapi.middleware.cors import CORSMiddleware
+import os
+
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 

@@ -328,12 +328,29 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
     fixed = json.loads(json.dumps(params))  # deep copy
     actual_viz = viz_type
 
+    # --- Fix 0: Ensure datasource_id is always present and is an integer ---
+    if "datasource_id" in fixed and isinstance(fixed.get("datasource_id"), str):
+        try:
+            fixed["datasource_id"] = int(fixed["datasource_id"])
+        except (ValueError, TypeError):
+            pass
+
     # --- Fix 1: Entity field for map types ---
     if actual_viz in ENTITY_REQUIRED_TYPES:
         if "entity" not in fixed:
             fixed["entity"] = "country_code"
 
-    # --- Fix 2: Pie/waterfall — metrics array → metric object ---
+    # --- Fix 2: Pie/waterfall — groupby must be string, not array ---
+    if actual_viz in SINGULAR_ADHOC_METRIC_TYPES and "groupby" in fixed:
+        groupby = fixed["groupby"]
+        if isinstance(groupby, list) and len(groupby) == 1:
+            fixed["groupby"] = groupby[0]
+        elif isinstance(groupby, list) and len(groupby) > 1:
+            fixed["groupby"] = groupby[0]
+        elif not isinstance(groupby, str):
+            fixed["groupby"] = ""
+
+    # --- Fix 3: Pie/waterfall — metrics array → metric object ---
     if actual_viz in SINGULAR_ADHOC_METRIC_TYPES and "metrics" in fixed and "metric" not in fixed:
         metric_list = fixed["metrics"]
         if isinstance(metric_list, list) and len(metric_list) > 0:
@@ -345,12 +362,12 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
         if "metrics" in fixed:
             del fixed["metrics"]
 
-    # --- Fix 3: Pie/waterfall — string metric → AdHocMetricObject ---
+    # --- Fix 4: Pie/waterfall — string metric → AdHocMetricObject ---
     if actual_viz in SINGULAR_ADHOC_METRIC_TYPES:
         if "metric" in fixed and _is_string_metric(fixed["metric"]):
             fixed["metric"] = _build_adhoc_metric_from_string(fixed["metric"])
 
-    # --- Fix 4: Scatter/bubble — flat column_name → nested column object ---
+    # --- Fix 5: Scatter/bubble — flat column_name → nested column object ---
     if actual_viz in {"scatter", "echarts_timeseries_scatter", "bubble_v2"}:
         for axis in ["x", "y"]:
             if axis in fixed and isinstance(fixed[axis], dict):
@@ -369,7 +386,7 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                     val["column"] = {"column_name": column_name}
                     val["expressionType"] = expr_type
 
-    # --- Fix 5: String array types — fix malformed objects only, keep strings ---
+    # --- Fix 6: String array types — fix malformed objects only, keep strings ---
     if actual_viz in STRING_METRICS_ARRAY_TYPES and "metrics" in fixed:
         metrics_list = fixed["metrics"]
         if isinstance(metrics_list, list):
@@ -383,19 +400,25 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                     if "expressionType" not in m:
                         m["expressionType"] = "SIMPLE"
 
-    # --- Fix 6: Ensure AdHocMetricObject has required fields ---
+    # --- Fix 7: Ensure AdHocMetricObject has required fields ---
     if actual_viz in SINGULAR_ADHOC_METRIC_TYPES and "metric" in fixed:
         metric_val = fixed["metric"]
         if isinstance(metric_val, dict):
             if "column_name" in metric_val and "column" not in metric_val:
                 column_name = metric_val.pop("column_name")
                 metric_val["column"] = {"column_name": column_name}
+            # Fix null column_name — replace with first available column
+            if metric_val.get("column", {}).get("column_name") is None:
+                if "groupby" in metric_val:
+                    metric_val["column"]["column_name"] = metric_val.pop("groupby")
+                else:
+                    metric_val["column"]["column_name"] = "count"
             if "aggregate" not in metric_val:
                 metric_val["aggregate"] = "AVG"
             if "expressionType" not in metric_val:
                 metric_val["expressionType"] = "SIMPLE"
 
-    # --- Fix 7: AdHoc metrics array types — fix malformed objects only ---
+    # --- Fix 8: AdHoc metrics array types — fix malformed objects only ---
     if actual_viz in ADHOC_METRICS_ARRAY_TYPES and "metrics" in fixed:
         metrics_list = fixed["metrics"]
         if isinstance(metrics_list, list):
@@ -409,7 +432,7 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                     if "expressionType" not in m:
                         m["expressionType"] = "SIMPLE"
 
-    # --- Fix 8: Mixed metrics types — fix malformed objects only ---
+    # --- Fix 9: Mixed metrics types — fix malformed objects only ---
     if actual_viz in MIXED_METRICS_TYPES and "metrics" in fixed:
         metrics_list = fixed["metrics"]
         if isinstance(metrics_list, list):

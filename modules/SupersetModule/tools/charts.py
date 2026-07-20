@@ -96,6 +96,16 @@ async def create_chart(
             else:
                 warning = "Validation: " + validation_errors
 
+        # Ensure datasource_id is in params (required by Superset frontend)
+        if "datasource_id" not in fixed_params or fixed_params["datasource_id"] is None:
+            fixed_params["datasource_id"] = datasource_id
+        # Ensure datasource field is set
+        if "datasource" not in fixed_params:
+            fixed_params["datasource"] = f"{datasource_id}__table"
+        # Ensure datasource_type is set
+        if "datasource_type" not in fixed_params:
+            fixed_params["datasource_type"] = datasource_type
+
         chart_payload = {
             "slice_name": slice_name,
             "description": description,
@@ -246,6 +256,14 @@ async def generate_chart(
             return json.dumps(result, indent=2)
 
         chart_name = slice_name or f"Chart from dataset {dataset_id}"
+
+        # Ensure datasource_id is in params
+        if "datasource_id" not in fixed_params or fixed_params["datasource_id"] is None:
+            fixed_params["datasource_id"] = dataset_id
+        if "datasource" not in fixed_params:
+            fixed_params["datasource"] = f"{dataset_id}__table"
+        if "datasource_type" not in fixed_params:
+            fixed_params["datasource_type"] = "table"
 
         chart_payload = {
             "slice_name": chart_name,

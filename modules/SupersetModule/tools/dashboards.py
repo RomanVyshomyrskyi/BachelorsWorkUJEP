@@ -63,7 +63,12 @@ def _build_simple_layout(
     
     Groups charts into rows (max 2 charts per row for clear visibility)
     and assigns proper X/Y positions based on layout type.
+    Uses consistent UUID format: CHART-{uuid}-{chartId} and ROW-R{idx}-{uuid}
+    matching working Superset dashboard format.
     """
+    import uuid
+    dashboard_uuid = str(uuid.uuid4())[:8]
+    
     layout = {
         "DASHBOARD_VERSION_KEY": "v2",
         "ROOT_ID": {
@@ -83,7 +88,7 @@ def _build_simple_layout(
     rows = [chart_info[i:i + 2] for i in range(0, len(chart_info), 2)]
     
     for row_idx, row_charts in enumerate(rows):
-        row_id = f"ROW-R{row_idx}"
+        row_id = f"ROW-R{row_idx}-{dashboard_uuid}"
         layout["GRID_ID"]["children"].append(row_id)
         
         layout[row_id] = {
@@ -95,7 +100,7 @@ def _build_simple_layout(
         }
         
         for chart_idx, chart in enumerate(row_charts):
-            chart_element_id = f"CHART_{chart['id']}"
+            chart_element_id = f"CHART-{dashboard_uuid}-{chart['id']}"
             
             # Calculate position within the row
             if layout_type == "row_of_charts":
@@ -452,15 +457,20 @@ async def add_chart_to_existing_dashboard(
 def _add_chart_to_position_json(position_json: Dict, chart_id: int) -> Dict:
     """Add a chart element to the position JSON layout."""
     import time
+    import uuid
     
-    chart_element_id = f"CHART_{chart_id}"
-    row_id = f"ROW-{int(time.time())}"
+    dashboard_uuid = str(uuid.uuid4())[:8]
+    chart_element_id = f"CHART-{dashboard_uuid}-{chart_id}"
+    row_id = f"ROW-R{int(time.time()) % 10000}-{dashboard_uuid}"
     
     # Get current GRID_ID children to find the last row
     grid_id = None
     for key, value in position_json.items():
         if isinstance(value, dict) and value.get("type") == "GRID":
             grid_id = key
+            # Ensure GRID_ID has parents field
+            if "parents" not in value:
+                value["parents"] = ["ROOT_ID"]
             break
     
     if grid_id:

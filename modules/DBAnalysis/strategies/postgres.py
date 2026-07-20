@@ -1,9 +1,19 @@
 import logging
+import signal
 import psycopg2
-from .base import DatabaseStrategy
+from .base import DatabaseStrategy, MAX_ROWS
 from ..utils.formatters import format_schema
 
 logger = logging.getLogger(__name__)
+
+
+class _TimeoutError(Exception):
+    pass
+
+
+def _timeout_handler(signum, frame):
+    raise _TimeoutError("Query execution timed out")
+
 
 class PostgresStrategy(DatabaseStrategy):
     """Strategy for analyzing a PostgreSQL database."""
@@ -19,10 +29,12 @@ class PostgresStrategy(DatabaseStrategy):
                 host=db['host'],
                 port=db.get('port', 5432)
             )
+            # Set statement timeout in milliseconds (30 seconds)
+            self.connection.set_session(timeout=30000)
             logger.info(f"Connected to PostgreSQL: {db['dbname']}")
         except Exception as e:
             logger.error(f"PostgreSQL connection failed: {e}")
-            raise ConnectionError(f"Failed to connect to PostgreSQL: {e}")
+            raise ConnectionError("Failed to connect to database. Please verify your credentials and network.")
 
     def disconnect(self):
         if self.connection:
@@ -76,21 +88,47 @@ class PostgresStrategy(DatabaseStrategy):
 
         return format_schema(self.connection_details['dbname'], "PostgreSQL", tables_and_columns, relationships)
 
-    def execute_query(self, query: str) -> list[dict]:
+    def execute_query(self, query: str, max_rows: int = MAX_ROWS) -> list[dict]:
         if not self.connection:
             raise ConnectionError("Not connected to the database.")
         
         cleaned = self._validate_read_only_query(query)
         logger.info(f"Executing query ({len(cleaned)} chars)")
 
-        with self.connection.cursor() as cursor:
-            cursor.execute(cleaned)
-            if cursor.description:
-                columns = [desc[0] for desc in cursor.description]
-                results = []
-                for row in cursor.fetchall():
-                    results.append(dict(zip(columns, row)))
-                logger.info(f"Query returned {len(results)} rows")
-                return results
-            logger.warning("Query returned no results")
-            return []
+        # Set up timeout using signal
+        old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+        signal.alarm(30)  # 30 second timeout
+
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(cleaned)
+                if cursor.description:
+                    columns = [desc[0] for desc in cursor.description]
+                    # Use fetchmany for efficient pagination
+                    results = []
+                    while True:
+                        batch = cursor.fetchmany(500)
+                        if not batch:
+                            break
+                        for row in batch:
+                            results.append(dict(zip(columns, row)))
+                            if len(results) >= max_rows:
+                                break
+                        if len(results) >= max_rows:
+                            break
+                    
+                    signal.alarm(0)  # Cancel the alarm
+                    logger.info(f"Query returned {len(results)} rows")
+                    return results
+                logger.warning("Query returned no results")
+                return []
+        except _TimeoutError:
+            logger.error("Query execution timed out after 30 seconds")
+            raise TimeoutError("Query execution timed out. The query may be too slow or the database is unresponsive.")
+        except psycopg2.Error as e:
+            signal.alarm(0)  # Cancel the alarm
+            logger.error(f"Database error: {e.pgcode} - {e.diag.message_primary}")
+            raise RuntimeError("A database error occurred while executing the query.")
+        finally:
+            signal.alarm(0)  # Ensure alarm is cancelled
+            signal.signal(signal.SIGALRM, old_handler)

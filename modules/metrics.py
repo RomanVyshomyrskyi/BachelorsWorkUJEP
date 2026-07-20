@@ -66,8 +66,8 @@ def _make_counter(name: str, labelnames: list[str]) -> Counter:
     return Counter(name, "", labelnames=labelnames)
 
 
-def _make_histogram(name: str) -> Histogram:
-    return Histogram(name, "", buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0])
+def _make_histogram(name: str, labelnames: Optional[list[str]] = None) -> Histogram:
+    return Histogram(name, "", buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0], labelnames=labelnames or [])
 
 
 # ── MetricsCollector ───────────────────────────────────────────────────
@@ -114,7 +114,7 @@ class MetricsCollector:
         )
 
         # Prometheus histogram
-        self.tool_duration = _make_histogram("tool_duration_seconds")
+        self.tool_duration = _make_histogram("tool_duration_seconds", ["tool"])
 
         # Infrastructure
         self._errors = ErrorRingBuffer(capacity=100)

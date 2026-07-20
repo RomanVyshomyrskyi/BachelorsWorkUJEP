@@ -2,6 +2,7 @@ from typing import Union
 from modules.SupersetModule.manager import ConnectionManager
 from modules.SupersetModule.models import RESOURCE_ENDPOINTS
 from modules.SupersetModule.tools.general import impl_superset_api
+from modules.metrics import get_metrics
 
 async def list_resource_types() -> str:
     """
@@ -18,13 +19,33 @@ async def list_resources(manager: ConnectionManager, server_id: str, resource_ty
     """
     Lists resources of a specific type.
     """
-    return await impl_list_resources(manager, server_id, resource_type)
+    mc = get_metrics()
+    start_time = __import__('time').monotonic()
+    try:
+        result = await impl_list_resources(manager, server_id, resource_type)
+        elapsed = __import__('time').monotonic() - start_time
+        mc.tool_calls.labels(tool=f"superset_list_{resource_type}", status="success").inc()
+        mc.tool_duration.labels(tool=f"superset_list_{resource_type}").observe(elapsed)
+        return result
+    except Exception as e:
+        mc.tool_calls.labels(tool=f"superset_list_{resource_type}", status="error").inc()
+        raise
 
 async def list_dashboards(manager: ConnectionManager, server_id: str) -> str:
     """
     Lists dashboards to get their IDs.
     """
-    return await impl_list_resources(manager, server_id, "dashboard")
+    mc = get_metrics()
+    start_time = __import__('time').monotonic()
+    try:
+        result = await impl_list_resources(manager, server_id, "dashboard")
+        elapsed = __import__('time').monotonic() - start_time
+        mc.tool_calls.labels(tool="superset_list_dashboards", status="success").inc()
+        mc.tool_duration.labels(tool="superset_list_dashboards").observe(elapsed)
+        return result
+    except Exception as e:
+        mc.tool_calls.labels(tool="superset_list_dashboards", status="error").inc()
+        raise
 
 async def impl_get_resource(
     manager: ConnectionManager,
@@ -45,4 +66,14 @@ async def get_resource(
     """
     Gets details for a specific resource by ID.
     """
-    return await impl_get_resource(manager, server_id, resource_type, resource_id)
+    mc = get_metrics()
+    start_time = __import__('time').monotonic()
+    try:
+        result = await impl_get_resource(manager, server_id, resource_type, resource_id)
+        elapsed = __import__('time').monotonic() - start_time
+        mc.tool_calls.labels(tool=f"superset_get_{resource_type}", status="success").inc()
+        mc.tool_duration.labels(tool=f"superset_get_{resource_type}").observe(elapsed)
+        return result
+    except Exception as e:
+        mc.tool_calls.labels(tool=f"superset_get_{resource_type}", status="error").inc()
+        raise

@@ -305,7 +305,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum(charts_generated_total) by (chart_type)",
+          "expr": "sum(charts_generated_total) by (chart_type) or vector(0)",
           "legendFormat": "{{chart_type}}",
           "refId": "A"
         }
@@ -381,7 +381,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum(dashboards_generated_total) by (layout_type)",
+          "expr": "sum(dashboards_generated_total) by (layout_type) or vector(0)",
           "legendFormat": "{{layout_type}}",
           "refId": "A"
         }
@@ -448,7 +448,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum(transfers_total{status=\"success\"}) / sum(transfers_total)",
+          "expr": "sum(transfers_total{status=\"success\"}) / sum(transfers_total) or vector(0)",
           "legendFormat": "Success Rate",
           "refId": "A"
         }
@@ -516,7 +516,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum(transfers_items_total) by (item_type)",
+          "expr": "sum(transfers_items_total) by (item_type) or vector(0)",
           "legendFormat": "{{item_type}}",
           "refId": "A"
         }

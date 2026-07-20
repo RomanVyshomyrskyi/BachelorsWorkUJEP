@@ -77,7 +77,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(tool_calls_total[5m]) or vector(0)",
+          "expr": "rate(tool_calls_total[5m])",
           "legendFormat": "{{tool}}",
           "refId": "A"
         }
@@ -135,7 +135,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum(tool_calls_total) or vector(0)",
+          "expr": "sum(tool_calls_total)",
           "legendFormat": "Total",
           "refId": "A"
         }
@@ -202,7 +202,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum(rate(tool_calls_total{status=\"success\"}[5m])) / sum(rate(tool_calls_total[5m])) * 100 or vector(0)",
+          "expr": "sum(rate(tool_calls_total{status=\"success\"}[5m])) / sum(rate(tool_calls_total[5m])) * 100",
           "legendFormat": "Success Rate",
           "refId": "A"
         }

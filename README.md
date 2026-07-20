@@ -151,6 +151,17 @@ pytest tests/modules/DBAnalysis/test_postgres_strategy.py
 pytest tests/modules/DBAnalysis/test_data_tools.py
 ```
 
+## Observability
+
+The project includes a built-in observability layer with Prometheus and Grafana integration:
+
+- **Prometheus** scrapes metrics from the FastMCP server's `/metrics` endpoint
+- **Grafana** provides 3 pre-built dashboards: Usage, Resources Created, Performance & Errors
+- **Error tracking** via in-memory ring buffer (last 100 errors) accessible at `/errors` endpoint
+- **Structured JSON logs** written to `logs/metrics.jsonl`
+
+See `docs/observability.md` for details on metrics, dashboards, and Docker setup.
+
 ## Test Coverage
 
 The test suite covers:

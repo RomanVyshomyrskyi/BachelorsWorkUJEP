@@ -1,17 +1,33 @@
 import json
 import re
+import threading
 from typing import Optional
 from ..models.connection import ConnectionDetails
 from ..strategies.factory import get_db_strategy
 from ..db_manager import DbManager
+from ..strategies.base import MAX_ROWS
 from modules.log_utils import LogCollector
 
 _IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$')
 
+# Maximum rows for table preview
+MAX_TABLE_PREVIEW = 100
+
+# Maximum rows for raw SQL queries
+MAX_SQL_ROWS = 1000
+
+
 def _validate_identifier(name: str) -> str:
     if not _IDENTIFIER_RE.match(name):
-        raise ValueError(f"Invalid table name: '{name}'")
+        raise ValueError("Invalid table name format")
     return name
+
+
+def _sanitize_error(e: Exception) -> str:
+    """Return a generic error message to the caller, log details server-side."""
+    logger = LogCollector(f"data.error").error
+    logger(f"Internal error: {e}")
+    return "An error occurred while processing your request. Please try again."
 
 
 def _resolve_config(
@@ -57,27 +73,38 @@ def tool_run_sql(
     password: Optional[str] = None,
     dbname: Optional[str] = None,
     port: Optional[int] = None,
+    max_rows: int = MAX_SQL_ROWS,
 ) -> str:
     log = LogCollector(f"{__name__}.run_sql")
     try:
         cfg = _resolve_config(db_manager, db_id, db_type, host, user, password, dbname, port)
     except ValueError as e:
         return str(e)
-    try:
-        log.info(f"Executing query on {cfg['db_type']}://{cfg['host']}:{cfg['port']}/{cfg['dbname']}")
-        conn_details = ConnectionDetails(**cfg)
-        strategy = get_db_strategy(cfg['db_type'], conn_details.model_dump())
 
+    if not query or not query.strip():
+        return "Query cannot be empty"
+
+    # Sanitize query length for logging
+    log.info(f"Executing query on {cfg['db_type']}://{cfg['host']}:{cfg['port']}/{cfg['dbname']}")
+    conn_details = ConnectionDetails(**cfg)
+    strategy = get_db_strategy(cfg['db_type'], conn_details.model_dump())
+
+    try:
         with strategy as db_context:
             log.info(f"Query: {query[:200]}{'...' if len(query) > 200 else ''}")
-            results = db_context.execute_query(query)
+            results = db_context.execute_query(query, max_rows=max_rows)
 
         log.info(f"Query returned {len(results)} rows")
         return log.collect(json.dumps(results, default=str))
 
+    except TimeoutError as e:
+        log.error(f"Query timed out on {cfg.get('dbname', db_id or '?')}")
+        return str(e)
+    except RuntimeError as e:
+        return _sanitize_error(e)
     except Exception as e:
-        log.error(f"Query execution error on {cfg.get('dbname', db_id or '?')}: {e}")
-        return f"Query Execution Error: {e}"
+        log.error(f"Unexpected error on {cfg.get('dbname', db_id or '?')}: {e}")
+        return _sanitize_error(e)
 
 
 def tool_get_table_data(
@@ -89,37 +116,50 @@ def tool_get_table_data(
     user: Optional[str] = None,
     password: Optional[str] = None,
     dbname: Optional[str] = None,
-    limit: int = 100,
+    limit: int = MAX_TABLE_PREVIEW,
     port: Optional[int] = None,
 ) -> str:
     log = LogCollector(f"{__name__}.get_table_data")
+
+    # Clamp limit to prevent abuse
+    if limit < 1:
+        limit = MAX_TABLE_PREVIEW
+    if limit > MAX_TABLE_PREVIEW:
+        limit = MAX_TABLE_PREVIEW
+
     try:
         _validate_identifier(table_name)
     except ValueError as e:
         return str(e)
+
     try:
         cfg = _resolve_config(db_manager, db_id, db_type, host, user, password, dbname, port)
     except ValueError as e:
         return str(e)
-    try:
-        log.info(f"Fetching {limit} rows from {cfg['db_type']}://{cfg['host']}:{cfg['port']}/{cfg['dbname']}.{table_name}")
-        conn_details = ConnectionDetails(**cfg)
-        strategy = get_db_strategy(cfg['db_type'], conn_details.model_dump())
 
+    log.info(f"Fetching {limit} rows from {cfg['db_type']}://{cfg['host']}:{cfg['port']}/{cfg['dbname']}.{table_name}")
+    conn_details = ConnectionDetails(**cfg)
+    strategy = get_db_strategy(cfg['db_type'], conn_details.model_dump())
+
+    try:
         if cfg['db_type'] == "mssql":
             query = f"SELECT TOP {limit} * FROM {table_name}"
         else:
             query = f"SELECT * FROM {table_name} LIMIT {limit}"
 
         with strategy as db_context:
-            results = db_context.execute_query(query)
+            results = db_context.execute_query(query, max_rows=limit)
 
         log.info(f"Retrieved {len(results)} rows from {table_name}")
         return json.dumps(results, default=str)
 
+    except TimeoutError as e:
+        return str(e)
+    except RuntimeError as e:
+        return _sanitize_error(e)
     except Exception as e:
         log.error(f"Data retrieval error for {table_name}: {e}")
-        return f"Data Retrieval Error: {e}"
+        return _sanitize_error(e)
 
 
 def register_data_tools(mcp, db_manager=None):
@@ -145,7 +185,7 @@ def register_data_tools(mcp, db_manager=None):
         user: Optional[str] = None,
         password: Optional[str] = None,
         dbname: Optional[str] = None,
-        limit: int = 100,
+        limit: int = MAX_TABLE_PREVIEW,
         port: Optional[int] = None,
     ) -> str:
         return tool_get_table_data(db_manager, table_name, db_id, db_type, host, user, password, dbname, limit, port)

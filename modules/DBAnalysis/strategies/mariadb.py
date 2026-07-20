@@ -1,9 +1,10 @@
 import logging
 import mysql.connector
-from .base import DatabaseStrategy
+from .base import DatabaseStrategy, MAX_ROWS
 from ..utils.formatters import format_schema
 
 logger = logging.getLogger(__name__)
+
 
 class MariaDBStrategy(DatabaseStrategy):
     """Strategy for analyzing a MariaDB/MySQL database."""
@@ -17,12 +18,16 @@ class MariaDBStrategy(DatabaseStrategy):
                 user=db['user'],
                 password=db['password'],
                 host=db['host'],
-                port=db.get('port', 3306)
+                port=db.get('port', 3306),
+                # Disable multi-statement execution at driver level
+                raw=False,
             )
+            # Set statement timeout (MySQL/MariaDB uses seconds)
+            self.connection.cmd_set_system_variable('max_execution_time', '30000')
             logger.info(f"Connected to MariaDB/MySQL: {db['dbname']}")
         except Exception as e:
             logger.error(f"MariaDB/MySQL connection failed: {e}")
-            raise ConnectionError(f"Failed to connect to MariaDB: {e}")
+            raise ConnectionError("Failed to connect to database. Please verify your credentials and network.")
 
     def disconnect(self):
         if self.connection:
@@ -69,21 +74,35 @@ class MariaDBStrategy(DatabaseStrategy):
 
         return format_schema(db_name, "MariaDB", tables_and_columns, relationships)
 
-    def execute_query(self, query: str) -> list[dict]:
+    def execute_query(self, query: str, max_rows: int = MAX_ROWS) -> list[dict]:
         if not self.connection:
             raise ConnectionError("Not connected to the database.")
         
         cleaned = self._validate_read_only_query(query)
         logger.info(f"Executing query ({len(cleaned)} chars)")
 
-        with self.connection.cursor() as cursor:
-            cursor.execute(cleaned)
-            if cursor.description:
-                columns = [desc[0] for desc in cursor.description]
-                results = []
-                for row in cursor.fetchall():
-                    results.append(dict(zip(columns, row)))
-                logger.info(f"Query returned {len(results)} rows")
-                return results
-            logger.warning("Query returned no results")
-            return []
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(cleaned)
+                if cursor.description:
+                    columns = [desc[0] for desc in cursor.description]
+                    results = []
+                    # Use fetchmany for efficient pagination with row limit
+                    while True:
+                        batch = cursor.fetchmany(500)
+                        if not batch:
+                            break
+                        for row in batch:
+                            results.append(dict(zip(columns, row)))
+                            if len(results) >= max_rows:
+                                break
+                        if len(results) >= max_rows:
+                            break
+                    
+                    logger.info(f"Query returned {len(results)} rows")
+                    return results
+                logger.warning("Query returned no results")
+                return []
+        except mysql.connector.Error as e:
+            logger.error(f"Database error: {e.errno} - {e.msg}")
+            raise RuntimeError("A database error occurred while executing the query.")

@@ -1,7 +1,7 @@
 import json
 import httpx
 import time
-from typing import Optional, Union, Dict, Any
+from typing import Optional, Union, Dict, Any, List
 from modules.SupersetModule.manager import ConnectionManager
 from modules.SupersetModule.api_client import execute_request
 from modules.SupersetModule.tools.general import impl_superset_api
@@ -21,6 +21,7 @@ from modules.SupersetModule.superset_validation import (
     format_error_summary,
  )
 from modules.SupersetModule.superset_mermaid import chart_to_mermaid
+from modules.SupersetModule.resolver import resolve_chart_params
 from modules.metrics import get_metrics
 
 async def get_chart_api_info(manager: ConnectionManager, server_id: str) -> str:
@@ -28,6 +29,19 @@ async def get_chart_api_info(manager: ConnectionManager, server_id: str) -> str:
     Retrieves metadata about the chart API.
     """
     return await impl_superset_api(manager, server_id, "GET", "/api/v1/chart/_info")
+
+def _extract_columns_from_dataset_response(response_str: str) -> List[Dict[str, Any]]:
+    """Extract columns list from dataset API response."""
+    try:
+        data = json.loads(response_str)
+        result = data.get("result", {})
+        if isinstance(result, dict):
+            columns = result.get("columns", [])
+            if isinstance(columns, list):
+                return columns
+        return []
+    except (json.JSONDecodeError, TypeError):
+        return []
 
 async def create_chart(
     manager: ConnectionManager,
@@ -50,8 +64,31 @@ async def create_chart(
     try:
         params_dict = json.loads(params) if params else {}
         fixed_params = auto_fix_chart_params(viz_type, params_dict)
+        
+        dataset_columns = []
+        try:
+            dataset_response = await impl_superset_api(manager, server_id, "GET", f"/api/v1/dataset/{datasource_id}")
+            dataset_columns = _extract_columns_from_dataset_response(dataset_response)
+        except Exception:
+            pass
+        
+        if dataset_columns:
+            fixed_params, column_warnings = resolve_chart_params(fixed_params, dataset_columns)
+            if column_warnings:
+                warning = "Column name fixes: " + "; ".join(column_warnings)
+            else:
+                warning = None
+        else:
+            warning = None
+        
         errors = validate_chart_params(viz_type, fixed_params)
-        warning = format_error_summary(errors) if errors else None
+        validation_errors = format_error_summary(errors) if errors else None
+        
+        if validation_errors:
+            if warning:
+                warning = warning + " | " + validation_errors
+            else:
+                warning = "Validation: " + validation_errors
 
         chart_payload = {
             "slice_name": slice_name,
@@ -160,8 +197,30 @@ async def generate_chart(
         form_data.update(chart_config)
 
         fixed_params = auto_fix_chart_params(viz_type, form_data)
+        
+        dataset_columns = []
+        try:
+            dataset_response = await impl_superset_api(manager, server_id, "GET", f"/api/v1/dataset/{dataset_id}")
+            dataset_columns = _extract_columns_from_dataset_response(dataset_response)
+        except Exception:
+            pass
+        
+        if dataset_columns:
+            fixed_params, column_warnings = resolve_chart_params(fixed_params, dataset_columns)
+            if column_warnings:
+                validation_warning = "Column fixes: " + "; ".join(column_warnings)
+            else:
+                validation_warning = None
+        else:
+            validation_warning = None
+        
         errors = validate_chart_params(viz_type, fixed_params)
-        validation_warning = format_error_summary(errors) if errors else None
+        validation_errors = format_error_summary(errors) if errors else None
+        
+        if validation_errors and not validation_warning:
+            validation_warning = "Validation: " + validation_errors
+        elif validation_errors and validation_warning:
+            validation_warning = validation_warning + " | " + validation_errors
 
         if not save_chart:
             base_url = ctx.config.base_url.rstrip("/")

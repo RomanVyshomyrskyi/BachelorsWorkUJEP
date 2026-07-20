@@ -194,7 +194,7 @@ def validate_chart_params(viz_type: str, params: Dict[str, Any]) -> List[str]:
                     )
 
     elif actual_viz in STRING_METRICS_ARRAY_TYPES:
-        # Should have "metrics": ["count", "SUM(col)"]
+        # Should have "metrics": ["count", "SUM(col)"] or AdHocMetricObjects
         if "metrics" not in params:
             errors.append(
                 f"Chart '{actual_viz}' is missing 'metrics' field. "
@@ -203,17 +203,18 @@ def validate_chart_params(viz_type: str, params: Dict[str, Any]) -> List[str]:
         elif "metric" in params and "metrics" not in params:
             errors.append(
                 f"Chart '{actual_viz}' uses 'metric' (singular) but should use "
-                f"'metrics' (array of strings)."
+                f"'metrics' (array)."
             )
         elif "metrics" in params:
             metrics_list = params["metrics"]
             if isinstance(metrics_list, list):
                 for i, m in enumerate(metrics_list):
                     if isinstance(m, dict):
-                        errors.append(
-                            f"Metric {i} in '{actual_viz}' is an object but should be a "
-                            f"string. Expected: 'count' or 'SUM(column)'."
-                        )
+                        if not _is_adhoc_metric_object(m):
+                            errors.append(
+                                f"Metric {i} in '{actual_viz}' has invalid format. "
+                                f"Expected AdHocMetricObject with 'column.column_name'."
+                            )
 
     elif actual_viz in ADHOC_METRICS_ARRAY_TYPES:
         # Should have "metrics": [{"aggregate": "SUM", ...}]
@@ -368,18 +369,22 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                     val["column"] = {"column_name": column_name}
                     val["expressionType"] = expr_type
 
-    # --- Fix 5: String array types — objects → strings ---
+    # --- Fix 5: String array types — fix malformed objects, convert strings to objects ---
     if actual_viz in STRING_METRICS_ARRAY_TYPES and "metrics" in fixed:
         metrics_list = fixed["metrics"]
         if isinstance(metrics_list, list):
             for i, m in enumerate(metrics_list):
-                if isinstance(m, dict) and _is_adhoc_metric_object(m):
-                    agg = m.get("aggregate", "AVG")
-                    col = m.get("column", {}).get("column_name", "unknown")
-                    if agg == "COUNT" and col == "count":
-                        metrics_list[i] = "count"
-                    else:
-                        metrics_list[i] = f"{agg}({col})"
+                if isinstance(m, dict):
+                    if not _is_adhoc_metric_object(m):
+                        if "column_name" in m and "column" not in m:
+                            column_name = m.pop("column_name")
+                            m["column"] = {"column_name": column_name}
+                        if "aggregate" not in m:
+                            m["aggregate"] = "AVG"
+                        if "expressionType" not in m:
+                            m["expressionType"] = "SIMPLE"
+                elif _is_string_metric(m):
+                    metrics_list[i] = _build_adhoc_metric_from_string(m)
 
     # --- Fix 6: Ensure AdHocMetricObject has required fields ---
     if actual_viz in SINGULAR_ADHOC_METRIC_TYPES and "metric" in fixed:
@@ -392,6 +397,38 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                 metric_val["aggregate"] = "AVG"
             if "expressionType" not in metric_val:
                 metric_val["expressionType"] = "SIMPLE"
+
+    # --- Fix 7: AdHoc metrics array types — convert strings to objects ---
+    if actual_viz in ADHOC_METRICS_ARRAY_TYPES and "metrics" in fixed:
+        metrics_list = fixed["metrics"]
+        if isinstance(metrics_list, list):
+            for i, m in enumerate(metrics_list):
+                if _is_string_metric(m):
+                    metrics_list[i] = _build_adhoc_metric_from_string(m)
+                elif isinstance(m, dict) and not _is_adhoc_metric_object(m):
+                    if "column_name" in m and "column" not in m:
+                        column_name = m.pop("column_name")
+                        m["column"] = {"column_name": column_name}
+                    if "aggregate" not in m:
+                        m["aggregate"] = "AVG"
+                    if "expressionType" not in m:
+                        m["expressionType"] = "SIMPLE"
+
+    # --- Fix 8: Mixed metrics types — convert strings to objects ---
+    if actual_viz in MIXED_METRICS_TYPES and "metrics" in fixed:
+        metrics_list = fixed["metrics"]
+        if isinstance(metrics_list, list):
+            for i, m in enumerate(metrics_list):
+                if _is_string_metric(m):
+                    metrics_list[i] = _build_adhoc_metric_from_string(m)
+                elif isinstance(m, dict) and not _is_adhoc_metric_object(m):
+                    if "column_name" in m and "column" not in m:
+                        column_name = m.pop("column_name")
+                        m["column"] = {"column_name": column_name}
+                    if "aggregate" not in m:
+                        m["aggregate"] = "AVG"
+                    if "expressionType" not in m:
+                        m["expressionType"] = "SIMPLE"
 
     return fixed
 

@@ -151,24 +151,32 @@ async def generate_chart(
     try:
         chart_config = json.loads(config) if config else {}
 
+        viz_type = chart_config.get("viz_type", "table")
         form_data: Dict[str, Any] = {
             "datasource_id": dataset_id,
             "datasource_type": "table",
+            "datasource": f"{dataset_id}__table",
         }
-
         form_data.update(chart_config)
+
+        fixed_params = auto_fix_chart_params(viz_type, form_data)
+        errors = validate_chart_params(viz_type, fixed_params)
+        validation_warning = format_error_summary(errors) if errors else None
 
         if not save_chart:
             base_url = ctx.config.base_url.rstrip("/")
-            explore_url = f"{base_url}/explore/?form_data={json.dumps(form_data)}"
+            explore_url = f"{base_url}/explore/?form_data={json.dumps(fixed_params)}"
             mc = get_metrics()
             mc.tool_calls.labels(tool="superset_generate_chart", status="success").inc()
             mc.tool_duration.labels(tool="superset_generate_chart").observe(time.monotonic() - start_time)
-            return json.dumps({
+            result = {
                 "url": explore_url,
                 "saved": False,
-                "config": chart_config
-            }, indent=2)
+                "config": fixed_params,
+            }
+            if validation_warning:
+                result["_validation_warning"] = validation_warning
+            return json.dumps(result, indent=2)
 
         chart_name = slice_name or f"Chart from dataset {dataset_id}"
 
@@ -176,8 +184,8 @@ async def generate_chart(
             "slice_name": chart_name,
             "datasource_id": dataset_id,
             "datasource_type": "table",
-            "viz_type": chart_config.get("viz_type", "table"),
-            "params": json.dumps(form_data),
+            "viz_type": viz_type,
+            "params": json.dumps(fixed_params),
         }
         if description:
             chart_payload["description"] = description
@@ -188,10 +196,12 @@ async def generate_chart(
         result = resp.json()
 
         try:
-            viz = chart_config.get("viz_type", "table")
-            result["_mermaid_graph"] = chart_to_mermaid(viz, chart_config, chart_name)
+            result["_mermaid_graph"] = chart_to_mermaid(viz_type, fixed_params, chart_name)
         except Exception:
             result["_mermaid_graph"] = None
+
+        if validation_warning:
+            result["_validation_warning"] = validation_warning
 
         mc = get_metrics()
         mc.tool_calls.labels(tool="superset_generate_chart", status="success").inc()

@@ -266,3 +266,276 @@ class TestFormatErrorSummary:
         assert "Error 1" in result
         assert "Error 2" in result
         assert "Error 3" in result
+
+
+class TestSankeyValidation:
+    """Test Sankey chart parameter validation."""
+
+    def test_sankey_missing_source_is_error(self):
+        """Sankey without 'source' field should be flagged."""
+        params = {
+            "viz_type": "sankey_v2",
+            "target": "channel_2",
+            "metric": "count",
+        }
+        errors = validate_chart_params("sankey_v2", params)
+        assert len(errors) == 1
+        assert "source" in errors[0]
+
+    def test_sankey_missing_target_is_error(self):
+        """Sankey without 'target' field should be flagged."""
+        params = {
+            "viz_type": "sankey_v2",
+            "source": "channel_1",
+            "metric": "count",
+        }
+        errors = validate_chart_params("sankey_v2", params)
+        assert len(errors) == 1
+        assert "target" in errors[0]
+
+    def test_sankey_missing_both_source_and_target(self):
+        """Sankey without both fields should report both errors."""
+        params = {
+            "viz_type": "sankey_v2",
+            "metric": "count",
+        }
+        errors = validate_chart_params("sankey_v2", params)
+        assert len(errors) == 2
+        assert any("source" in e for e in errors)
+        assert any("target" in e for e in errors)
+
+    def test_sankey_with_both_fields_is_valid(self):
+        """Sankey with source and target should be valid."""
+        params = {
+            "viz_type": "sankey_v2",
+            "source": "channel_1",
+            "target": "channel_2",
+            "metric": "count",
+        }
+        errors = validate_chart_params("sankey_v2", params)
+        assert len(errors) == 0
+
+
+class TestSankeyAutoFix:
+    """Test Sankey auto-fix suggests cycle-breaking SQL."""
+
+    def test_sankey_auto_fix_suggests_cycle_sql(self):
+        """Auto-fix should suggest cycle-breaking SQL for Sankey."""
+        params = {
+            "viz_type": "sankey_v2",
+            "source": "channel_1",
+            "target": "channel_2",
+            "metric": "count",
+        }
+        fixed = auto_fix_chart_params("sankey_v2", params)
+        assert fixed.get("_cycle_fix_suggested") is True
+        assert "_cycle_fix_sql" in fixed
+        assert "channel_1 < channel_2" in fixed["_cycle_fix_sql"]
+        assert "channel_1 <> channel_2" in fixed["_cycle_fix_sql"]
+
+    def test_sankey_auto_fix_with_custom_columns(self):
+        """Auto-fix should use actual column names in SQL suggestion."""
+        params = {
+            "viz_type": "sankey_v2",
+            "source": "source_node",
+            "target": "target_node",
+            "metric": "count",
+        }
+        fixed = auto_fix_chart_params("sankey_v2", params)
+        assert "source_node < target_node" in fixed["_cycle_fix_sql"]
+        assert "source_node <> target_node" in fixed["_cycle_fix_sql"]
+
+
+class TestSankeyMetricsValidation:
+    """Test _validate_metrics_against_dataset function."""
+
+    def test_metric_exists_in_dataset(self):
+        """Valid metric should pass validation."""
+        from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
+        
+        params = {"metric": "count", "viz_type": "sankey_v2"}
+        dataset_metrics = [{"metric_name": "count", "expression": "COUNT(*)"}]
+        missing = _validate_metrics_against_dataset(params, dataset_metrics, "sankey_v2")
+        assert missing == []
+
+    def test_metric_not_in_dataset(self):
+        """Missing metric should be detected."""
+        from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
+        
+        params = {"metric": "SUM(sales)", "viz_type": "pie"}
+        dataset_metrics = [{"metric_name": "count", "expression": "COUNT(*)"}]
+        missing = _validate_metrics_against_dataset(params, dataset_metrics, "pie")
+        assert "SUM(sales)" in missing
+
+    def test_adhoc_metric_with_column_name(self):
+        """AdHocMetricObject column should be checked against dataset."""
+        from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
+        
+        params = {
+            "metric": {
+                "aggregate": "SUM",
+                "column": {"column_name": "sales"},
+                "expressionType": "SIMPLE",
+            }
+        }
+        dataset_metrics = [{"metric_name": "SUM(sales)", "expression": "SUM(sales)"}]
+        missing = _validate_metrics_against_dataset(params, dataset_metrics, "pie")
+        assert missing == []
+
+    def test_multiple_metrics_validation(self):
+        """Multiple metrics in array should all be validated."""
+        from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
+        
+        params = {
+            "metrics": [
+                {"aggregate": "SUM", "column": {"column_name": "revenue"}, "expressionType": "SIMPLE"},
+                {"aggregate": "SUM", "column": {"column_name": "cost"}, "expressionType": "SIMPLE"},
+            ],
+            "viz_type": "echarts_timeseries_line",
+        }
+        dataset_metrics = [
+            {"metric_name": "SUM(revenue)", "expression": "SUM(revenue)"},
+            {"metric_name": "count", "expression": "COUNT(*)"},
+        ]
+        missing = _validate_metrics_against_dataset(params, dataset_metrics, "echarts_timeseries_line")
+        assert "SUM(cost)" in missing
+        assert "SUM(revenue)" not in missing
+
+
+class TestChartIdExtraction:
+    """Test _extract_chart_ids_from_position_json function."""
+
+    def test_extract_ids_from_dict(self):
+        """Chart IDs should be extracted from position dict."""
+        from modules.SupersetModule.tools.dashboards import _extract_chart_ids_from_position_json
+        
+        position_json = {
+            "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["GRID_ID"]},
+            "GRID_ID": {"type": "GRID", "id": "GRID_ID", "children": ["ROW1"]},
+            "ROW1": {
+                "type": "ROW",
+                "id": "ROW1",
+                "children": [{"type": "CHART", "slice_id": 1}, {"type": "CHART", "slice_id": 2}],
+            },
+        }
+        ids = _extract_chart_ids_from_position_json(position_json)
+        assert 1 in ids
+        assert 2 in ids
+
+    def test_extract_ids_from_string(self):
+        """Chart IDs should be extracted from position JSON string."""
+        from modules.SupersetModule.tools.dashboards import _extract_chart_ids_from_position_json
+        
+        position_json = '{"ROW1": {"type": "ROW", "children": [{"type": "CHART", "slice_id": 42}]}}'
+        ids = _extract_chart_ids_from_position_json(position_json)
+        assert 42 in ids
+
+    def test_extract_ids_empty(self):
+        """Empty position JSON should return empty list."""
+        from modules.SupersetModule.tools.dashboards import _extract_chart_ids_from_position_json
+        
+        ids = _extract_chart_ids_from_position_json({})
+        assert ids == []
+
+    def test_extract_ids_nested(self):
+        """Chart IDs at any depth should be extracted."""
+        from modules.SupersetModule.tools.dashboards import _extract_chart_ids_from_position_json
+        
+        position_json = {
+            "a": {"b": {"c": [{"slice_id": 10}, {"slice_id": 20}]}}
+        }
+        ids = _extract_chart_ids_from_position_json(position_json)
+        assert 10 in ids
+        assert 20 in ids
+
+
+class TestBigNumberAutoFix:
+    """Test big_number auto-fix for dashboard rendering."""
+
+    def test_big_number_gets_temporal_field(self):
+        """Big number should get granularity_sqla hint."""
+        params = {
+            "viz_type": "big_number",
+            "metric": "count",
+        }
+        fixed = auto_fix_chart_params("big_number", params)
+        assert "_needs_temporal_check" in fixed or "granularity_sqla" in fixed
+
+    def test_big_number_gets_time_range(self):
+        """Big number should get time_range."""
+        params = {
+            "viz_type": "big_number",
+            "metric": "count",
+        }
+        fixed = auto_fix_chart_params("big_number", params)
+        assert fixed.get("time_range") == "100 years ago : now"
+        assert fixed.get("adhoc_filters") == []
+
+
+class TestPieChartGroupbyFix:
+    """Test pie chart groupby conversion to array."""
+
+    def test_pie_groupby_becomes_array(self):
+        """Pie chart groupby string should become array in dashboard context."""
+        params = {
+            "viz_type": "pie",
+            "groupby": "gender",
+            "metric": "count",
+        }
+        fixed = auto_fix_chart_params("pie", params)
+        assert fixed["groupby"] == ["gender"]
+
+    def test_pie_groupby_already_array(self):
+        """Pie chart groupby already as array should not change."""
+        params = {
+            "viz_type": "pie",
+            "groupby": ["region"],
+            "metric": "count",
+        }
+        fixed = auto_fix_chart_params("pie", params)
+        assert fixed["groupby"] == ["region"]
+
+
+class TestNullColumnFix:
+    """Test null column_name fix in AdHocMetricObject."""
+
+    def test_null_column_uses_top_level_groupby(self):
+        """Null column_name should be filled from top-level groupby."""
+        params = {
+            "viz_type": "pie",
+            "groupby": "gender",
+            "metric": {
+                "aggregate": "COUNT",
+                "column": {"column_name": None},
+                "expressionType": "SIMPLE",
+            },
+        }
+        fixed = auto_fix_chart_params("pie", params)
+        assert fixed["metric"]["column"]["column_name"] == "gender"
+
+    def test_null_column_with_groupby_in_metric(self):
+        """Null column_name should be filled from metric's groupby field."""
+        params = {
+            "viz_type": "pie",
+            "metric": {
+                "aggregate": "COUNT",
+                "column": {"column_name": None},
+                "expressionType": "SIMPLE",
+                "groupby": "category",
+            },
+        }
+        fixed = auto_fix_chart_params("pie", params)
+        assert fixed["metric"]["column"]["column_name"] == "category"
+
+    def test_null_column_falls_back_to_count(self):
+        """Null column_name should fall back to 'count' if no groupby."""
+        params = {
+            "viz_type": "pie",
+            "metric": {
+                "aggregate": "COUNT",
+                "column": {"column_name": None},
+                "expressionType": "SIMPLE",
+            },
+        }
+        fixed = auto_fix_chart_params("pie", params)
+        assert fixed["metric"]["column"]["column_name"] == "count"

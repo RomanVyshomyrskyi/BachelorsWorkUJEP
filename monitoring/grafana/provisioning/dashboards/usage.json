@@ -49,7 +49,7 @@
               "mode": "off"
             }
           },
-          "unit": "ops"
+          "unit": "ops_per_min"
         },
         "overrides": []
       },
@@ -77,12 +77,12 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(tool_calls_total[5m])",
+          "expr": "rate(tool_calls_total[5m]) * 60",
           "legendFormat": "{{tool}}",
           "refId": "A"
         }
       ],
-      "title": "Tool Calls Rate (per second)",
+      "title": "Tool Calls Rate (per minute)",
       "type": "timeseries"
     },
     {
@@ -250,7 +250,7 @@
               "mode": "off"
             }
           },
-          "unit": "ops"
+          "unit": "ops_per_min"
         },
         "overrides": []
       },
@@ -278,12 +278,12 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "increase(queries_executed_total[1h])",
+          "expr": "rate(queries_executed_total[5m]) * 60",
           "legendFormat": "{{source}}",
           "refId": "A"
         }
       ],
-      "title": "Query Execution Rate by Source",
+      "title": "Query Execution Rate by Source (per minute)",
       "type": "timeseries"
     },
     {
@@ -326,7 +326,7 @@
               "mode": "off"
             }
           },
-          "unit": "ops"
+          "unit": "ops_per_min"
         },
         "overrides": []
       },
@@ -354,12 +354,12 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "increase(db_queries_total[1h])",
+          "expr": "rate(db_queries_total[5m]) * 60",
           "legendFormat": "{{db_type}}",
           "refId": "A"
         }
       ],
-      "title": "Direct DB Query Rate by Database Type",
+      "title": "Direct DB Query Rate by Database Type (per minute)",
       "type": "timeseries"
     },
     {
@@ -402,7 +402,7 @@
               "mode": "off"
             }
           },
-          "unit": "ops"
+          "unit": "ops_per_min"
         },
         "overrides": []
       },
@@ -433,12 +433,12 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum by (tool) (rate(tool_calls_total{status=\"error\"}[5m]))",
+          "expr": "sum by (tool) (rate(tool_calls_total{status=\"error\"}[5m])) * 60",
           "legendFormat": "{{tool}}",
           "refId": "A"
         }
       ],
-      "title": "Error Rate by Tool",
+      "title": "Error Rate by Tool (per minute)",
       "type": "timeseries"
     }
   ],
@@ -453,12 +453,12 @@
     "list": []
   },
   "time": {
-    "from": "now-1h",
+    "from": "now-6h",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "browser",
   "title": "Usage Overview",
   "uid": "automation-usage",
-  "version": 1
+  "version": 2
 }

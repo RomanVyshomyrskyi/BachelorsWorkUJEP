@@ -49,7 +49,7 @@
               "mode": "off"
             }
           },
-          "unit": "ops"
+          "unit": "ops_per_min"
         },
         "overrides": []
       },
@@ -77,12 +77,12 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "increase(resources_created_total{resource_type=\"chart\"}[1h])",
+          "expr": "rate(resources_created_total{resource_type=\"chart\"}[5m]) * 60",
           "legendFormat": "Charts",
           "refId": "A"
         }
       ],
-      "title": "Charts Created Rate",
+      "title": "Charts Created Rate (per minute)",
       "type": "timeseries"
     },
     {
@@ -125,7 +125,7 @@
               "mode": "off"
             }
           },
-          "unit": "ops"
+          "unit": "ops_per_min"
         },
         "overrides": []
       },
@@ -153,12 +153,12 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "increase(resources_created_total{resource_type=\"dataset\"}[1h])",
+          "expr": "rate(resources_created_total{resource_type=\"dataset\"}[5m]) * 60",
           "legendFormat": "Datasets",
           "refId": "A"
         }
       ],
-      "title": "Datasets Created Rate",
+      "title": "Datasets Created Rate (per minute)",
       "type": "timeseries"
     },
     {
@@ -201,7 +201,7 @@
               "mode": "off"
             }
           },
-          "unit": "ops"
+          "unit": "ops_per_min"
         },
         "overrides": []
       },
@@ -229,12 +229,12 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "increase(resources_created_total{resource_type=\"dashboard\"}[1h])",
+          "expr": "rate(resources_created_total{resource_type=\"dashboard\"}[5m]) * 60",
           "legendFormat": "Dashboards",
           "refId": "A"
         }
       ],
-      "title": "Dashboards Created Rate",
+      "title": "Dashboards Created Rate (per minute)",
       "type": "timeseries"
     },
     {
@@ -564,7 +564,7 @@
               "mode": "off"
             }
           },
-          "unit": "ops"
+          "unit": "ops_per_min"
         },
         "overrides": []
       },
@@ -595,12 +595,12 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "increase(transfers_items_total[1h])",
+          "expr": "rate(transfers_items_total[5m]) * 60",
           "legendFormat": "{{item_type}} - {{status}}",
           "refId": "A"
         }
       ],
-      "title": "Transfer Items Rate",
+      "title": "Transfer Items Rate (per minute)",
       "type": "timeseries"
     }
   ],
@@ -615,12 +615,12 @@
     "list": []
   },
   "time": {
-    "from": "now-1h",
+    "from": "now-6h",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "browser",
   "title": "Resources Created",
   "uid": "automation-resources",
-  "version": 1
+  "version": 2
 }

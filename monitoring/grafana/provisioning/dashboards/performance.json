@@ -79,7 +79,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "increase(tool_duration_seconds_sum[1h]) / increase(tool_duration_seconds_count[1h])",
+          "expr": "rate(tool_duration_seconds_sum[5m]) / rate(tool_duration_seconds_count[5m])",
           "legendFormat": "{{tool}}",
           "refId": "A"
         }
@@ -155,7 +155,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "histogram_quantile(0.99, increase(tool_duration_seconds_bucket[1h]))",
+          "expr": "histogram_quantile(0.99, rate(tool_duration_seconds_bucket[5m]))",
           "legendFormat": "{{tool}} P99",
           "refId": "A"
         }
@@ -203,7 +203,7 @@
               "mode": "off"
             }
           },
-          "unit": "ops"
+          "unit": "ops_per_min"
         },
         "overrides": []
       },
@@ -231,12 +231,12 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "increase(api_requests_total[1h])",
+          "expr": "rate(api_requests_total[5m]) * 60",
           "legendFormat": "{{endpoint}}",
           "refId": "A"
         }
       ],
-      "title": "API Request Rate by Endpoint",
+      "title": "API Request Rate by Endpoint (per minute)",
       "type": "timeseries"
     },
     {
@@ -279,7 +279,7 @@
               "mode": "off"
             }
           },
-          "unit": "ops"
+          "unit": "ops_per_min"
         },
         "overrides": []
       },
@@ -307,12 +307,12 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum(rate(api_requests_total{status_code=~\"4..|5..\"}[5m])) by (status_code)",
+          "expr": "sum(rate(api_requests_total{status_code=~\"4..|5..\"}[5m])) by (status_code) * 60",
           "legendFormat": "{{status_code}}",
           "refId": "A"
         }
       ],
-      "title": "API Errors (4xx/5xx) by Status Code",
+      "title": "API Errors (4xx/5xx) by Status Code (per minute)",
       "type": "timeseries"
     },
     {
@@ -355,7 +355,7 @@
               "mode": "off"
             }
           },
-          "unit": "ops"
+          "unit": "ops_per_min"
         },
         "overrides": []
       },
@@ -386,12 +386,12 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum by (tool) (rate(tool_calls_total{status=\"error\"}[5m]))",
+          "expr": "sum by (tool) (rate(tool_calls_total{status=\"error\"}[5m])) * 60",
           "legendFormat": "{{tool}}",
           "refId": "A"
         }
       ],
-      "title": "Error Rate by Tool",
+      "title": "Error Rate by Tool (per minute)",
       "type": "timeseries"
     },
     {
@@ -531,7 +531,7 @@
               "mode": "off"
             }
           },
-          "unit": "ops"
+          "unit": "ops_per_min"
         },
         "overrides": []
       },
@@ -559,12 +559,12 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "increase(transfers_items_total{status=\"failed\"}[1h])",
+          "expr": "rate(transfers_items_total{status=\"failed\"}[5m]) * 60",
           "legendFormat": "{{item_type}}",
           "refId": "A"
         }
       ],
-      "title": "Transfer Failure Rate by Item Type",
+      "title": "Transfer Failure Rate by Item Type (per minute)",
       "type": "timeseries"
     },
     {
@@ -607,7 +607,7 @@
               "mode": "off"
             }
           },
-          "unit": "ops"
+          "unit": "ops_per_min"
         },
         "overrides": []
       },
@@ -635,12 +635,12 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "sum by (status_code) (increase(api_requests_total[1h]))",
+          "expr": "sum by (status_code) (rate(api_requests_total[5m])) * 60",
           "legendFormat": "{{status_code}}",
           "refId": "A"
         }
       ],
-      "title": "HTTP Status Code Distribution",
+      "title": "HTTP Status Code Distribution (per minute)",
       "type": "timeseries"
     }
   ],
@@ -656,12 +656,12 @@
     "list": []
   },
   "time": {
-    "from": "now-1h",
+    "from": "now-6h",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "browser",
   "title": "Performance & Errors",
   "uid": "automation-performance",
-  "version": 1
+  "version": 2
 }

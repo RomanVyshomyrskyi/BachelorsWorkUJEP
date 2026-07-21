@@ -55,12 +55,12 @@ Three pre-built Grafana dashboards under folder **"AutomationMCPSuperset"**:
 ### 1. Usage Overview
 | Panel | Shows |
 |-------|-------|
-| Tool Calls Rate | All tool executions over time, grouped by tool |
+| Tool Calls Rate (per minute) | All tool executions over time, grouped by tool |
 | Total Tool Calls | Cumulative count |
 | Success Rate | `success / total` (green >95%, yellow >50%, red below) |
-| Query Execution Rate | SQL Lab / data queries per second |
-| Direct DB Query Rate | DBAnalysis queries by database type |
-| Error Rate by Tool | Red line — which tools are failing |
+| Query Execution Rate (per minute) | SQL Lab / data queries over time |
+| Direct DB Query Rate (per minute) | DBAnalysis queries by database type |
+| Error Rate by Tool (per minute) | Red line — which tools are failing |
 
 ### 2. Resources Created
 | Panel | Shows |
@@ -76,13 +76,13 @@ Three pre-built Grafana dashboards under folder **"AutomationMCPSuperset"**:
 | Panel | Shows |
 |-------|-------|
 | Avg / P99 Tool Latency | Execution time per tool |
-| API Request Rate | Superset API calls by endpoint |
-| API Errors (4xx/5xx) | HTTP error rate by status code |
-| Error Rate by Tool | Which tools fail most often |
+| API Request Rate (per minute) | Superset API calls by endpoint |
+| API Errors (4xx/5xx) | HTTP error rate by status code (per minute) |
+| Error Rate by Tool (per minute) | Which tools fail most often |
 | Error Count by Tool | Table: top 10 tools with highest error counts |
 | Error Details | Table: timestamp, tool, error message |
-| Transfer Failure Rate | Items that failed by type |
-| HTTP Status Distribution | Breakdown of 200/400/401/500 etc. |
+| Transfer Failure Rate (per minute) | Items that failed by type |
+| HTTP Status Distribution (per minute) | Breakdown of 200/400/401/500 etc. |
 
 ## Docker
 

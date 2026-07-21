@@ -229,6 +229,33 @@ def _extract_columns_from_params(
     if "entity" in params and params["entity"]:
         column_refs.append(("entity", params["entity"]))
     
+    # Extract from 'orderby' — format: [["col", true], ...] or [{"column": {"column_name": "x"}, "asc": true}, ...]
+    if "orderby" in params and params["orderby"]:
+        orderby = params["orderby"]
+        if isinstance(orderby, list):
+            for i, entry in enumerate(orderby):
+                if isinstance(entry, list) and len(entry) >= 1:
+                    col = entry[0]
+                    if isinstance(col, str) and col.strip():
+                        column_refs.append((f"orderby[{i}]", col))
+                elif isinstance(entry, dict):
+                    col_obj = entry.get("column", {})
+                    if isinstance(col_obj, dict):
+                        col_name = col_obj.get("column_name")
+                        if isinstance(col_name, str) and col_name.strip():
+                            column_refs.append((f"orderby[{i}]", col_name))
+    
+    # Extract from 'timeseries_limit_metric' — can be a string or an AdHocMetricObject
+    if "timeseries_limit_metric" in params and params["timeseries_limit_metric"]:
+        tlm = params["timeseries_limit_metric"]
+        if isinstance(tlm, str):
+            for col in _extract_metric_columns(tlm):
+                column_refs.append(("timeseries_limit_metric", col))
+        elif isinstance(tlm, dict):
+            col_name = tlm.get("column", {}).get("column_name")
+            if isinstance(col_name, str) and col_name.strip():
+                column_refs.append(("timeseries_limit_metric", col_name))
+    
     logger.info(f"Extracted {len(column_refs)} column references from params")
     for field, col in column_refs:
         logger.info(f"  Column ref: {field} -> '{col}'")

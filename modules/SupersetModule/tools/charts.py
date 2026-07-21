@@ -151,14 +151,119 @@ def _extract_columns_from_dataset_response(response_str: str) -> List[Dict[str, 
     except (json.JSONDecodeError, TypeError):
         return []
 
-def _validate_metrics_against_dataset(params: Dict[str, Any], dataset_metrics: List[Dict[str, Any]], viz_type: str) -> List[str]:
+def _validate_metric_string_format(params: Dict[str, Any]) -> List[str]:
+    """
+    Basic syntax validation for metric strings.
+    
+    Runs when no dataset schema is available. Catches obviously wrong
+    metric strings by parsing their format.
+    """
+    import re
+    errors: List[str] = []
+    
+    def check_metric_string(ms: str, label: str) -> None:
+        s = ms.strip()
+        if not s:
+            errors.append(f"Empty metric string in {label}")
+            return
+        s_lower = s.lower()
+        if s_lower == "count":
+            return  # built-in count is always valid
+        # Must match AGG(col) format
+        match = re.match(r"^(SUM|AVG|MIN|MAX|COUNT|COUNT_DISTINCT)\s*\(\s*.+?\s*\)$", s, re.IGNORECASE)
+        if not match:
+            errors.append(
+                f"'{s}' in {label} has invalid format. "
+                f"Expected 'count' or 'AGGREGATION(column_name)' "
+                f"(e.g., 'SUM(sales)', 'AVG(price)')."
+            )
+    
+    if "metric" in params:
+        m = params["metric"]
+        if m is None:
+            errors.append("'metric' is null — set it to 'count' or 'SUM(column_name)'")
+        elif isinstance(m, str):
+            check_metric_string(m, "'metric'")
+        elif isinstance(m, dict):
+            col_name = m.get("column", {}).get("column_name")
+            if not col_name:
+                errors.append("'metric' object has null or missing column_name")
+    
+    if "metrics" in params and params["metrics"]:
+        for i, m in enumerate(params["metrics"]):
+            if isinstance(m, str):
+                check_metric_string(m, f"'metrics[{i}]'")
+            elif isinstance(m, dict):
+                col_name = m.get("column", {}).get("column_name")
+                if not col_name:
+                    errors.append(f"'metrics[{i}]' object has null or missing column_name")
+    
+    # Check 'entity' — null/empty entity for map types
+    if "entity" in params and not params["entity"]:
+        errors.append("'entity' is null or empty — set it to a valid column name (e.g., 'country_code')")
+
+    # Check 'orderby' — format: [["col", true], ...] or [{"column": {"column_name": "x"}, "asc": true}, ...]
+    if "orderby" in params and params["orderby"]:
+        orderby = params["orderby"]
+        if isinstance(orderby, list):
+            for i, entry in enumerate(orderby):
+                if isinstance(entry, list):
+                    if len(entry) >= 1 and entry[0] is None:
+                        errors.append(f"'orderby[{i}]' has null column reference")
+                elif isinstance(entry, dict):
+                    col_entry = entry.get("column", {})
+                    col_name = col_entry.get("column_name") if isinstance(col_entry, dict) else None
+                    if col_name is None:
+                        errors.append(f"'orderby[{i}]' has null or missing column reference")
+    
+    # Check 'timeseries_limit_metric' — can be string, dict, or None
+    if "timeseries_limit_metric" in params:
+        tlm = params["timeseries_limit_metric"]
+        if tlm is None:
+            errors.append("'timeseries_limit_metric' is null — remove it or set to a valid metric")
+        elif isinstance(tlm, dict):
+            col_name = tlm.get("column", {}).get("column_name")
+            if col_name is None:
+                errors.append("'timeseries_limit_metric' object has null column_name")
+    
+    return errors
+
+
+NUMERIC_TYPES = {
+    "int", "int2", "int4", "int8", "int16", "int32", "int64",
+    "integer", "smallint", "bigint", "tinyint",
+    "float", "float4", "float8", "double", "double precision",
+    "decimal", "numeric", "number", "real",
+    "money",
+}
+
+
+def _validate_metrics_against_dataset(
+    params: Dict[str, Any],
+    dataset_metrics: List[Dict[str, Any]],
+    viz_type: str,
+    dataset_columns: Optional[List[Dict[str, Any]]] = None,
+) -> List[str]:
     """
     Validate that all metrics used in chart params exist in the dataset.
     
-    Returns list of missing metric names.
+    When dataset_metrics is empty (common for physical tables), falls back
+    to checking that columns referenced in string metrics (e.g., 'SUM(sales)')
+    actually exist in dataset_columns and have compatible types.
+    
+    Returns list of missing/invalid metric descriptions.
     """
-    missing_metrics = []
+    import re
+    missing_metrics: List[str] = []
     dataset_metric_names = {m["metric_name"] for m in dataset_metrics}
+    
+    # Build column lookup for type checking
+    column_map: Dict[str, Dict[str, Any]] = {}
+    if dataset_columns:
+        for col in dataset_columns:
+            col_name = col.get("column_name", "")
+            if col_name:
+                column_map[col_name.lower()] = col
     
     def extract_metric_strings(p: Dict[str, Any]) -> List[str]:
         """Extract all metric strings from params."""
@@ -188,6 +293,16 @@ def _validate_metrics_against_dataset(params: Dict[str, Any], dataset_metrics: L
         
         return metrics
     
+    def parse_metric_string(metric_str: str) -> tuple:
+        """Parse 'SUM(sales)' into (aggregate, column_name). Both lowercase."""
+        s = metric_str.strip().lower()
+        if s == "count":
+            return ("count", "count")
+        m = re.match(r"^(sum|avg|min|max|count|count_distinct)\s*\(\s*(.+?)\s*\)$", s)
+        if m:
+            return (m.group(1), m.group(2).strip())
+        return ("", s)
+    
     def normalize_metric(metric_str: str) -> str:
         """Normalize metric string for comparison."""
         metric_str = metric_str.strip()
@@ -209,31 +324,132 @@ def _validate_metrics_against_dataset(params: Dict[str, Any], dataset_metrics: L
             parts = name_lower.split("__", 1)
             agg = parts[0]
             col = parts[1]
-            # Try to match: SUM(sales) -> sum__sales
-            import re
             match = re.match(r"^(\w+)\s*\(\s*(.+?)\s*\)$", target)
             if match and match.group(1).lower() == agg and match.group(2).lower() == col:
                 return True
         
         return False
     
+    def column_has_compatible_type(col_name: str, aggregate: str) -> Optional[str]:
+        """Check if column type is compatible with aggregate. Returns error string or None."""
+        col_info = column_map.get(col_name.lower())
+        if not col_info:
+            return None  # column not in our map, can't check
+        
+        col_type = str(col_info.get("type", "")).lower()
+        if not col_type:
+            return None  # no type info, can't check
+        
+        # Only SUM, AVG, MIN, MAX need numeric types
+        if aggregate.lower() not in ("sum", "avg", "min", "max"):
+            return None
+        
+        # Special: "count" is not really a column type check
+        if col_name.lower() == "count" and aggregate.lower() in ("count",):
+            return None
+        
+        is_numeric = any(t in col_type for t in NUMERIC_TYPES)
+        if not is_numeric:
+            return (
+                f"Aggregation '{aggregate}()' on column '{col_info['column_name']}' "
+                f"(type: {col_type}) will fail — '{aggregate}()' requires a numeric column. "
+                f"Use 'count' for row counts or pick a numeric column."
+            )
+        return None
+    
     # Extract all metrics from params
     param_metrics = extract_metric_strings(params)
     
     for pm in param_metrics:
         normalized = normalize_metric(pm)
+        
+        # Special: reject COUNT(count) with parentheses — user likely meant bare "count"
+        # Bare "count" (no parens) is the built-in row count and should NOT be rejected.
+        if "(" in pm and ")" in pm:
+            parse_result = parse_metric_string(pm)
+            agg, col_in_metric = parse_result
+            if agg in ("count", "count_distinct") and col_in_metric == "count":
+                stripped = agg.replace("_distinct", "").replace("_", "").replace("distinct", "")
+                missing_metrics.append(
+                    f"'{pm}': use '{stripped}' (bare, without parentheses) instead. "
+                    f"'{pm}' tries to aggregate a literal column called 'count', "
+                    f"not count rows. Replace with '{stripped}'."
+                )
+                continue
+        
+        # Parse for column fallback
+        parse_result = parse_metric_string(pm)
+        agg, col_in_metric = parse_result
+        
+        # Built-in count — always valid if dataset exists
         if normalized == "count":
-            if not any(m.lower().startswith("count") for m in dataset_metric_names):
-                missing_metrics.append(pm)
-        else:
-            # Check if metric exists in dataset (case-insensitive + SQL style matching)
+            if dataset_metric_names and not any(m.lower().startswith("count") for m in dataset_metric_names):
+                missing_metrics.append(
+                    f"'{pm}': 'count' is a built-in metric but no count-like metric was "
+                    f"found in the dataset's defined metrics."
+                )
+            continue
+        
+        # Check if metric exists in predefined dataset metrics
+        if dataset_metric_names:
             found = False
             for dm in dataset_metric_names:
                 if metric_matches(dm, pm):
                     found = True
                     break
-            if not found:
-                missing_metrics.append(pm)
+            if found:
+                continue  # matched a predefined metric
+        
+        # Metric not in predefined list — try column fallback
+        if col_in_metric and column_map:
+            if col_in_metric in column_map:
+                # Column exists — check type compatibility
+                type_error = column_has_compatible_type(col_in_metric, agg)
+                if type_error:
+                    missing_metrics.append(type_error)
+                continue
+            else:
+                # Column doesn't exist in dataset
+                available = [c.get("column_name", "") for c in dataset_columns] if dataset_columns else []
+                suggestion = ""
+                # Case-insensitive search for suggestions
+                for avail in available:
+                    if avail.lower() == col_in_metric:
+                        suggestion = f" Did you mean '{avail}' (case mismatch)?"
+                        break
+                if not suggestion:
+                    # Check if there's a close match
+                    from difflib import get_close_matches
+                    matches = get_close_matches(col_in_metric, [c.lower() for c in available], n=1, cutoff=0.6)
+                    if matches:
+                        # Find original case
+                        for avail in available:
+                            if avail.lower() == matches[0]:
+                                suggestion = f" Did you mean '{avail}'?"
+                                break
+        
+                missing_metrics.append(
+                    f"'{pm}': column '{col_in_metric}' does not exist in this dataset."
+                    + suggestion
+                    + (f"\nAvailable columns: {', '.join(available[:15])}" if available else "")
+                )
+                continue
+        
+        # No dataset_metrics and no dataset_columns — can't validate, BLOCK
+        if not dataset_metric_names and not column_map:
+            available = [c.get("column_name", "") for c in dataset_columns] if dataset_columns else []
+            missing_metrics.append(
+                f"'{pm}' cannot be validated because no dataset schema was retrieved. "
+                f"Dataset returned no columns and no predefined metrics. "
+                f"Verify the datasource exists and has columns defined."
+            )
+            continue
+        
+        # If we got here and have metrics, mark as missing
+        if dataset_metric_names:
+            missing_metrics.append(
+                f"'{pm}' does not match any predefined metric in the dataset."
+            )
     
     return missing_metrics
 
@@ -304,6 +520,271 @@ def _validate_sankey_params(params: Dict[str, Any], slice_name: str) -> Optional
         )
     }
 
+async def _test_chart_data_endpoint(
+    manager: ConnectionManager,
+    server_id: str,
+    chart_id: int
+) -> Dict[str, Any]:
+    """
+    Blunt test: query the chart data endpoint and fail on ANY sign of trouble.
+    
+    Calls GET /api/v1/chart/{id}/data/. Blocks if:
+      - HTTP status != 200
+      - result has explicit 'error' field
+      - result.status != 'success'
+      - sql_rowcount is 0 or None (no data returned)
+      - response contains error keywords in body text
+    
+    Only returns is_valid=True if data was returned with no errors.
+    """
+    ctx = manager.get_context(server_id)
+    if not ctx:
+        return {"is_valid": False, "error": "Server context not found", "row_count": None}
+    
+    try:
+        resp = await execute_request(ctx, "GET", f"/api/v1/chart/{chart_id}/data/")
+        
+        if resp.status_code != 200:
+            return {"is_valid": False, "error": f"HTTP {resp.status_code}: {resp.text[:300]}", "row_count": None}
+        
+        data = resp.json()
+        result = data.get("result", {})
+        error = result.get("error")
+        status = result.get("status", "unknown")
+        row_count = result.get("sql_rowcount")
+        
+        # Explicit error field
+        if error:
+            return {"is_valid": False, "error": f"Data endpoint error: {error}", "row_count": row_count}
+        
+        # Non-success status
+        if status != "success":
+            return {"is_valid": False, "error": f"Data endpoint status: {status}", "row_count": row_count}
+        
+        # No rows returned → broken chart
+        if not row_count or row_count == 0:
+            return {"is_valid": False, "error": "Chart returned no data rows (sql_rowcount=0)", "row_count": 0}
+        
+        # Scan the FULL response text for error keywords
+        resp_lower = str(resp.text).lower()
+        error_keywords = ["does not exist", "doesn't exist", "cannot compile", "undefined",
+                          "db engine error", "data error", "error:", "exception:",
+                          "traceback", "may not be null", "field may not be",
+                          "not found", "is null", "noneType", "can't access",
+                          "duplicate", "not subscriptable", "is not defined",
+                          "is undefined", "label", "datetime column not provided",
+                          "not provided as part", "rendering the visualization"]
+        matches = [kw for kw in error_keywords if kw in resp_lower]
+        if matches:
+            return {"is_valid": False, "error": f"Chart response contains error keywords: {matches}", "row_count": row_count}
+        
+        # Success with data
+        return {"is_valid": True, "error": None, "row_count": row_count}
+    
+    except httpx.HTTPStatusError as e:
+        return {"is_valid": False, "error": f"HTTP {e.response.status_code}: {e.response.text[:300]}", "row_count": None}
+    except Exception as e:
+        return {"is_valid": False, "error": f"Data endpoint exception: {str(e)[:300]}", "row_count": None}
+
+async def _delete_chart(
+    manager: ConnectionManager,
+    server_id: str,
+    chart_id: int
+) -> bool:
+    """Delete a chart by ID. Returns True on success."""
+    ctx = manager.get_context(server_id)
+    if not ctx:
+        return False
+    
+    try:
+        resp = await execute_request(ctx, "DELETE", f"/api/v1/chart/{chart_id}")
+        return resp.status_code in [200, 204]
+    except Exception:
+        return False
+
+async def _validate_chart_on_datasource(
+    manager: ConnectionManager,
+    server_id: str,
+    chart_id: int
+) -> Dict[str, Any]:
+    """
+    Validate a chart against its datasource by testing the data endpoint.
+    
+    Returns validation result dict for use in dashboard creation.
+    """
+    ctx = manager.get_context(server_id)
+    if not ctx:
+        return {"chart_id": chart_id, "is_valid": False, "error": "Server not found"}
+    
+    try:
+        resp = await execute_request(ctx, "GET", f"/api/v1/chart/{chart_id}")
+        chart = resp.json().get("result", {})
+        viz_type = chart.get("viz_type", "unknown")
+        params_str = chart.get("params", "{}")
+        
+        try:
+            params = json.loads(params_str)
+        except json.JSONDecodeError:
+            params = {}
+        
+        dataset_id = chart.get("datasource_id")
+        
+        # Get dataset columns
+        try:
+            ds_resp = await execute_request(ctx, "GET", f"/api/v1/dataset/{dataset_id}")
+            ds = ds_resp.json().get("result", {})
+            columns = ds.get("columns", [])
+        except Exception:
+            columns = []
+        
+        # Run compatibility validation
+        from modules.SupersetModule.superset_validation import (
+            validate_datasource_compatibility,
+        )
+        compat_errors = validate_datasource_compatibility(viz_type, params, columns)
+        
+        if compat_errors:
+            return {
+                "chart_id": chart_id,
+                "is_valid": False,
+                "error": "Compatibility: " + "; ".join(compat_errors),
+                "viz_type": viz_type,
+            }
+        
+        # Test the data endpoint
+        data_result = await _test_chart_data_endpoint(manager, server_id, chart_id)
+        
+        if not data_result["is_valid"]:
+            return {
+                "chart_id": chart_id,
+                "is_valid": False,
+                "error": f"Data test failed: {data_result['error']}",
+                "viz_type": viz_type,
+            }
+        
+        return {
+            "chart_id": chart_id,
+            "is_valid": True,
+            "error": None,
+            "viz_type": viz_type,
+            "row_count": data_result["row_count"],
+        }
+    except Exception as e:
+        return {
+            "chart_id": chart_id,
+            "is_valid": False,
+            "error": f"Validation error: {str(e)[:200]}",
+        }
+
+async def _verify_chart_params_saved(
+    manager: ConnectionManager,
+    server_id: str,
+    chart_id: int
+) -> List[str]:
+    """
+    After creation, fetch the chart from Superset and verify its saved params
+    have no null/empty values for critical fields.
+    
+    This catches cases where Superset's API accepted bad params (e.g., null metric)
+    and stored them as-is, which later cause render-time errors.
+    """
+    ctx = manager.get_context(server_id)
+    if not ctx:
+        return ["Server context not found"]
+    
+    try:
+        resp = await execute_request(ctx, "GET", f"/api/v1/chart/{chart_id}")
+        chart = resp.json().get("result", {})
+        params_str = chart.get("params", "{}")
+        try:
+            params = json.loads(params_str)
+        except (json.JSONDecodeError, TypeError):
+            return [f"Chart params is not valid JSON: {params_str[:100]}"]
+        
+        errors: List[str] = []
+        
+        # Check metric (singular)
+        if "metric" in params:
+            m = params["metric"]
+            if m is None:
+                errors.append("saved 'metric' is null")
+            elif isinstance(m, dict):
+                col_name = m.get("column", {}).get("column_name")
+                if col_name is None:
+                    errors.append("saved 'metric' has null column_name")
+        
+        # Check metrics (array)
+        if "metrics" in params and isinstance(params["metrics"], list):
+            for i, m in enumerate(params["metrics"]):
+                if m is None:
+                    errors.append(f"saved 'metrics[{i}]' is null")
+                elif isinstance(m, dict):
+                    col_name = m.get("column", {}).get("column_name")
+                    if col_name is None:
+                        errors.append(f"saved 'metrics[{i}]' has null column_name")
+        
+        # Check orderby
+        if "orderby" in params and isinstance(params["orderby"], list):
+            for i, entry in enumerate(params["orderby"]):
+                if isinstance(entry, list) and len(entry) >= 1 and entry[0] is None:
+                    errors.append(f"saved 'orderby[{i}]' has null column reference")
+                elif isinstance(entry, dict):
+                    col_entry = entry.get("column", {})
+                    if isinstance(col_entry, dict) and col_entry.get("column_name") is None:
+                        errors.append(f"saved 'orderby[{i}]' has null column_name")
+        
+        # Check timeseries_limit_metric
+        if "timeseries_limit_metric" in params and params["timeseries_limit_metric"] is None:
+            errors.append("saved 'timeseries_limit_metric' is null")
+        
+        # Check entity
+        if "entity" in params and not params["entity"]:
+            errors.append("saved 'entity' is null or empty")
+        
+        # Check columns (sunburst, treemap, boxplot, etc.)
+        if "columns" in params and isinstance(params["columns"], list):
+            for i, col in enumerate(params["columns"]):
+                if col is None:
+                    errors.append(f"saved 'columns[{i}]' is null")
+                elif isinstance(col, str) and not col.strip():
+                    errors.append(f"saved 'columns[{i}]' is empty")
+        
+        # Check all_columns (table chart)
+        if "all_columns" in params and isinstance(params["all_columns"], list):
+            for i, col in enumerate(params["all_columns"]):
+                if col is None:
+                    errors.append(f"saved 'all_columns[{i}]' is null")
+                elif isinstance(col, str) and not col.strip():
+                    errors.append(f"saved 'all_columns[{i}]' is empty")
+        
+        # Check groupby
+        if "groupby" in params and isinstance(params["groupby"], list):
+            for i, col in enumerate(params["groupby"]):
+                if col is None:
+                    errors.append(f"saved 'groupby[{i}]' is null")
+                elif isinstance(col, str) and not col.strip():
+                    errors.append(f"saved 'groupby[{i}]' is empty")
+        
+        # Check granularity_sqla for time-based charts
+        viz_type = chart.get("viz_type", "")
+        time_based_types = {
+            "echarts_timeseries_line", "echarts_timeseries_bar", "echarts_area",
+            "echarts_timeseries_scatter", "mixed_timeseries", "waterfall",
+            "big_number", "box_plot",
+        }
+        if viz_type in time_based_types:
+            if not params.get("granularity_sqla") and not params.get("x_axis"):
+                errors.append(
+                    f"saved chart is time-based ({viz_type}) but has no "
+                    f"'granularity_sqla' or 'x_axis' — requires a datetime column"
+                )
+        
+        return errors
+    
+    except Exception as e:
+        return [f"Could not verify chart params: {str(e)[:200]}"]
+
+
 async def create_chart(
     manager: ConnectionManager,
     server_id: str,
@@ -350,32 +831,42 @@ async def create_chart(
         except Exception:
             pass
         
+        # ── Metric validation (always runs, even when columns/metrics are empty) ──
+        # When dataset_columns is empty, we can't check column existence, but we
+        # still validate metric string format and run the post-creation data test.
+        metric_errors = _validate_metrics_against_dataset(
+            fixed_params, dataset_metrics, actual_viz_type, dataset_columns
+        )
+        
+        # Even without schema data, validate metric string format (syntax check)
+        if not dataset_columns and not dataset_metrics and not metric_errors:
+            metric_errors = _validate_metric_string_format(fixed_params)
+        if metric_errors:
+            mc = get_metrics()
+            mc.tool_calls.labels(tool="superset_create_chart", status="error").inc()
+            mc.record_error(
+                tool="superset_create_chart",
+                error_message=f"Metrics validation failed: {len(metric_errors)} errors"
+            )
+            available = ", ".join(m['metric_name'] for m in dataset_metrics) if dataset_metrics else "(no predefined metrics)"
+            return ChartError(
+                "Chart creation blocked: Metric validation failed",
+                details=(
+                    f"Chart '{slice_name}' cannot be created — metric validation found "
+                    f"{len(metric_errors)} issue(s):\n\n"
+                    + "\n\n".join(f"  {i+1}. {m}" for i, m in enumerate(metric_errors))
+                    + f"\n\nAvailable metrics: {available}"
+                ),
+                status_code=400,
+            ).to_json()
+
+        # ── Column-level validation (only when dataset columns are available) ──
         if dataset_columns:
             fixed_params, column_warnings = resolve_chart_params(fixed_params, dataset_columns)
             if column_warnings:
                 warning = "Column name fixes: " + "; ".join(column_warnings)
             else:
                 warning = None
-            
-            # Validate metrics against dataset metrics
-            if dataset_metrics:
-                metric_errors = _validate_metrics_against_dataset(fixed_params, dataset_metrics, actual_viz_type)
-                if metric_errors:
-                    mc = get_metrics()
-                    mc.tool_calls.labels(tool="superset_create_chart", status="error").inc()
-                    mc.record_error(
-                        tool="superset_create_chart",
-                        error_message=f"Missing metrics in dataset: {len(metric_errors)} not found"
-                    )
-                    return ChartError(
-                        "Chart creation blocked: Missing required metrics",
-                        details=(
-                            f"Chart '{slice_name}' cannot be created — the dataset is missing required metrics:\n\n"
-                            + "\n".join(f"  {i+1}. '{m}' — add this metric to dataset {datasource_id}\n" for i, m in enumerate(metric_errors))
-                            + f"\nAvailable metrics in dataset: {', '.join(m['metric_name'] for m in dataset_metrics)}"
-                        ),
-                        status_code=400,
-                    ).to_json()
             
             # Validate Sankey charts for proper params
             sankey_warning = _validate_sankey_params(fixed_params, slice_name)
@@ -387,10 +878,9 @@ async def create_chart(
                         status_code=400,
                     ).to_json()
                 else:
-                    # Cycle fix suggestion - add to warning but don't block
                     warning = f"Sankey: {sankey_warning['body']}"
             
-            # NEW: Validate chart data against dataset BEFORE creating
+            # Validate chart data against dataset BEFORE creating
             logger.info(f"Running pre-chart data validation for datasource_id={datasource_id}")
             validation_result = validate_chart_data_against_dataset(
                 fixed_params, dataset_columns, actual_viz_type
@@ -427,9 +917,29 @@ async def create_chart(
         else:
             warning = None
             logger.warning(
-                f"Could not fetch dataset columns for datasource_id={datasource_id}, "
-                f"skipping column validation"
+                f"Dataset columns not available for datasource_id={datasource_id}. "
+                f"Metric validation already ran; chart will be tested via data endpoint."
             )
+        
+        # Validate datasource compatibility for known viz types
+        if dataset_columns:
+            from modules.SupersetModule.superset_validation import validate_datasource_compatibility
+            compat_errors = validate_datasource_compatibility(actual_viz_type, fixed_params, dataset_columns)
+            if compat_errors:
+                mc = get_metrics()
+                mc.tool_calls.labels(tool="superset_create_chart", status="error").inc()
+                mc.record_error(
+                    tool="superset_create_chart",
+                    error_message=f"Datasource compatibility: {len(compat_errors)} issues"
+                )
+                return ChartError(
+                    f"Chart datasource incompatible: {actual_viz_type}",
+                    details=(
+                        f"Chart '{slice_name}' cannot be created — datasource is incompatible:\n\n"
+                        + "\n".join(f"  {i+1}. {e}" for i, e in enumerate(compat_errors))
+                    ),
+                    status_code=400,
+                ).to_json()
         
         errors = validate_chart_params(actual_viz_type, fixed_params)
         validation_errors = format_error_summary(errors) if errors else None
@@ -463,6 +973,55 @@ async def create_chart(
         resp = await execute_request(ctx, "POST", endpoint, json=chart_payload)
         resp.raise_for_status()
         result = resp.json()
+
+        # Post-creation: verify saved params have no null/empty values
+        chart_id = result.get("id") or result.get("result", {}).get("id", 0)
+        params_errors = await _verify_chart_params_saved(manager, server_id, chart_id)
+        if params_errors:
+            deleted = await _delete_chart(manager, server_id, chart_id)
+            mc = get_metrics()
+            mc.tool_calls.labels(tool="superset_create_chart", status="error").inc()
+            mc.record_error(
+                tool="superset_create_chart",
+                error_message=f"Chart saved params invalid: {params_errors[0][:100]}"
+            )
+            return ChartError(
+                f"Chart created but params are invalid: {actual_viz_type}",
+                details=(
+                    f"Chart '{slice_name}' was created (ID: {chart_id}) but the saved params "
+                    f"contain null/empty values. Chart was deleted.\n\n"
+                    f"Errors:\n" + "\n".join(f"  - {e}" for e in params_errors) + "\n\n"
+                    f"Check that all metric, column, and entity references are valid for datasource {datasource_id}."
+                ),
+                status_code=500,
+            ).to_json()
+        
+        # Post-creation: test chart data endpoint to verify it renders
+        data_test = await _test_chart_data_endpoint(manager, server_id, chart_id)
+        
+        if not data_test["is_valid"]:
+            # Chart created but fails data endpoint — delete it and return error
+            deleted = await _delete_chart(manager, server_id, chart_id)
+            error_detail = data_test["error"]
+            mc = get_metrics()
+            mc.tool_calls.labels(tool="superset_create_chart", status="error").inc()
+            mc.record_error(
+                tool="superset_create_chart",
+                error_message=f"Chart created but data endpoint failed: {error_detail[:100]}"
+            )
+            return ChartError(
+                f"Chart created but fails to render: {actual_viz_type}",
+                details=(
+                    f"Chart '{slice_name}' was created (ID: {chart_id}) but the data endpoint failed.\n"
+                    f"Chart was deleted to avoid leaving broken charts.\n\n"
+                    f"Error: {error_detail}\n\n"
+                    f"Check that:\n"
+                    f"  1. datasource_id {datasource_id} has the right columns\n"
+                    f"  2. metrics referenced in params exist in the dataset\n"
+                    f"  3. viz_type '{actual_viz_type}' is compatible with the datasource"
+                ),
+                status_code=500,
+            ).to_json()
 
         if warning:
             result["_validation_warning"] = warning

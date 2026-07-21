@@ -365,7 +365,7 @@ class TestSankeyMetricsValidation:
         params = {"metric": "SUM(sales)", "viz_type": "pie"}
         dataset_metrics = [{"metric_name": "count", "expression": "COUNT(*)"}]
         missing = _validate_metrics_against_dataset(params, dataset_metrics, "pie")
-        assert "SUM(sales)" in missing
+        assert any("SUM(sales)" in e for e in missing)
 
     def test_adhoc_metric_with_column_name(self):
         """AdHocMetricObject column should be checked against dataset."""
@@ -398,15 +398,36 @@ class TestSankeyMetricsValidation:
             {"metric_name": "count", "expression": "COUNT(*)"},
         ]
         missing = _validate_metrics_against_dataset(params, dataset_metrics, "echarts_timeseries_line")
-        assert "SUM(cost)" in missing
-        assert "SUM(revenue)" not in missing
+        assert any("SUM(cost)" in e for e in missing)
+        assert not any("SUM(revenue)" in e for e in missing)
 
 
 class TestChartIdExtraction:
     """Test _extract_chart_ids_from_position_json function."""
 
-    def test_extract_ids_from_dict(self):
-        """Chart IDs should be extracted from position dict."""
+    def test_extract_ids_from_meta_chart_id(self):
+        """Chart IDs should be extracted from meta.chartId (our layout format)."""
+        from modules.SupersetModule.tools.dashboards import _extract_chart_ids_from_position_json
+        
+        position_json = {
+            "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["GRID_ID"]},
+            "GRID_ID": {"type": "GRID", "id": "GRID_ID", "children": ["ROW1"]},
+            "ROW1": {
+                "type": "ROW",
+                "id": "ROW1",
+                "children": ["CHART-uuid-100"],
+            },
+            "CHART-uuid-100": {
+                "type": "CHART",
+                "id": "CHART-uuid-100",
+                "meta": {"chartId": 100},
+            },
+        }
+        ids = _extract_chart_ids_from_position_json(position_json)
+        assert 100 in ids
+
+    def test_extract_ids_from_slice_id(self):
+        """Chart IDs should be extracted from slice_id (legacy format)."""
         from modules.SupersetModule.tools.dashboards import _extract_chart_ids_from_position_json
         
         position_json = {
@@ -426,7 +447,7 @@ class TestChartIdExtraction:
         """Chart IDs should be extracted from position JSON string."""
         from modules.SupersetModule.tools.dashboards import _extract_chart_ids_from_position_json
         
-        position_json = '{"ROW1": {"type": "ROW", "children": [{"type": "CHART", "slice_id": 42}]}}'
+        position_json = '{"ROW1": {"type": "ROW", "children": [{"type": "CHART", "meta": {"chartId": 42}}]}}'
         ids = _extract_chart_ids_from_position_json(position_json)
         assert 42 in ids
 
@@ -442,11 +463,24 @@ class TestChartIdExtraction:
         from modules.SupersetModule.tools.dashboards import _extract_chart_ids_from_position_json
         
         position_json = {
-            "a": {"b": {"c": [{"slice_id": 10}, {"slice_id": 20}]}}
+            "a": {"b": {"c": [{"meta": {"chartId": 10}}, {"meta": {"chartId": 20}}]}}
         }
         ids = _extract_chart_ids_from_position_json(position_json)
         assert 10 in ids
         assert 20 in ids
+
+    def test_extract_ids_deduplicates(self):
+        """Duplicate chart IDs should be deduplicated."""
+        from modules.SupersetModule.tools.dashboards import _extract_chart_ids_from_position_json
+        
+        position_json = {
+            "ROW1": {"type": "ROW", "children": [
+                {"type": "CHART", "meta": {"chartId": 5}},
+                {"type": "CHART", "meta": {"chartId": 5}},
+            ]},
+        }
+        ids = _extract_chart_ids_from_position_json(position_json)
+        assert ids == [5]
 
 
 class TestBigNumberAutoFix:
@@ -539,3 +573,900 @@ class TestNullColumnFix:
         }
         fixed = auto_fix_chart_params("pie", params)
         assert fixed["metric"]["column"]["column_name"] == "count"
+
+
+class TestDatasourceCompatibilityValidation:
+    """Test validate_datasource_compatibility function."""
+    
+    def test_world_map_requires_entity(self):
+        """World map should fail if entity field is missing."""
+        from modules.SupersetModule.superset_validation import validate_datasource_compatibility
+        
+        params = {"viz_type": "world_map", "metric": "count"}
+        errors = validate_datasource_compatibility("world_map", params)
+        
+        assert len(errors) > 0
+        assert "entity" in errors[0].lower()
+    
+    def test_world_map_passes_with_entity(self):
+        """World map should pass when entity field is provided."""
+        from modules.SupersetModule.superset_validation import validate_datasource_compatibility
+        
+        params = {"viz_type": "world_map", "entity": "country_code", "metric": "count"}
+        errors = validate_datasource_compatibility("world_map", params)
+        
+        assert errors == []
+    
+    def test_heatmap_requires_groupby(self):
+        """Heatmap v2 should fail if groupby field is missing."""
+        from modules.SupersetModule.superset_validation import validate_datasource_compatibility
+        
+        params = {"viz_type": "heatmap_v2", "x_axis": "date"}
+        errors = validate_datasource_compatibility("heatmap_v2", params)
+        
+        assert len(errors) > 0
+        assert "groupby" in errors[0].lower()
+    
+    def test_heatmap_passes_with_groupby(self):
+        """Heatmap v2 should pass when groupby is provided."""
+        from modules.SupersetModule.superset_validation import validate_datasource_compatibility
+        
+        params = {"viz_type": "heatmap_v2", "x_axis": "date", "groupby": "category"}
+        errors = validate_datasource_compatibility("heatmap_v2", params)
+        
+        assert errors == []
+    
+    def test_parallel_requires_dimensions(self):
+        """Parallel chart should fail if dimensions field is missing."""
+        from modules.SupersetModule.superset_validation import validate_datasource_compatibility
+        
+        params = {"viz_type": "parallel"}
+        errors = validate_datasource_compatibility("parallel", params)
+        
+        assert len(errors) > 0
+        assert "dimensions" in errors[0].lower()
+    
+    def test_parallel_passes_with_dimensions(self):
+        """Parallel chart should pass when dimensions are provided."""
+        from modules.SupersetModule.superset_validation import validate_datasource_compatibility
+        
+        params = {"viz_type": "parallel", "dimensions": ["col1", "col2"]}
+        errors = validate_datasource_compatibility("parallel", params)
+        
+        assert errors == []
+    
+    def test_big_number_trendline_requires_temporal_x_axis(self):
+        """Big number with trendline should fail if x_axis is not temporal."""
+        from modules.SupersetModule.superset_validation import validate_datasource_compatibility
+        
+        params = {"viz_type": "big_number", "show_trend_line": True, "x_axis": "status"}
+        
+        dataset_columns = [
+            {"column_name": "status", "type": "VARCHAR"},
+        ]
+        
+        errors = validate_datasource_compatibility("big_number", params, dataset_columns)
+        
+        assert len(errors) > 0
+        assert "not a date/time" in errors[0].lower() or "trendline" in errors[0].lower()
+    
+    def test_big_number_trendline_passes_with_temporal_x_axis(self):
+        """Big number with trendline should pass with temporal x_axis."""
+        from modules.SupersetModule.superset_validation import validate_datasource_compatibility
+        
+        params = {"viz_type": "big_number", "show_trend_line": True, "x_axis": "created_at"}
+        
+        dataset_columns = [
+            {"column_name": "created_at", "type": "DATETIME"},
+        ]
+        
+        errors = validate_datasource_compatibility("big_number", params, dataset_columns)
+        
+        assert errors == []
+    
+    def test_unrecognized_viz_type_has_no_requirements(self):
+        """Unknown viz types should return no errors."""
+        from modules.SupersetModule.superset_validation import validate_datasource_compatibility
+        
+        params = {"viz_type": "fake_chart"}
+        errors = validate_datasource_compatibility("fake_chart", params)
+        
+        assert errors == []
+    
+    def test_timeseries_prefers_temporal_x_axis(self):
+        """Time series charts warn if x_axis is not temporal."""
+        from modules.SupersetModule.superset_validation import validate_datasource_compatibility
+        
+        params = {"viz_type": "echarts_timeseries_line", "x_axis": "order_id"}
+        
+        dataset_columns = [
+            {"column_name": "order_id", "type": "INTEGER"},
+        ]
+        
+        errors = validate_datasource_compatibility("echarts_timeseries_line", params, dataset_columns)
+        
+        assert len(errors) > 0
+        assert "not a date/time" in errors[0].lower()
+
+
+class TestNullColumnNameChecks:
+    """Tests for null column_name detection and auto-fix."""
+
+    def test_adhoc_metric_null_column_name_returns_false(self):
+        """_is_adhoc_metric_object should reject null column_name."""
+        from modules.SupersetModule.superset_validation import _is_adhoc_metric_object
+
+        val = {"aggregate": "SUM", "column": {"column_name": None}, "expressionType": "SIMPLE"}
+        assert not _is_adhoc_metric_object(val)
+
+    def test_adhoc_metric_empty_column_name_returns_false(self):
+        """_is_adhoc_metric_object should reject empty column_name string."""
+        from modules.SupersetModule.superset_validation import _is_adhoc_metric_object
+
+        val = {"aggregate": "SUM", "column": {"column_name": ""}, "expressionType": "SIMPLE"}
+        assert not _is_adhoc_metric_object(val)
+
+    def test_adhoc_metric_missing_column_key_returns_false(self):
+        """_is_adhoc_metric_object should reject missing column key."""
+        from modules.SupersetModule.superset_validation import _is_adhoc_metric_object
+
+        val = {"aggregate": "SUM", "column_name": "sales", "expressionType": "SIMPLE"}
+        assert not _is_adhoc_metric_object(val)
+
+    def test_adhoc_metric_valid_column_name_returns_true(self):
+        """_is_adhoc_metric_object should accept valid column_name."""
+        from modules.SupersetModule.superset_validation import _is_adhoc_metric_object
+
+        val = {"aggregate": "SUM", "column": {"column_name": "sales"}, "expressionType": "SIMPLE"}
+        assert _is_adhoc_metric_object(val)
+
+    def test_big_number_total_null_metric_errors(self):
+        """Single string metric type with null column in dict metric should error."""
+        from modules.SupersetModule.superset_validation import validate_chart_params
+
+        params = {
+            "viz_type": "big_number_total",
+            "metric": {"aggregate": "SUM", "column": {"column_name": None}, "expressionType": "SIMPLE"},
+        }
+        errors = validate_chart_params("big_number_total", params)
+        assert len(errors) >= 1
+
+    def test_big_number_total_undefined_string_errors(self):
+        """Single string metric type with 'undefined' as metric should error."""
+        from modules.SupersetModule.superset_validation import validate_chart_params
+
+        params = {
+            "viz_type": "big_number_total",
+            "metric": "undefined",
+        }
+        errors = validate_chart_params("big_number_total", params)
+        assert len(errors) >= 1
+
+    def test_big_number_total_null_string_errors(self):
+        """Single string metric type with 'null' as metric should error."""
+        from modules.SupersetModule.superset_validation import validate_chart_params
+
+        params = {
+            "viz_type": "big_number_total",
+            "metric": "null",
+        }
+        errors = validate_chart_params("big_number_total", params)
+        assert len(errors) >= 1
+
+    def test_big_number_total_none_string_errors(self):
+        """Single string metric type with 'none' as metric should error."""
+        from modules.SupersetModule.superset_validation import validate_chart_params
+
+        params = {
+            "viz_type": "big_number_total",
+            "metric": "none",
+        }
+        errors = validate_chart_params("big_number_total", params)
+        assert len(errors) >= 1
+
+    def test_big_number_total_count_string_passes(self):
+        """Single string metric type with 'count' as metric should pass."""
+        from modules.SupersetModule.superset_validation import validate_chart_params
+
+        params = {
+            "viz_type": "big_number_total",
+            "metric": "count",
+        }
+        errors = validate_chart_params("big_number_total", params)
+        assert errors == []
+
+    def test_timeseries_null_metric_errors(self):
+        """Array metric type with null column in dict metric should error."""
+        from modules.SupersetModule.superset_validation import validate_chart_params
+
+        params = {
+            "viz_type": "echarts_timeseries_line",
+            "metrics": [
+                {"aggregate": "SUM", "column": {"column_name": None}, "expressionType": "SIMPLE"},
+            ],
+        }
+        errors = validate_chart_params("echarts_timeseries_line", params)
+        assert len(errors) >= 1
+
+    def test_timeseries_undefined_string_errors(self):
+        """Array metric type with 'undefined' as metric string should error."""
+        from modules.SupersetModule.superset_validation import validate_chart_params
+
+        params = {
+            "viz_type": "echarts_timeseries_line",
+            "metrics": ["undefined"],
+        }
+        errors = validate_chart_params("echarts_timeseries_line", params)
+        assert len(errors) >= 1
+
+    def test_timeseries_valid_metric_passes(self):
+        """Array metric type with valid metric should pass."""
+        from modules.SupersetModule.superset_validation import validate_chart_params
+
+        params = {
+            "viz_type": "echarts_timeseries_line",
+            "metrics": ["SUM(sales)"],
+        }
+        errors = validate_chart_params("echarts_timeseries_line", params)
+        assert errors == []
+
+    def test_auto_fix_null_column_name_uses_groupby_fallback(self):
+        """Auto-fix should replace null column_name with groupby first entry."""
+        from modules.SupersetModule.superset_validation import auto_fix_chart_params
+
+        params = {
+            "viz_type": "big_number_total",
+            "groupby": "region",
+            "metric": {"aggregate": "SUM", "column": {"column_name": None}, "expressionType": "SIMPLE"},
+        }
+        fixed = auto_fix_chart_params("big_number_total", params)
+        assert fixed["metric"]["column"]["column_name"] == "region"
+
+    def test_auto_fix_null_column_name_falls_back_to_count(self):
+        """Auto-fix should replace null column_name with 'count' if no groupby."""
+        from modules.SupersetModule.superset_validation import auto_fix_chart_params
+
+        params = {
+            "viz_type": "big_number_total",
+            "metric": {"aggregate": "SUM", "column": {"column_name": None}, "expressionType": "SIMPLE"},
+        }
+        fixed = auto_fix_chart_params("big_number_total", params)
+        assert fixed["metric"]["column"]["column_name"] == "count"
+
+    def test_auto_fix_null_column_name_array_metric(self):
+        """Auto-fix should replace null column_name in array metrics."""
+        from modules.SupersetModule.superset_validation import auto_fix_chart_params
+
+        params = {
+            "viz_type": "echarts_timeseries_line",
+            "groupby": "category",
+            "metrics": [
+                {"aggregate": "SUM", "column": {"column_name": None}, "expressionType": "SIMPLE"},
+            ],
+        }
+        fixed = auto_fix_chart_params("echarts_timeseries_line", params)
+        assert fixed["metrics"][0]["column"]["column_name"] == "category"
+
+
+class TestPositionJsonStructure:
+    """Test _validate_position_json_structure function."""
+
+    def test_valid_structure_returns_no_errors(self):
+        """Valid position JSON with chartId should return no errors."""
+        from modules.SupersetModule.tools.dashboards import _validate_position_json_structure
+        
+        pos = {
+            "DASHBOARD_VERSION_KEY": "v2",
+            "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["GRID_ID"]},
+            "GRID_ID": {"type": "GRID", "id": "GRID_ID", "children": ["ROW1"]},
+            "ROW1": {"type": "ROW", "id": "ROW1", "children": ["CHART-uuid-100"], "parents": ["GRID_ID"]},
+            "CHART-uuid-100": {
+                "type": "CHART",
+                "id": "CHART-uuid-100",
+                "children": [],
+                "parents": ["ROW1"],
+                "meta": {"chartId": 100, "width": 6, "height": 50},
+            },
+        }
+        errors = _validate_position_json_structure(pos)
+        assert errors == []
+
+    def test_missing_dashboard_version_key(self):
+        """Missing DASHBOARD_VERSION_KEY should error."""
+        from modules.SupersetModule.tools.dashboards import _validate_position_json_structure
+        
+        pos = {
+            "ROOT_ID": {"type": "ROOT", "children": ["GRID_ID"]},
+            "GRID_ID": {"type": "GRID", "children": []},
+        }
+        errors = _validate_position_json_structure(pos)
+        assert any("DASHBOARD_VERSION_KEY" in e for e in errors)
+
+    def test_missing_root_id(self):
+        """Missing ROOT_ID should error."""
+        from modules.SupersetModule.tools.dashboards import _validate_position_json_structure
+        
+        pos = {"DASHBOARD_VERSION_KEY": "v2"}
+        errors = _validate_position_json_structure(pos)
+        assert any("ROOT_ID" in e for e in errors)
+
+    def test_chart_without_chart_id_errors(self):
+        """CHART component without meta.chartId should error."""
+        from modules.SupersetModule.tools.dashboards import _validate_position_json_structure
+        
+        pos = {
+            "DASHBOARD_VERSION_KEY": "v2",
+            "ROOT_ID": {"type": "ROOT", "children": ["GRID_ID"]},
+            "GRID_ID": {"type": "GRID", "children": ["ROW1"]},
+            "ROW1": {"type": "ROW", "id": "ROW1", "children": ["CHART-1"]},
+            "CHART-1": {
+                "type": "CHART",
+                "id": "CHART-1",
+                "children": [],
+                "parents": ["ROW1"],
+                "meta": {},
+            },
+        }
+        errors = _validate_position_json_structure(pos)
+        assert any("chartId" in e for e in errors)
+
+    def test_chart_under_grid_id_errors(self):
+        """CHART placed directly under GRID_ID should error."""
+        from modules.SupersetModule.tools.dashboards import _validate_position_json_structure
+        
+        pos = {
+            "DASHBOARD_VERSION_KEY": "v2",
+            "ROOT_ID": {"type": "ROOT", "children": ["GRID_ID"]},
+            "GRID_ID": {"type": "GRID", "children": ["CHART-1"]},
+            "CHART-1": {
+                "type": "CHART",
+                "id": "CHART-1",
+                "children": [],
+                "parents": ["GRID_ID"],
+                "meta": {"chartId": 1},
+            },
+        }
+        errors = _validate_position_json_structure(pos)
+        assert any("GRID_ID" in e for e in errors)
+
+    def test_component_missing_children(self):
+        """Component without children field should error."""
+        from modules.SupersetModule.tools.dashboards import _validate_position_json_structure
+        
+        pos = {
+            "DASHBOARD_VERSION_KEY": "v2",
+            "ROOT_ID": {"type": "ROOT", "children": ["GRID_ID"]},
+            "GRID_ID": {"type": "GRID", "children": ["ROW1"]},
+            "ROW1": {"type": "ROW", "id": "ROW1"},
+        }
+        errors = _validate_position_json_structure(pos)
+        assert any("children" in e for e in errors)
+
+    def test_invalid_json_string_errors(self):
+        """Non-JSON string should error."""
+        from modules.SupersetModule.tools.dashboards import _validate_position_json_structure
+        
+        errors = _validate_position_json_structure("not valid json{{{")
+        assert len(errors) >= 1
+
+    def test_valid_json_string_passes(self):
+        """Valid JSON string should parse and validate."""
+        import json
+        from modules.SupersetModule.tools.dashboards import _validate_position_json_structure
+        
+        pos_json = json.dumps({
+            "DASHBOARD_VERSION_KEY": "v2",
+            "ROOT_ID": {"type": "ROOT", "children": ["GRID_ID"]},
+            "GRID_ID": {"type": "GRID", "children": ["ROW1"]},
+            "ROW1": {"type": "ROW", "id": "ROW1", "children": ["CHART-1"], "parents": ["GRID_ID"]},
+            "CHART-1": {
+                "type": "CHART",
+                "id": "CHART-1",
+                "children": [],
+                "parents": ["ROW1"],
+                "meta": {"chartId": 42},
+            },
+        })
+        errors = _validate_position_json_structure(pos_json)
+        assert errors == []
+
+
+class TestMetricsColumnFallback:
+    """Tests for _validate_metrics_against_dataset column fallback logic."""
+
+    def test_empty_metrics_with_valid_column_passes(self):
+        """When dataset_metrics is empty, valid column from string metric should pass."""
+        from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
+        
+        params = {"metric": "SUM(sales)"}
+        dataset_metrics = []
+        dataset_columns = [
+            {"column_name": "sales", "type": "DOUBLE PRECISION"},
+        ]
+        missing = _validate_metrics_against_dataset(params, dataset_metrics, "echarts_timeseries_line", dataset_columns)
+        assert missing == []
+
+    def test_empty_metrics_with_missing_column_errors(self):
+        """When dataset_metrics is empty, missing column from string metric should error."""
+        from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
+        
+        params = {"metric": "SUM(num)"}
+        dataset_metrics = []
+        dataset_columns = [
+            {"column_name": "sales", "type": "DOUBLE PRECISION"},
+        ]
+        missing = _validate_metrics_against_dataset(params, dataset_metrics, "echarts_timeseries_line", dataset_columns)
+        assert any("num" in e for e in missing)
+
+    def test_varchar_column_with_sum_errors(self):
+        """SUM on a VARCHAR column should be flagged as type error."""
+        from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
+        
+        params = {"metric": "SUM(category)"}
+        dataset_metrics = []
+        dataset_columns = [
+            {"column_name": "category", "type": "VARCHAR"},
+        ]
+        missing = _validate_metrics_against_dataset(params, dataset_metrics, "echarts_timeseries_line", dataset_columns)
+        assert any("sum()" in e.lower() and "varchar" in e.lower() for e in missing)
+
+    def test_string_column_with_avg_errors(self):
+        """AVG on a TEXT column should be flagged as type error."""
+        from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
+        
+        params = {"metric": "AVG(description)"}
+        dataset_metrics = []
+        dataset_columns = [
+            {"column_name": "description", "type": "TEXT"},
+        ]
+        missing = _validate_metrics_against_dataset(params, dataset_metrics, "echarts_timeseries_line", dataset_columns)
+        assert any("avg()" in e.lower() and "text" in e.lower() for e in missing)
+
+    def test_count_on_numeric_column_passes(self):
+        """COUNT on any column type should pass (no type restriction)."""
+        from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
+        
+        params = {"metric": "COUNT(category)"}
+        dataset_metrics = []
+        dataset_columns = [
+            {"column_name": "category", "type": "VARCHAR"},
+        ]
+        missing = _validate_metrics_against_dataset(params, dataset_metrics, "echarts_timeseries_line", dataset_columns)
+        assert missing == []
+
+    def test_count_count_rejected(self):
+        """COUNT(count) should be rejected with suggestion."""
+        from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
+        
+        params = {"metric": "COUNT(count)"}
+        dataset_metrics = [{"metric_name": "count", "expression": "COUNT(*)"}]
+        missing = _validate_metrics_against_dataset(params, dataset_metrics, "echarts_timeseries_line")
+        assert any("COUNT" in e for e in missing)
+
+    def test_bare_count_passes(self):
+        """Bare 'count' (no parens) should pass as valid built-in."""
+        from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
+        
+        params = {"metric": "count"}
+        dataset_metrics = [{"metric_name": "count", "expression": "COUNT(*)"}]
+        missing = _validate_metrics_against_dataset(params, dataset_metrics, "echarts_timeseries_line")
+        assert missing == []
+
+    def test_count_distinct_count_rejected(self):
+        """COUNT_DISTINCT(count) should be rejected with suggestion."""
+        from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
+        
+        params = {"metric": "COUNT_DISTINCT(count)"}
+        dataset_metrics = [{"metric_name": "count", "expression": "COUNT(*)"}]
+        missing = _validate_metrics_against_dataset(params, dataset_metrics, "echarts_timeseries_line")
+        assert any("COUNT" in e for e in missing)
+
+    def test_no_columns_no_metrics_errors(self):
+        """When neither dataset_metrics nor dataset_columns exist, validation blocks."""
+        from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
+        
+        params = {"metric": "SUM(something)"}
+        missing = _validate_metrics_against_dataset(params, [], "echarts_timeseries_line")
+        assert len(missing) >= 1
+        assert any("schema" in e.lower() or "columns" in e.lower() for e in missing)
+
+    def test_bare_count_without_dataset_metrics_passes(self):
+        """Bare 'count' should pass even without dataset metrics."""
+        from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
+        
+        params = {"metric": "count"}
+        missing = _validate_metrics_against_dataset(params, [], "echarts_timeseries_line")
+        assert missing == []
+
+    def test_metrics_array_with_column_fallback(self):
+        """Array metrics should use column fallback when no predefined metrics."""
+        from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
+        
+        params = {"metrics": ["SUM(sales)", "count"]}
+        dataset_metrics = []
+        dataset_columns = [
+            {"column_name": "sales", "type": "DOUBLE PRECISION"},
+        ]
+        missing = _validate_metrics_against_dataset(params, dataset_metrics, "echarts_timeseries_line", dataset_columns)
+        assert missing == []
+
+    def test_type_mismatch_in_array_metrics(self):
+        """Array metrics with type mismatch should error."""
+        from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
+        
+        params = {"metrics": ["SUM(name)", "COUNT(id)"]}
+        dataset_metrics = []
+        dataset_columns = [
+            {"column_name": "name", "type": "VARCHAR"},
+            {"column_name": "id", "type": "INTEGER"},
+        ]
+        missing = _validate_metrics_against_dataset(params, dataset_metrics, "echarts_timeseries_line", dataset_columns)
+        assert any("sum()" in e.lower() and "name" in e.lower() for e in missing)
+        assert not any("COUNT(id)" in e for e in missing)  # COUNT on int is fine
+
+
+class TestMetricStringFormatValidation:
+    """Test _validate_metric_string_format function."""
+
+    def test_valid_count_passes(self):
+        """Bare 'count' should pass syntax check."""
+        from modules.SupersetModule.tools.charts import _validate_metric_string_format
+        
+        errors = _validate_metric_string_format({"metric": "count"})
+        assert errors == []
+
+    def test_valid_sum_passes(self):
+        """Valid SUM(sales) should pass syntax check."""
+        from modules.SupersetModule.tools.charts import _validate_metric_string_format
+        
+        errors = _validate_metric_string_format({"metric": "SUM(sales)"})
+        assert errors == []
+
+    def test_invalid_format_errors(self):
+        """Malformed metric string should error."""
+        from modules.SupersetModule.tools.charts import _validate_metric_string_format
+        
+        errors = _validate_metric_string_format({"metric": "blah blah"})
+        assert len(errors) >= 1
+        assert any("invalid format" in e.lower() for e in errors)
+
+    def test_missing_column_name_in_dict_errors(self):
+        """Dict metric with null column_name should error."""
+        from modules.SupersetModule.tools.charts import _validate_metric_string_format
+        
+        params = {
+            "metric": {
+                "aggregate": "SUM",
+                "column": {"column_name": None},
+                "expressionType": "SIMPLE",
+            }
+        }
+        errors = _validate_metric_string_format(params)
+        assert len(errors) >= 1
+        assert any("null" in e.lower() for e in errors)
+
+    def test_metrics_array_with_invalid_format(self):
+        """Array metrics with invalid format should error."""
+        from modules.SupersetModule.tools.charts import _validate_metric_string_format
+        
+        params = {"metrics": ["SUM(sales)", "INVALID(col)"]}
+        errors = _validate_metric_string_format(params)
+        assert len(errors) == 1  # only INVALID(col) should error
+        assert any("INVALID" in e for e in errors)
+
+    def test_empty_params_passes(self):
+        """No metric fields should pass."""
+        from modules.SupersetModule.tools.charts import _validate_metric_string_format
+        
+        errors = _validate_metric_string_format({})
+        assert errors == []
+
+    def test_metrics_array_null_column_name_errors(self):
+        """Array dict metric with null column_name should error."""
+        from modules.SupersetModule.tools.charts import _validate_metric_string_format
+        
+        params = {
+            "metrics": [
+                {"aggregate": "SUM", "column": {"column_name": None}, "expressionType": "SIMPLE"},
+            ]
+        }
+        errors = _validate_metric_string_format(params)
+        assert len(errors) >= 1
+        assert any("null" in e.lower() for e in errors)
+
+    def test_orderby_null_entry_errors(self):
+        """Null entry in orderby should be caught."""
+        from modules.SupersetModule.tools.charts import _validate_metric_string_format
+
+        params = {
+            "metrics": ["count"],
+            "orderby": [["count", False], [None, False]],
+        }
+        errors = _validate_metric_string_format(params)
+        assert any("null" in e.lower() for e in errors)
+
+    def test_orderby_dict_null_column_errors(self):
+        """Dict entry in orderby with null column should be caught."""
+        from modules.SupersetModule.tools.charts import _validate_metric_string_format
+
+        params = {
+            "metrics": ["count"],
+            "orderby": [{"column": {"column_name": None}, "asc": True}],
+        }
+        errors = _validate_metric_string_format(params)
+        assert any("null" in e.lower() for e in errors)
+
+    def test_orderby_valid_entries_passes(self):
+        """Valid orderby entries should pass format check."""
+        from modules.SupersetModule.tools.charts import _validate_metric_string_format
+
+        params = {
+            "metrics": ["count"],
+            "orderby": [["sales", False], ["revenue", True]],
+        }
+        errors = _validate_metric_string_format(params)
+        assert not any("orderby" in e for e in errors)
+
+    def test_timeseries_limit_metric_null_errors(self):
+        """Null timeseries_limit_metric should be caught."""
+        from modules.SupersetModule.tools.charts import _validate_metric_string_format
+
+        params = {
+            "metrics": ["count"],
+            "timeseries_limit_metric": None,
+        }
+        errors = _validate_metric_string_format(params)
+        assert any("null" in e.lower() for e in errors)
+
+    def test_timeseries_limit_metric_dict_null_column_errors(self):
+        """Dict timeseries_limit_metric with null column_name should be caught."""
+        from modules.SupersetModule.tools.charts import _validate_metric_string_format
+
+        params = {
+            "metrics": ["count"],
+            "timeseries_limit_metric": {
+                "aggregate": "SUM",
+                "column": {"column_name": None},
+                "expressionType": "SIMPLE",
+            },
+        }
+        errors = _validate_metric_string_format(params)
+        assert any("null" in e.lower() for e in errors)
+
+    def test_timeseries_limit_metric_valid_passes(self):
+        """Valid timeseries_limit_metric should pass."""
+        from modules.SupersetModule.tools.charts import _validate_metric_string_format
+
+        params = {
+            "metrics": ["count"],
+            "timeseries_limit_metric": {"aggregate": "SUM", "column": {"column_name": "sales"}, "expressionType": "SIMPLE"},
+        }
+        errors = _validate_metric_string_format(params)
+        assert not any("timeseries_limit_metric" in e for e in errors)
+
+
+class TestOrderbyColumnExtraction:
+    """Test _extract_columns_from_params handles orderby."""
+
+    def test_orderby_array_format_extracts_columns(self):
+        """Array format orderby columns should be extracted."""
+        from modules.SupersetModule.tools.chart_validation import _extract_columns_from_params
+
+        params = {
+            "orderby": [["sales", False], ["revenue", True]],
+            "viz_type": "echarts_timeseries_line",
+        }
+        refs = _extract_columns_from_params(params, "echarts_timeseries_line")
+        assert any("sales" in r for r in refs)
+        assert any("revenue" in r for r in refs)
+
+    def test_orderby_dict_format_extracts_columns(self):
+        """Dict format orderby columns should be extracted."""
+        from modules.SupersetModule.tools.chart_validation import _extract_columns_from_params
+
+        params = {
+            "orderby": [{"column": {"column_name": "sales"}, "asc": True}],
+            "viz_type": "echarts_timeseries_line",
+        }
+        refs = _extract_columns_from_params(params, "echarts_timeseries_line")
+        assert any("sales" in r for r in refs)
+
+    def test_orderby_null_entry_skipped(self):
+        """Null entry in orderby should not crash extraction."""
+        from modules.SupersetModule.tools.chart_validation import _extract_columns_from_params
+
+        params = {
+            "orderby": [["sales", False], [None, False]],
+            "viz_type": "echarts_timeseries_line",
+        }
+        refs = _extract_columns_from_params(params, "echarts_timeseries_line")
+        assert any("sales" in r for r in refs)
+
+    def test_timeseries_limit_metric_string_extracts(self):
+        """String timeseries_limit_metric should extract column."""
+        from modules.SupersetModule.tools.chart_validation import _extract_columns_from_params
+
+        params = {
+            "timeseries_limit_metric": "SUM(sales)",
+            "viz_type": "echarts_timeseries_line",
+        }
+        refs = _extract_columns_from_params(params, "echarts_timeseries_line")
+        assert any("sales" in r for r in refs)
+
+    def test_timeseries_limit_metric_dict_extracts(self):
+        """Dict timeseries_limit_metric should extract column."""
+        from modules.SupersetModule.tools.chart_validation import _extract_columns_from_params
+
+        params = {
+            "timeseries_limit_metric": {
+                "aggregate": "SUM",
+                "column": {"column_name": "sales"},
+                "expressionType": "SIMPLE",
+            },
+            "viz_type": "echarts_timeseries_line",
+        }
+        refs = _extract_columns_from_params(params, "echarts_timeseries_line")
+        assert any("sales" in r for r in refs)
+
+
+class TestAutoFixOrderby:
+    """Test auto_fix handles null column_name in orderby/timeseries_limit_metric."""
+
+    def test_auto_fix_null_orderby_array(self):
+        """Null entry in orderby array should be fixed."""
+        from modules.SupersetModule.superset_validation import auto_fix_chart_params
+
+        params = {
+            "viz_type": "echarts_timeseries_line",
+            "metrics": ["SUM(sales)"],
+            "orderby": [["count", False], [None, False]],
+        }
+        fixed = auto_fix_chart_params("echarts_timeseries_line", params)
+        assert fixed["orderby"][1][0] == "count"
+
+    def test_auto_fix_null_orderby_dict(self):
+        """Dict entry in orderby with null column_name should be fixed."""
+        from modules.SupersetModule.superset_validation import auto_fix_chart_params
+
+        params = {
+            "viz_type": "echarts_timeseries_line",
+            "metrics": ["SUM(sales)"],
+            "groupby": "category",
+            "orderby": [{"column": {"column_name": None}, "asc": True}],
+        }
+        fixed = auto_fix_chart_params("echarts_timeseries_line", params)
+        assert fixed["orderby"][0]["column"]["column_name"] == "category"
+
+    def test_auto_fix_null_timeseries_limit_metric(self):
+        """Null timeseries_limit_metric should be replaced."""
+        from modules.SupersetModule.superset_validation import auto_fix_chart_params
+
+        params = {
+            "viz_type": "echarts_timeseries_line",
+            "metrics": ["SUM(sales)"],
+            "timeseries_limit_metric": None,
+        }
+        fixed = auto_fix_chart_params("echarts_timeseries_line", params)
+        assert fixed["timeseries_limit_metric"] == "count"
+
+    def test_auto_fix_null_timeseries_limit_metric_dict(self):
+        """Dict timeseries_limit_metric with null column_name should be fixed."""
+        from modules.SupersetModule.superset_validation import auto_fix_chart_params
+
+        params = {
+            "viz_type": "echarts_timeseries_line",
+            "metrics": ["SUM(sales)"],
+            "timeseries_limit_metric": {
+                "aggregate": "SUM",
+                "column": {"column_name": None},
+                "expressionType": "SIMPLE",
+            },
+        }
+        fixed = auto_fix_chart_params("echarts_timeseries_line", params)
+        assert fixed["timeseries_limit_metric"]["column"]["column_name"] == "count"
+
+
+class TestEntityValidation:
+    """Test entity field validation catches null/empty values."""
+
+    def test_validate_chart_params_null_entity_errors(self):
+        """world_map with null entity should error."""
+        from modules.SupersetModule.superset_validation import validate_chart_params
+
+        errors = validate_chart_params("world_map", {"viz_type": "world_map", "entity": None, "metric": "count"})
+        assert any("entity" in e.lower() for e in errors)
+
+    def test_validate_chart_params_empty_entity_errors(self):
+        """world_map with empty string entity should error."""
+        from modules.SupersetModule.superset_validation import validate_chart_params
+
+        errors = validate_chart_params("world_map", {"viz_type": "world_map", "entity": "", "metric": "count"})
+        assert any("entity" in e.lower() for e in errors)
+
+    def test_validate_chart_params_valid_entity_passes(self):
+        """world_map with valid entity should pass."""
+        from modules.SupersetModule.superset_validation import validate_chart_params
+
+        errors = validate_chart_params("world_map", {"viz_type": "world_map", "entity": "country_code", "metric": "count"})
+        assert not any("entity" in e.lower() for e in errors) or errors == []
+
+    def test_auto_fix_null_entity(self):
+        """world_map with null entity should be fixed to 'country_code'."""
+        from modules.SupersetModule.superset_validation import auto_fix_chart_params
+
+        fixed = auto_fix_chart_params("world_map", {"viz_type": "world_map", "entity": None, "metric": "count"})
+        assert fixed["entity"] == "country_code"
+
+    def test_auto_fix_empty_entity(self):
+        """world_map with empty entity should be fixed to 'country_code'."""
+        from modules.SupersetModule.superset_validation import auto_fix_chart_params
+
+        fixed = auto_fix_chart_params("world_map", {"viz_type": "world_map", "entity": "", "metric": "count"})
+        assert fixed["entity"] == "country_code"
+
+    def test_auto_fix_missing_entity(self):
+        """world_map without entity should be fixed to 'country_code'."""
+        from modules.SupersetModule.superset_validation import auto_fix_chart_params
+
+        fixed = auto_fix_chart_params("world_map", {"viz_type": "world_map", "metric": "count"})
+        assert fixed["entity"] == "country_code"
+
+    def test_format_check_null_entity_errors(self):
+        """Null entity should be caught by format validator."""
+        from modules.SupersetModule.tools.charts import _validate_metric_string_format
+
+        errors = _validate_metric_string_format({"metric": "count", "entity": None})
+        assert any("entity" in e.lower() and "null" in e.lower() for e in errors)
+
+    def test_format_check_empty_entity_errors(self):
+        """Empty entity should be caught by format validator."""
+        from modules.SupersetModule.tools.charts import _validate_metric_string_format
+
+        errors = _validate_metric_string_format({"metric": "count", "entity": ""})
+        assert any("entity" in e.lower() for e in errors)
+
+    def test_format_check_valid_entity_passes(self):
+        """Valid entity should pass format check."""
+        from modules.SupersetModule.tools.charts import _validate_metric_string_format
+
+        errors = _validate_metric_string_format({"metric": "count", "entity": "country_code"})
+        assert not any("entity" in e for e in errors)
+
+
+class TestNullMetricValue:
+    """Test metric: None is caught at all levels."""
+
+    def test_validate_chart_params_null_metric_string_type(self):
+        """SINGULAR_STRING_METRIC_TYPES with null metric should error."""
+        from modules.SupersetModule.superset_validation import validate_chart_params
+
+        errors = validate_chart_params("big_number_total", {"metric": None})
+        assert any("null" in e.lower() for e in errors)
+
+    def test_validate_chart_params_null_metric_adhoc_type(self):
+        """SINGULAR_ADHOC_METRIC_TYPES with null metric should error."""
+        from modules.SupersetModule.superset_validation import validate_chart_params
+
+        errors = validate_chart_params("pie", {"metric": None})
+        assert any("null" in e.lower() for e in errors)
+
+    def test_format_check_null_metric(self):
+        """Format check should catch null metric."""
+        from modules.SupersetModule.tools.charts import _validate_metric_string_format
+
+        errors = _validate_metric_string_format({"metric": None})
+        assert any("null" in e.lower() for e in errors)
+
+    def test_auto_fix_null_metric_replaces_with_count(self):
+        """Auto-fix should replace null metric with 'count'."""
+        from modules.SupersetModule.superset_validation import auto_fix_chart_params
+
+        fixed = auto_fix_chart_params("big_number_total", {"metric": None})
+        assert fixed["metric"] == "count"
+
+    def test_auto_fix_null_metric_uses_groupby(self):
+        """Auto-fix should use groupby when available."""
+        from modules.SupersetModule.superset_validation import auto_fix_chart_params
+
+        fixed = auto_fix_chart_params("big_number_total", {"metric": None, "groupby": "region"})
+        assert fixed["metric"] == "region"

@@ -74,6 +74,11 @@ ENTITY_REQUIRED_TYPES: set = {
     "world_map",
 }
 
+# Requires source/target fields and validates DAG structure
+SANKEY_TYPES: set = {
+    "sankey_v2",
+}
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -145,6 +150,19 @@ def validate_chart_params(viz_type: str, params: Dict[str, Any]) -> List[str]:
             errors.append(
                 f"Chart '{actual_viz}' is missing required 'entity' field. "
                 f"Add: 'entity': 'country_code' (or the column with country identifiers)."
+            )
+
+    # --- Check 1.5: Sankey charts require source/target fields ---
+    if actual_viz in SANKEY_TYPES:
+        if "source" not in params:
+            errors.append(
+                f"Chart '{actual_viz}' is missing required 'source' field. "
+                f"Add: 'source': 'channel_1' (the source column name)."
+            )
+        if "target" not in params:
+            errors.append(
+                f"Chart '{actual_viz}' is missing required 'target' field. "
+                f"Add: 'target': 'channel_2' (the target column name)."
             )
 
     # --- Check 2: metric vs metrics (singular vs plural) based on viz type ---
@@ -340,6 +358,19 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
         if "entity" not in fixed:
             fixed["entity"] = "country_code"
 
+    # --- Fix 1.5: Sankey charts — add cycle-breaking SQL hint ---
+    if actual_viz in SANKEY_TYPES:
+        if "source" in fixed and "target" in fixed:
+            source_col = fixed["source"]
+            target_col = fixed["target"]
+            if "_cycle_fix_suggested" not in fixed:
+                fixed["_cycle_fix_suggested"] = True
+                fixed["_cycle_fix_sql"] = (
+                    f"Add 'AND {source_col} < {target_col}' to the dataset SQL HAVING clause "
+                    f"to break graph cycles. Example: "
+                    f"HAVING {source_col} <> {target_col} AND {source_col} < {target_col}"
+                )
+
     # --- Fix 2: Pie/waterfall — groupby must be string, not array ---
     if actual_viz in SINGULAR_ADHOC_METRIC_TYPES and "groupby" in fixed:
         groupby = fixed["groupby"]
@@ -409,8 +440,18 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                 metric_val["column"] = {"column_name": column_name}
             # Fix null column_name — replace with first available column
             if metric_val.get("column", {}).get("column_name") is None:
+                # Check if groupby is in the metric object itself
                 if "groupby" in metric_val:
                     metric_val["column"]["column_name"] = metric_val.pop("groupby")
+                # Check if groupby is at the top level of params (common for pie charts)
+                elif "groupby" in fixed and fixed["groupby"]:
+                    gb = fixed["groupby"]
+                    if isinstance(gb, list) and len(gb) > 0:
+                        metric_val["column"]["column_name"] = gb[0]
+                    elif isinstance(gb, str):
+                        metric_val["column"]["column_name"] = gb
+                    else:
+                        metric_val["column"]["column_name"] = "count"
                 else:
                     metric_val["column"]["column_name"] = "count"
             if "aggregate" not in metric_val:
@@ -445,6 +486,31 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                         m["aggregate"] = "AVG"
                     if "expressionType" not in m:
                         m["expressionType"] = "SIMPLE"
+
+    # --- Fix 10: big_number — ensure temporal column for dashboard rendering ---
+    # big_number charts in dashboards need granularity_sqla to render properly
+    if actual_viz == "big_number":
+        if "granularity_sqla" not in fixed:
+            # Add a default temporal column if dataset has one
+            if "datasource_id" in fixed:
+                fixed["_needs_temporal_check"] = True
+            else:
+                fixed["granularity_sqla"] = "ds"  # Common default
+
+    # --- Fix 11: Pie chart — groupby must be array in dashboard context ---
+    # When used in dashboards, pie charts require groupby as array, not string
+    if actual_viz in SINGULAR_ADHOC_METRIC_TYPES and "groupby" in fixed:
+        groupby = fixed["groupby"]
+        # In dashboard context, groupby should be an array for proper rendering
+        if isinstance(groupby, str) and groupby:
+            fixed["groupby"] = [groupby]
+
+    # --- Fix 12: big_number — ensure time config for dashboard rendering ---
+    if actual_viz == "big_number":
+        if "time_range" not in fixed:
+            fixed["time_range"] = "100 years ago : now"
+        if "adhoc_filters" not in fixed:
+            fixed["adhoc_filters"] = []
 
     return fixed
 

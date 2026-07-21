@@ -167,6 +167,27 @@ async def create_dashboard(
          mc.record_error(tool="superset_create_dashboard", error_message=f"Server '{server_id}' not found.")
          return log.collect(DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json())
 
+     # Validate that all charts exist before creating dashboard
+     chart_ids = _extract_chart_ids_from_position_json(position_json)
+     if chart_ids:
+         invalid_charts = await _validate_charts_exist(manager, server_id, chart_ids)
+         if invalid_charts:
+             mc = get_metrics()
+             mc.tool_calls.labels(tool="superset_create_dashboard", status="error").inc()
+             mc.record_error(
+                 tool="superset_create_dashboard",
+                 error_message=f"Dashboard creation blocked: {len(invalid_charts)} charts not found"
+             )
+             return log.collect(DashboardError(
+                 "Dashboard creation blocked: Chart validation failed",
+                 details=(
+                     f"Dashboard '{dashboard_title}' cannot be created — one or more charts do not exist:\n\n"
+                     + "\n".join(f"  - Chart {cid} not found" for cid in invalid_charts)
+                     + f"\n\nFound charts: {', '.join(str(c) for c in invalid_charts)}"
+                 ),
+                 status_code=400,
+             ).to_json())
+
      start_time = time.monotonic()
      try:
          dashboard_payload = {
@@ -303,6 +324,25 @@ async def generate_dashboard(
          mc.tool_calls.labels(tool="superset_generate_dashboard", status="error").inc()
          mc.record_error(tool="superset_generate_dashboard", error_message="At least one chart ID must be provided.")
          return log.collect(DashboardError("At least one chart ID must be provided.").to_json())
+
+     # Validate that all charts exist before creating dashboard
+     invalid_charts = await _validate_charts_exist(manager, server_id, chart_ids)
+     if invalid_charts:
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_generate_dashboard", status="error").inc()
+         mc.record_error(
+             tool="superset_generate_dashboard",
+             error_message=f"Dashboard generation blocked: {len(invalid_charts)} charts not found"
+         )
+         return log.collect(DashboardError(
+             "Dashboard generation blocked: Chart validation failed",
+             details=(
+                 f"Dashboard '{dashboard_title}' cannot be created — one or more charts do not exist:\n\n"
+                 + "\n".join(f"  - Chart {cid} not found" for cid in invalid_charts)
+                 + f"\n\nAvailable chart IDs can be found with 'superset_list_charts'."
+             ),
+             status_code=400,
+         ).to_json())
 
      start_time = time.monotonic()
      try:
@@ -502,3 +542,61 @@ def _add_chart_to_position_json(position_json: Dict, chart_id: int) -> Dict:
         position_json[row_id]["children"].append(chart_element_id)
     
     return position_json
+
+def _extract_chart_ids_from_position_json(position_json: Union[str, Dict]) -> List[int]:
+    """Extract all chart IDs from a position JSON string or dict."""
+    chart_ids = []
+    try:
+        if isinstance(position_json, str):
+            pos = json.loads(position_json)
+        else:
+            pos = position_json
+        
+        def walk(obj):
+            if isinstance(obj, dict):
+                if "slice_id" in obj and isinstance(obj["slice_id"], int):
+                    chart_ids.append(obj["slice_id"])
+                for v in obj.values():
+                    walk(v)
+            elif isinstance(obj, list):
+                for item in obj:
+                    walk(item)
+        
+        walk(pos)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    
+    return chart_ids
+
+async def _validate_charts_exist(manager: ConnectionManager, server_id: str, chart_ids: List[int]) -> List[int]:
+    """
+    Validate that all chart IDs exist on the Superset server.
+    
+    Returns list of chart IDs that were not found.
+    """
+    ctx = manager.get_context(server_id)
+    if not ctx:
+        return chart_ids
+    
+    # Get all charts
+    all_charts = []
+    page = 1
+    page_size = 100
+    
+    while True:
+        try:
+            resp = await ctx.client.get("/api/v1/chart/", params={"page_size": page_size, "page": page})
+            if resp.status_code != 200:
+                break
+            data = resp.json().get("result", [])
+            if not data:
+                break
+            all_charts.extend(data)
+            if len(data) < page_size:
+                break
+            page += 1
+        except Exception:
+            break
+    
+    existing_ids = {c["id"] for c in all_charts}
+    return [cid for cid in chart_ids if cid not in existing_ids]

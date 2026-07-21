@@ -117,3 +117,27 @@ def register(mcp, registry=None):
         ss_api = registry.get_module_api("SupersetModule")
         # Use ConnectionManager, api_request, etc.
 ```
+
+---
+
+## Known Errors & Causes
+
+### SQLAlchemy: "Cannot compile Column object until its 'name' is assigned"
+
+**Error in Superset**: The chart renders blank or shows "DB engine Error" / "Cannot compile Column object until its 'name' is assigned".
+
+**Root cause**: A metric's `column.column_name` is `null`/`None` inside the chart params. When SQLAlchemy tries to build a `Column` object from the metric definition, it raises this error because the column has no name.
+
+**How it reaches the API**: The AI agent (or manual input) passes an AdHocMetricObject like `{"aggregate": "SUM", "column": {"column_name": null}}`. Three validation gaps let it through:
+
+1. **`_is_adhoc_metric_object()` only checked the KEY exists, not the value** (`superset_validation.py:175-183`). The function returned `True` for `{"column": {"column_name": None}}` because it only tested `"column_name" in column` — the key exists even when the value is `null`.
+
+2. **Null `column_name` fix was applied only to pie/waterfall** (Fix 7, `SINGULAR_ADHOC_METRIC_TYPES`). For `big_number_total` (in `SINGULAR_STRING_METRIC_TYPES`) and array metric types (timeseries, etc.), the null column_name passed through un-fixed because Fix 6/8/9 skipped metrics already classified as "valid AdHocMetricObjects".
+
+3. **Invalid metric strings like `"undefined"` or `"null"` were accepted** as valid string metrics without rejection.
+
+**Fixes applied** (`superset_validation.py`):
+- `_is_adhoc_metric_object()` now checks `bool(column_name and isinstance(column_name, str))` — rejects `None` and empty strings.
+- Fix 13 added: general null `column_name` auto-fix for ALL metric types, using `groupby` as fallback or `"count"` as last resort.
+- `validate_chart_params()` rejects invalid metric strings: `{"undefined", "null", "none", ""}`.
+- Post-creation data endpoint test (`charts.py:_test_chart_data_endpoint()`) catches the error at render time and provides a specific diagnostic message.

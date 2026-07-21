@@ -151,6 +151,159 @@ def _extract_columns_from_dataset_response(response_str: str) -> List[Dict[str, 
     except (json.JSONDecodeError, TypeError):
         return []
 
+def _validate_metrics_against_dataset(params: Dict[str, Any], dataset_metrics: List[Dict[str, Any]], viz_type: str) -> List[str]:
+    """
+    Validate that all metrics used in chart params exist in the dataset.
+    
+    Returns list of missing metric names.
+    """
+    missing_metrics = []
+    dataset_metric_names = {m["metric_name"] for m in dataset_metrics}
+    
+    def extract_metric_strings(p: Dict[str, Any]) -> List[str]:
+        """Extract all metric strings from params."""
+        metrics = []
+        
+        # Check 'metric' (singular)
+        if "metric" in p and p["metric"]:
+            metric_val = p["metric"]
+            if isinstance(metric_val, str):
+                metrics.append(metric_val)
+            elif isinstance(metric_val, dict):
+                col_name = metric_val.get("column", {}).get("column_name", "")
+                if col_name:
+                    agg = metric_val.get("aggregate", "AVG")
+                    metrics.append(f"{agg}({col_name})")
+        
+        # Check 'metrics' (plural array)
+        if "metrics" in p and p["metrics"]:
+            for m in p["metrics"]:
+                if isinstance(m, str):
+                    metrics.append(m)
+                elif isinstance(m, dict):
+                    col_name = m.get("column", {}).get("column_name", "")
+                    if col_name:
+                        agg = m.get("aggregate", "AVG")
+                        metrics.append(f"{agg}({col_name})")
+        
+        return metrics
+    
+    def normalize_metric(metric_str: str) -> str:
+        """Normalize metric string for comparison."""
+        metric_str = metric_str.strip()
+        if metric_str.lower() == "count":
+            return "count"
+        return metric_str.lower()
+    
+    def metric_matches(metric_name: str, target: str) -> bool:
+        """Check if a dataset metric matches the target metric."""
+        name_lower = metric_name.lower()
+        target_lower = target.lower()
+        
+        # Exact match (case-insensitive)
+        if name_lower == target_lower:
+            return True
+        
+        # Check SQL-style: "sum__num" matches "SUM(num)"
+        if "__" in name_lower:
+            parts = name_lower.split("__", 1)
+            agg = parts[0]
+            col = parts[1]
+            # Try to match: SUM(sales) -> sum__sales
+            import re
+            match = re.match(r"^(\w+)\s*\(\s*(.+?)\s*\)$", target)
+            if match and match.group(1).lower() == agg and match.group(2).lower() == col:
+                return True
+        
+        return False
+    
+    # Extract all metrics from params
+    param_metrics = extract_metric_strings(params)
+    
+    for pm in param_metrics:
+        normalized = normalize_metric(pm)
+        if normalized == "count":
+            if not any(m.lower().startswith("count") for m in dataset_metric_names):
+                missing_metrics.append(pm)
+        else:
+            # Check if metric exists in dataset (case-insensitive + SQL style matching)
+            found = False
+            for dm in dataset_metric_names:
+                if metric_matches(dm, pm):
+                    found = True
+                    break
+            if not found:
+                missing_metrics.append(pm)
+    
+    return missing_metrics
+
+def _extract_chart_ids_from_position_json(position_json: str) -> List[int]:
+    """Extract all chart IDs from a position JSON string."""
+    chart_ids = []
+    try:
+        if isinstance(position_json, str):
+            pos = json.loads(position_json)
+        else:
+            pos = position_json
+        
+        def walk(obj):
+            if isinstance(obj, dict):
+                if "slice_id" in obj and isinstance(obj["slice_id"], int):
+                    chart_ids.append(obj["slice_id"])
+                for v in obj.values():
+                    walk(v)
+            elif isinstance(obj, list):
+                for item in obj:
+                    walk(item)
+        
+        walk(pos)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    
+    return chart_ids
+
+def _validate_sankey_params(params: Dict[str, Any], slice_name: str) -> Optional[Dict[str, str]]:
+    """
+    Validate Sankey chart params and return warning if potential cycle detected.
+    
+    Sankey charts require a DAG (directed acyclic graph). If source/target
+    columns have circular references, Superset will error at render time.
+    We validate params structure and suggest the cycle-breaking SQL fix.
+    """
+    if "sankey_v2" not in params.get("viz_type", ""):
+        return None
+    
+    errors = []
+    
+    # Validate required fields using the validation module
+    from modules.SupersetModule.superset_validation import validate_chart_params
+    validation_errors = validate_chart_params("sankey_v2", params)
+    if validation_errors:
+        errors.extend(validation_errors)
+    
+    if errors:
+        return {"title": f"Chart '{slice_name}' - Sankey validation errors", 
+                "body": "\n".join(errors) + "\n\nSankey charts require 'source' and 'target' fields."}
+    
+    # Check if cycle fix has already been suggested
+    if params.get("_cycle_fix_suggested"):
+        return None
+    
+    # Provide helpful cycle fix suggestion
+    source_col = params.get("source", "unknown")
+    target_col = params.get("target", "unknown")
+    
+    return {
+        "title": f"Chart '{slice_name}' - Sankey cycle fix needed",
+        "body": (
+            f"Sankey chart uses source='{source_col}', target='{target_col}'.\n\n"
+            f"To prevent 'Sankey is a DAG, the original data has cycle!' errors, "
+            f"add this to your dataset SQL:\n\n"
+            f"HAVING {source_col} <> {target_col} AND {source_col} < {target_col}\n\n"
+            f"This ensures lexicographic ordering breaks all graph cycles."
+        )
+    }
+
 async def create_chart(
     manager: ConnectionManager,
     server_id: str,
@@ -188,9 +341,12 @@ async def create_chart(
         fixed_params = auto_fix_chart_params(actual_viz_type, params_dict)
         
         dataset_columns = []
+        dataset_metrics = []
         try:
             dataset_response = await impl_superset_api(manager, server_id, "GET", f"/api/v1/dataset/{datasource_id}")
-            dataset_columns = _extract_columns_from_dataset_response(dataset_response)
+            dataset_data = json.loads(dataset_response)
+            dataset_columns = dataset_data.get("result", {}).get("columns", [])
+            dataset_metrics = dataset_data.get("result", {}).get("metrics", [])
         except Exception:
             pass
         
@@ -200,6 +356,39 @@ async def create_chart(
                 warning = "Column name fixes: " + "; ".join(column_warnings)
             else:
                 warning = None
+            
+            # Validate metrics against dataset metrics
+            if dataset_metrics:
+                metric_errors = _validate_metrics_against_dataset(fixed_params, dataset_metrics, actual_viz_type)
+                if metric_errors:
+                    mc = get_metrics()
+                    mc.tool_calls.labels(tool="superset_create_chart", status="error").inc()
+                    mc.record_error(
+                        tool="superset_create_chart",
+                        error_message=f"Missing metrics in dataset: {len(metric_errors)} not found"
+                    )
+                    return ChartError(
+                        "Chart creation blocked: Missing required metrics",
+                        details=(
+                            f"Chart '{slice_name}' cannot be created — the dataset is missing required metrics:\n\n"
+                            + "\n".join(f"  {i+1}. '{m}' — add this metric to dataset {datasource_id}\n" for i, m in enumerate(metric_errors))
+                            + f"\nAvailable metrics in dataset: {', '.join(m['metric_name'] for m in dataset_metrics)}"
+                        ),
+                        status_code=400,
+                    ).to_json()
+            
+            # Validate Sankey charts for proper params
+            sankey_warning = _validate_sankey_params(fixed_params, slice_name)
+            if sankey_warning:
+                if "error" in str(sankey_warning).lower() or "missing" in str(sankey_warning).lower():
+                    return ChartError(
+                        sankey_warning["title"],
+                        details=sankey_warning["body"],
+                        status_code=400,
+                    ).to_json()
+                else:
+                    # Cycle fix suggestion - add to warning but don't block
+                    warning = f"Sankey: {sankey_warning['body']}"
             
             # NEW: Validate chart data against dataset BEFORE creating
             logger.info(f"Running pre-chart data validation for datasource_id={datasource_id}")

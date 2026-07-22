@@ -187,10 +187,22 @@ class TestUpdateChart:
 
 class TestGenerateChart:
     async def test_generates_and_saves_chart(self, mock_manager):
-        with patch(
-            "modules.SupersetModule.tools.charts.execute_request",
-            new_callable=AsyncMock,
-            return_value=make_response(status_code=201, json_data={"id": 42}),
+        with (
+            patch(
+                "modules.SupersetModule.tools.charts.execute_request",
+                new_callable=AsyncMock,
+                return_value=make_response(status_code=201, json_data={"id": 42}),
+            ),
+            patch(
+                "modules.SupersetModule.tools.charts._verify_chart_params_saved",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "modules.SupersetModule.tools.charts._test_chart_data_endpoint",
+                new_callable=AsyncMock,
+                return_value={"is_valid": True, "error": None, "row_count": 10},
+            ),
         ):
             result = await generate_chart(
                 mock_manager, "test-server",
@@ -203,15 +215,27 @@ class TestGenerateChart:
             assert "_mermaid_graph" in data["result"]
 
     async def test_chart_creation_always_saves(self, mock_manager):
-        with patch(
-            "modules.SupersetModule.tools.charts.execute_request",
-            new_callable=AsyncMock,
-            return_value=make_response(status_code=201, json_data={"id": 99}),
+        with (
+            patch(
+                "modules.SupersetModule.tools.charts.execute_request",
+                new_callable=AsyncMock,
+                return_value=make_response(status_code=201, json_data={"id": 99}),
+            ),
+            patch(
+                "modules.SupersetModule.tools.charts._verify_chart_params_saved",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "modules.SupersetModule.tools.charts._test_chart_data_endpoint",
+                new_callable=AsyncMock,
+                return_value={"is_valid": True, "error": None, "row_count": 10},
+            ),
         ):
             result = await generate_chart(
                 mock_manager, "test-server",
                 dataset_id=1,
-                config='{"viz_type": "table", "metrics": ["count"]}',
+                config='{"viz_type": "line", "metrics": ["count"]}',
             )
         data = json.loads(result)
         assert data["saved"] is True

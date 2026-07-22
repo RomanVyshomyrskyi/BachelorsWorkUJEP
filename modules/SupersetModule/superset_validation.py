@@ -769,6 +769,31 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                 clean_orderby.append(entry)
         fixed["orderby"] = clean_orderby
 
+    # --- Fix 13c: columns / all_columns — drop null/empty entries ---
+    # Sunburst, treemap, word_cloud, table use columns/all_columns arrays.
+    # Null entries cause 'Field may not be null' validation errors.
+    for field in ["columns", "all_columns"]:
+        if field in fixed and isinstance(fixed[field], list):
+            fixed[field] = [
+                c for c in fixed[field]
+                if c is not None and (not isinstance(c, str) or c.strip())
+            ]
+
+    # --- Fix 17: Time series charts — ensure granularity_sqla + time_range ---
+    # Missing granularity_sqla causes 'Chart has no query context saved' (400)
+    # which is the most frequent data endpoint failure.
+    TIME_BASED_TYPES = {
+        "echarts_timeseries_line", "echarts_timeseries_bar", "echarts_area",
+        "echarts_timeseries_scatter", "mixed_timeseries", "waterfall",
+    }
+    if actual_viz in TIME_BASED_TYPES:
+        if "granularity_sqla" not in fixed:
+            time_col = fixed.get("x_axis") or "ds"
+            time_grain = fixed.pop("time_grain_sqla", None) or "P1D"
+            fixed["granularity_sqla"] = {"time_column": time_col, "time_grain": time_grain}
+        if "time_range" not in fixed:
+            fixed["time_range"] = "No filter"
+
     # --- Fix 14: Superset 6.x — all remaining string metrics → AdHocMetricObject ---
     # ALL chart types in Superset 6.x require ad-hoc metric objects.
     # Plain strings like 'SUM(sales)' in 'metrics' array are not accepted.
@@ -786,6 +811,36 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
             for i, m in enumerate(metrics_list):
                 if isinstance(m, str) and m.strip().lower() != "count":
                     fixed["metrics_b"][i] = _build_adhoc_metric_from_string(m)
+
+    # --- Fix 14a: Axis fields → AdHocMetricObject ---
+    # Scatter/bubble x, y, size, series values like 'MAX(SP.POP.TOTL)'
+    # must be ad-hoc metric objects in Superset 6.x, not plain strings.
+    for axis in ["x", "y", "size", "series"]:
+        if axis in fixed and isinstance(fixed[axis], str):
+            s = fixed[axis].strip().lower()
+            if s == "count":
+                continue
+            agg, col_name = _parse_string_metric(fixed[axis])
+            if agg != "AVG" or col_name != fixed[axis]:
+                fixed[axis] = _build_adhoc_metric_from_string(fixed[axis])
+
+    # --- Fix 16: Universal aggregate + expressionType for ALL metric dicts ---
+    # Some chart types (outside ADHOC_METRICS_ARRAY_TYPES) don't get
+    # aggregate/expressionType added to dict metrics. This causes
+    # 'DB engine Error: aggregate' when the dict lacks the field.
+    if actual_viz not in NO_METRICS_TYPES:
+        if "metric" in fixed and isinstance(fixed["metric"], dict):
+            if "aggregate" not in fixed["metric"]:
+                fixed["metric"]["aggregate"] = "AVG"
+            if "expressionType" not in fixed["metric"]:
+                fixed["metric"]["expressionType"] = "SIMPLE"
+        if "metrics" in fixed and isinstance(fixed["metrics"], list):
+            for m in fixed["metrics"]:
+                if isinstance(m, dict):
+                    if "aggregate" not in m:
+                        m["aggregate"] = "AVG"
+                    if "expressionType" not in m:
+                        m["expressionType"] = "SIMPLE"
 
     return fixed
 

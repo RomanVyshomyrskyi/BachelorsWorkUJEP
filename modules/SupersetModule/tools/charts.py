@@ -1198,37 +1198,68 @@ async def generate_chart(
                 f"skipping column validation"
             )
         
-        # ── Metric validation (advisory warnings only, never blocks creation) ──
+        # ── Metric validation (blocks creation if errors found) ──
         metric_errors = _validate_metrics_against_dataset(
             fixed_params, dataset_metrics, actual_viz_type, dataset_columns
         )
         if not dataset_columns and not dataset_metrics and not metric_errors:
             metric_errors = _validate_metric_string_format(fixed_params)
         if metric_errors:
-            metric_warn_text = " | ".join(metric_errors)
-            if validation_warning:
-                validation_warning = validation_warning + " | Metrics: " + metric_warn_text
-            else:
-                validation_warning = "Metrics: " + metric_warn_text
+            mc = get_metrics()
+            mc.tool_calls.labels(tool="superset_generate_chart", status="error").inc()
+            mc.record_error(
+                tool="superset_generate_chart",
+                error_message=f"Metrics validation failed: {len(metric_errors)} errors"
+            )
+            available = ", ".join(m['metric_name'] for m in dataset_metrics) if dataset_metrics else "(no predefined metrics)"
+            return ChartError(
+                "Chart creation blocked: Metric validation failed",
+                details=(
+                    f"Chart '{slice_name}' cannot be created — metric validation found "
+                    f"{len(metric_errors)} issue(s):\n\n"
+                    + "\n\n".join(f"  {i+1}. {m}" for i, m in enumerate(metric_errors))
+                    + f"\n\nAvailable metrics: {available}"
+                ),
+                status_code=400,
+            ).to_json()
         
-        # ── Datasource compatibility (advisory warnings only, never blocks creation) ──
+        # ── Datasource compatibility (blocks creation if errors found) ──
         if dataset_columns:
             from modules.SupersetModule.superset_validation import validate_datasource_compatibility
             compat_errors = validate_datasource_compatibility(actual_viz_type, fixed_params, dataset_columns)
             if compat_errors:
-                compat_warn_text = " | ".join(compat_errors)
-                if validation_warning:
-                    validation_warning = validation_warning + " | Compat: " + compat_warn_text
-                else:
-                    validation_warning = "Compat: " + compat_warn_text
+                mc = get_metrics()
+                mc.tool_calls.labels(tool="superset_generate_chart", status="error").inc()
+                mc.record_error(
+                    tool="superset_generate_chart",
+                    error_message=f"Datasource compatibility: {len(compat_errors)} issues"
+                )
+                return ChartError(
+                    f"Chart creation blocked: Datasource incompatible with {actual_viz_type}",
+                    details=(
+                        f"Chart '{slice_name}' cannot be created — "
+                        f"{len(compat_errors)} issue(s):\n\n"
+                        + "\n".join(f"  {i+1}. {e}" for i, e in enumerate(compat_errors))
+                    ),
+                    status_code=400,
+                ).to_json()
         
         errors = validate_chart_params(actual_viz_type, fixed_params)
-        validation_errors = format_error_summary(errors) if errors else None
-        
-        if validation_errors and not validation_warning:
-            validation_warning = "Validation: " + validation_errors
-        elif validation_errors and validation_warning:
-            validation_warning = validation_warning + " | " + validation_errors
+        if errors:
+            mc = get_metrics()
+            mc.tool_calls.labels(tool="superset_generate_chart", status="error").inc()
+            mc.record_error(
+                tool="superset_generate_chart",
+                error_message=f"Structural validation failed: {len(errors)} errors"
+            )
+            return ChartError(
+                "Chart creation blocked: Structural validation failed",
+                details=(
+                    f"Chart '{slice_name}' has {len(errors)} structural issue(s):\n\n"
+                    + format_error_summary(errors)
+                ),
+                status_code=400,
+            ).to_json()
 
         chart_name = slice_name or f"Chart from dataset {dataset_id}"
 
@@ -1261,27 +1292,54 @@ async def generate_chart(
         result = resp.json()
         chart_id = result.get("id") or result.get("result", {}).get("id", 0)
 
-        # ── Post-creation verification (advisory warnings, never auto-deletes) ──
+        # ── Post-creation verification (blocking: auto-deletes broken charts) ──
         if chart_id:
             params_errors = await _verify_chart_params_saved(manager, server_id, chart_id)
             if params_errors:
-                params_txt = " | ".join(params_errors)
-                if validation_warning:
-                    validation_warning = validation_warning + " | Saved params: " + params_txt
-                else:
-                    validation_warning = "Saved params: " + params_txt
+                await _delete_chart(manager, server_id, chart_id)
+                mc = get_metrics()
+                mc.tool_calls.labels(tool="superset_generate_chart", status="error").inc()
+                mc.record_error(
+                    tool="superset_generate_chart",
+                    error_message=f"Chart saved params invalid: {params_errors[0][:100]}"
+                )
+                return ChartError(
+                    f"Chart created but params are invalid. Chart was deleted.",
+                    details=(
+                        f"Chart '{slice_name}' was created (ID: {chart_id}) but saved params "
+                        f"contain null/empty values. Chart was deleted.\n\n"
+                        f"Errors:\n" + "\n".join(f"  - {e}" for e in params_errors)
+                    ),
+                    status_code=500,
+                ).to_json()
 
             data_test = await _test_chart_data_endpoint(manager, server_id, chart_id)
             if not data_test["is_valid"]:
+                await _delete_chart(manager, server_id, chart_id)
                 data_err = data_test["error"]
                 logger.warning(
-                    "Chart %s dataset=%s viz=%s data test failed: %s",
+                    "Chart %s dataset=%s viz=%s data test failed — deleting: %s",
                     chart_id, dataset_id, actual_viz_type, data_err[:500],
                 )
-                if validation_warning:
-                    validation_warning = validation_warning + " | Data endpoint: " + data_err
-                else:
-                    validation_warning = "Data endpoint: " + data_err
+                mc = get_metrics()
+                mc.tool_calls.labels(tool="superset_generate_chart", status="error").inc()
+                mc.record_error(
+                    tool="superset_generate_chart",
+                    error_message=f"Chart data endpoint failed: {data_err[:100]}"
+                )
+                return ChartError(
+                    f"Chart created but fails to render. Chart was deleted.",
+                    details=(
+                        f"Chart '{slice_name}' was created (ID: {chart_id}) but the data endpoint failed.\n"
+                        f"Chart was deleted.\n\n"
+                        f"Error: {data_err}\n\n"
+                        f"Check that:\n"
+                        f"  1. datasource_id {dataset_id} has the right columns\n"
+                        f"  2. metrics referenced in params exist in the dataset\n"
+                        f"  3. viz_type '{actual_viz_type}' is compatible with the datasource"
+                    ),
+                    status_code=500,
+                ).to_json()
 
         try:
             result["_mermaid_graph"] = chart_to_mermaid(actual_viz_type, fixed_params, chart_name)

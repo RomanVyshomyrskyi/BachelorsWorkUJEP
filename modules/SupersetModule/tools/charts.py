@@ -1245,6 +1245,11 @@ async def generate_chart(
             chart_payload["description"] = description
 
         endpoint = "/api/v1/chart/"
+        logger.info(
+            "Chart POST: slice_name=%s viz_type=%s dataset_id=%s params=%s",
+            chart_name, actual_viz_type, dataset_id,
+            json.dumps(fixed_params, indent=2)[:4000],
+        )
         resp = await execute_request(ctx, "POST", endpoint, json=chart_payload)
         resp.raise_for_status()
         result = resp.json()

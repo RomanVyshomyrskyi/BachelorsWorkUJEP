@@ -191,7 +191,7 @@ def get_chart_creation_rules() -> str:
 2. Provide additional kwargs: metric, metrics, groupby, x_axis, etc.
 3. The function returns a properly structured params dict
 4. Use `json.dumps(params)` to create the JSON string
-5. Call `superset_create_chart` with the JSON string
+5. Call `generate_chart` with a config JSON that includes the params
 
 Example:
   params = get_standard_chart_params("line", 13, x_axis="order_date", time_grain_sqla="P1M", metrics=["SUM(sales)"], groupby=["product_line"])

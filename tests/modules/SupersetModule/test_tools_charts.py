@@ -196,31 +196,33 @@ class TestGenerateChart:
                 mock_manager, "test-server",
                 dataset_id=1,
                 config='{"viz_type": "table"}',
-                save_chart=True,
             )
             data = json.loads(result)
             assert data["saved"] is True
             assert data["chart_id"] == 42
             assert "_mermaid_graph" in data["result"]
 
-    async def test_returns_explore_url_when_not_saved(self, mock_manager):
-        result = await generate_chart(
-            mock_manager, "test-server",
-            dataset_id=1,
-            config='{"viz_type": "table"}',
-            save_chart=False,
-        )
+    async def test_chart_creation_always_saves(self, mock_manager):
+        with patch(
+            "modules.SupersetModule.tools.charts.execute_request",
+            new_callable=AsyncMock,
+            return_value=make_response(status_code=201, json_data={"id": 99}),
+        ):
+            result = await generate_chart(
+                mock_manager, "test-server",
+                dataset_id=1,
+                config='{"viz_type": "table", "metrics": ["count"]}',
+            )
         data = json.loads(result)
-        assert data["saved"] is False
+        assert data["saved"] is True
         assert "url" in data
-        assert "explore" in data["url"]
+        assert data["chart_id"] == 99
 
     async def test_invalid_config_json(self, mock_manager):
         result = await generate_chart(
             mock_manager, "test-server",
             dataset_id=1,
             config="not-json",
-            save_chart=True,
         )
         data = json.loads(result)
         assert data.get("error") is True
@@ -239,7 +241,6 @@ class TestGenerateChart:
                 mock_manager, "test-server",
                 dataset_id=1,
                 config='{"viz_type": "table"}',
-                save_chart=True,
             )
             data = json.loads(result)
             assert data.get("error") is True

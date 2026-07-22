@@ -583,9 +583,16 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
             del fixed["metrics"]
 
     # --- Fix 4: Singular metric types — string metric → AdHocMetricObject ---
-    if actual_viz in SINGULAR_ADHOC_METRIC_TYPES or actual_viz in SINGULAR_STRING_METRIC_TYPES:
+    # SINGULAR_ADHOC_METRIC_TYPES (pie, waterfall) MUST have ad-hoc objects always.
+    if actual_viz in SINGULAR_ADHOC_METRIC_TYPES:
         if "metric" in fixed and _is_string_metric(fixed["metric"]):
             fixed["metric"] = _build_adhoc_metric_from_string(fixed["metric"])
+    # SINGULAR_STRING_METRIC_TYPES (big_number, funnel, etc.) accept strings,
+    # but should still convert to ad-hoc for Superset 6.x — except bare 'count'.
+    if actual_viz in SINGULAR_STRING_METRIC_TYPES:
+        if "metric" in fixed and _is_string_metric(fixed["metric"]):
+            if fixed["metric"].strip().lower() != "count":
+                fixed["metric"] = _build_adhoc_metric_from_string(fixed["metric"])
 
     # --- Fix 5: Scatter/bubble — flat column_name → nested column object ---
     if actual_viz in {"scatter", "echarts_timeseries_scatter", "bubble_v2"}:
@@ -756,11 +763,12 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
     # --- Fix 14: Superset 6.x — all remaining string metrics → AdHocMetricObject ---
     # ALL chart types in Superset 6.x require ad-hoc metric objects.
     # Plain strings like 'SUM(sales)' in 'metrics' array are not accepted.
+    # Exception: bare 'count' is a built-in metric, not a column reference.
     if actual_viz not in NO_METRICS_TYPES and "metrics" in fixed:
         metrics_list = fixed["metrics"]
         if isinstance(metrics_list, list):
             for i, m in enumerate(metrics_list):
-                if isinstance(m, str):
+                if isinstance(m, str) and m.strip().lower() != "count":
                     fixed["metrics"][i] = _build_adhoc_metric_from_string(m)
 
     return fixed

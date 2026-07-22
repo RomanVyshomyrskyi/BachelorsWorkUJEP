@@ -371,13 +371,14 @@ class TestSankeyMetricsValidation:
         assert missing == []
 
     def test_metric_not_in_dataset(self):
-        """Missing metric should be detected."""
+        """Parenthesized ad-hoc formulas like SUM(sales) should skip validation —
+        they are converted to AdHocMetricObjects by auto_fix_chart_params."""
         from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
         
         params = {"metric": "SUM(sales)", "viz_type": "pie"}
         dataset_metrics = [{"metric_name": "count", "expression": "COUNT(*)"}]
         missing = _validate_metrics_against_dataset(params, dataset_metrics, "pie")
-        assert any("SUM(sales)" in e for e in missing)
+        assert missing == []  # parenthesized formulas skip validation
 
     def test_adhoc_metric_with_column_name(self):
         """AdHocMetricObject column should be checked against dataset."""
@@ -395,23 +396,24 @@ class TestSankeyMetricsValidation:
         assert missing == []
 
     def test_multiple_metrics_validation(self):
-        """Multiple metrics in array should all be validated."""
+        """Plain (non-parenthesized) metric strings should be validated against saved metrics.
+        Parenthesized strings like 'SUM(sales)' are ad-hoc and skip validation."""
         from modules.SupersetModule.tools.charts import _validate_metrics_against_dataset
         
         params = {
             "metrics": [
-                {"aggregate": "SUM", "column": {"column_name": "revenue"}, "expressionType": "SIMPLE"},
-                {"aggregate": "SUM", "column": {"column_name": "cost"}, "expressionType": "SIMPLE"},
+                "revenue",  # plain string, not parenthesized — should match saved metric
+                "unknown_metric",  # plain string, not parenthesized — should fail
             ],
             "viz_type": "echarts_timeseries_line",
         }
         dataset_metrics = [
-            {"metric_name": "SUM(revenue)", "expression": "SUM(revenue)"},
+            {"metric_name": "revenue", "expression": "revenue"},
             {"metric_name": "count", "expression": "COUNT(*)"},
         ]
         missing = _validate_metrics_against_dataset(params, dataset_metrics, "echarts_timeseries_line")
-        assert any("SUM(cost)" in e for e in missing)
-        assert not any("SUM(revenue)" in e for e in missing)
+        assert any("unknown_metric" in e for e in missing)
+        assert not any("revenue" in e for e in missing)
 
 
 class TestChartIdExtraction:

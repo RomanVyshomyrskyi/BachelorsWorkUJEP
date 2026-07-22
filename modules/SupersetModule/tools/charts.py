@@ -376,6 +376,13 @@ def _validate_metrics_against_dataset(
                     f"not count rows. Replace with '{stripped}'."
                 )
                 continue
+            # For other parenthesized formulas like 'SUM(sales)', skip the
+            # saved-metric lookup below (they're ad-hoc, not saved metrics).
+            # Still run column-fallback validation (check if referenced column
+            # exists and has compatible type).
+            is_ad_hoc = True
+        else:
+            is_ad_hoc = False
         
         # Parse for column fallback
         parse_result = parse_metric_string(pm)
@@ -390,8 +397,10 @@ def _validate_metrics_against_dataset(
                 )
             continue
         
-        # Check if metric exists in predefined dataset metrics
-        if dataset_metric_names:
+        # Check if metric exists in predefined dataset metrics.
+        # Skip for ad-hoc formulas (e.g., 'SUM(sales)') — they're expressions,
+        # not saved metric names.
+        if dataset_metric_names and not is_ad_hoc:
             found = False
             for dm in dataset_metric_names:
                 if metric_matches(dm, pm):
@@ -445,8 +454,9 @@ def _validate_metrics_against_dataset(
             )
             continue
         
-        # If we got here and have metrics, mark as missing
-        if dataset_metric_names:
+        # If we got here and have metrics, mark as missing.
+        # Skip for ad-hoc formulas — they're not meant to be saved metrics.
+        if dataset_metric_names and not is_ad_hoc:
             missing_metrics.append(
                 f"'{pm}' does not match any predefined metric in the dataset."
             )

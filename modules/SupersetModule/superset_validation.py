@@ -772,12 +772,17 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
     # --- Fix 13c: columns / all_columns — drop null/empty entries ---
     # Sunburst, treemap, word_cloud, table use columns/all_columns arrays.
     # Null entries cause 'Field may not be null' validation errors.
+    # Delete the key entirely if array ends up empty (also triggers null error).
     for field in ["columns", "all_columns"]:
         if field in fixed and isinstance(fixed[field], list):
-            fixed[field] = [
+            cleaned = [
                 c for c in fixed[field]
                 if c is not None and (not isinstance(c, str) or c.strip())
             ]
+            if cleaned:
+                fixed[field] = cleaned
+            else:
+                del fixed[field]
 
     # --- Fix 17: Time series charts — ensure granularity_sqla + time_range ---
     # Missing granularity_sqla causes 'Chart has no query context saved' (400)
@@ -825,21 +830,21 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                 fixed[axis] = _build_adhoc_metric_from_string(fixed[axis])
 
     # --- Fix 16: Universal aggregate + expressionType for ALL metric dicts ---
-    # Some chart types (outside ADHOC_METRICS_ARRAY_TYPES) don't get
-    # aggregate/expressionType added to dict metrics. This causes
-    # 'DB engine Error: aggregate' when the dict lacks the field.
-    if actual_viz not in NO_METRICS_TYPES:
-        if "metric" in fixed and isinstance(fixed["metric"], dict):
-            if "aggregate" not in fixed["metric"]:
-                fixed["metric"]["aggregate"] = "AVG"
-            if "expressionType" not in fixed["metric"]:
-                fixed["metric"]["expressionType"] = "SIMPLE"
-        if "metrics" in fixed and isinstance(fixed["metrics"], list):
-            for m in fixed["metrics"]:
+    # Uses .get() instead of 'in' to catch None, "", 0 (all falsy).
+    # Covers singular metric, plural metrics, metrics_b, timeseries_limit_metric.
+    for field in ["metric", "timeseries_limit_metric"]:
+        if field in fixed and isinstance(fixed[field], dict):
+            if not fixed[field].get("aggregate"):
+                fixed[field]["aggregate"] = "AVG"
+            if not fixed[field].get("expressionType"):
+                fixed[field]["expressionType"] = "SIMPLE"
+    for metric_field in ["metrics", "metrics_b"]:
+        if metric_field in fixed and isinstance(fixed[metric_field], list):
+            for m in fixed[metric_field]:
                 if isinstance(m, dict):
-                    if "aggregate" not in m:
+                    if not m.get("aggregate"):
                         m["aggregate"] = "AVG"
-                    if "expressionType" not in m:
+                    if not m.get("expressionType"):
                         m["expressionType"] = "SIMPLE"
 
     return fixed

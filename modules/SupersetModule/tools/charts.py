@@ -545,6 +545,10 @@ async def _test_chart_data_endpoint(
         resp = await execute_request(ctx, "GET", f"/api/v1/chart/{chart_id}/data/")
         
         if resp.status_code != 200:
+            logger.warning(
+                "Chart %s data endpoint HTTP %s: %s",
+                chart_id, resp.status_code, str(resp.text)[:1000],
+            )
             return {"is_valid": False, "error": f"HTTP {resp.status_code}: {resp.text[:300]}", "row_count": None}
         
         data = resp.json()
@@ -576,6 +580,10 @@ async def _test_chart_data_endpoint(
                           "not provided as part", "rendering the visualization"]
         matches = [kw for kw in error_keywords if kw in resp_lower]
         if matches:
+            logger.warning(
+                "Chart %s data endpoint errors: keywords=%s raw=%s",
+                chart_id, matches, str(resp.text)[:1000],
+            )
             return {"is_valid": False, "error": f"Chart response contains error keywords: {matches}", "row_count": row_count}
         
         # Success with data

@@ -5,8 +5,12 @@ Prevents "Metric 'MAX(col)' does not exist" errors by ensuring chart params
 use column names that match the dataset's actual columns.
 """
 
+import json
 import re
+import logging
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 def build_adhoc_metric(column_name: str, aggregate: str = "AVG") -> Dict[str, Any]:
@@ -227,12 +231,20 @@ def resolve_chart_params(
     
     # Resolve 'metric' (singular)
     if "metric" in resolved:
+        before = json.dumps(resolved["metric"], default=str)[:300]
         resolved["metric"], warns = resolve_metrics(resolved["metric"], dataset_columns)
+        after = json.dumps(resolved["metric"], default=str)[:300]
+        if before != after or warns:
+            logger.info("Singular metric resolved: before=%s after=%s warnings=%s", before, after, warns)
         warnings.extend(warns)
     
     # Resolve 'metrics' (plural array)
     if "metrics" in resolved:
+        before = json.dumps(resolved["metrics"], default=str)[:500]
         resolved["metrics"], warns = resolve_metrics(resolved["metrics"], dataset_columns)
+        after = json.dumps(resolved["metrics"], default=str)[:500]
+        if before != after or warns:
+            logger.info("Metrics resolved: before=%s after=%s warnings=%s", before, after, warns)
         warnings.extend(warns)
     
     # Resolve 'groupby'

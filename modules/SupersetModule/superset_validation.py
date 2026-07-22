@@ -48,7 +48,7 @@ STRING_METRICS_ARRAY_TYPES: set = {
     "echarts_timeseries_scatter",
     "bubble_v2",
     "box_plot",
-    "parallel",
+    # REMOVED: "parallel"  — chart plugin not registered on Superset 6.1.0
 }
 
 # Array of AdHocMetricObjects:  "metrics": [{"aggregate": "SUM", ...}]
@@ -113,11 +113,7 @@ DATASOURCE_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
         "optional": ["metrics"],
         "description": "radar needs groupby for dimension labels",
     },
-    "parallel": {
-        "required": ["dimensions"],
-        "optional": ["metrics"],
-        "description": "parallel needs dimensions field (array of column names)",
-    },
+    # REMOVED: "parallel" — chart plugin not registered on Superset 6.1.0
     "box_plot": {
         "required": ["groupby"],
         "optional": ["metric"],
@@ -161,6 +157,14 @@ DATASOURCE_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
         "x_axis_temporal_for_trendline": True,
         "description": "big_number with trendline needs temporal x_axis",
     },
+}
+
+
+# Chart types that need granularity_sqla + time_range (all time-based + big_number)
+TIME_BASED_TYPES: set = {
+    "echarts_timeseries_line", "echarts_timeseries_bar", "echarts_area",
+    "echarts_timeseries_scatter", "mixed_timeseries", "waterfall",
+    "big_number", "big_number_total",
 }
 
 
@@ -683,23 +687,13 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                     if "expressionType" not in m:
                         m["expressionType"] = "SIMPLE"
 
-    # --- Fix 10: big_number — ensure temporal column for dashboard rendering ---
-    # big_number charts in dashboards need granularity_sqla to render properly
-    if actual_viz == "big_number":
-        if "granularity_sqla" not in fixed:
-            # Add a default temporal column if dataset has one
-            if "datasource_id" in fixed:
-                fixed["_needs_temporal_check"] = True
-            else:
-                fixed["granularity_sqla"] = "ds"  # Common default
-
-    # --- Fix 11: Pie chart — groupby must be array in dashboard context ---
-    # When used in dashboards, pie charts require groupby as array, not string
-    if actual_viz in SINGULAR_ADHOC_METRIC_TYPES and "groupby" in fixed:
-        groupby = fixed["groupby"]
-        # In dashboard context, groupby should be an array for proper rendering
-        if isinstance(groupby, str) and groupby:
-            fixed["groupby"] = [groupby]
+    # granuarity_sqla is now handled universally by Fix 17 below.
+    # Fix 10 has been consolidated — removed dead _needs_temporal_check flag.
+    
+    # --- Fix 11: Universal — groupby must be array for all chart types ---
+    # Superset 6.x dashboard rendering expects groupby as array everywhere.
+    if "groupby" in fixed and isinstance(fixed["groupby"], str):
+        fixed["groupby"] = [fixed["groupby"]] if fixed["groupby"] else []
 
     # --- Fix 12: big_number — ensure time config for dashboard rendering ---
     if actual_viz == "big_number":
@@ -786,19 +780,12 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                 del fixed[field]
 
     # --- Fix 17: Time series + big_number — ensure granularity_sqla + time_range ---
-    # Missing or null granularity_sqla causes 'Datetime column not provided'
-    # and 'Chart has no query context saved' errors (most frequent failures).
-    TIME_BASED_TYPES = {
-        "echarts_timeseries_line", "echarts_timeseries_bar", "echarts_area",
-        "echarts_timeseries_scatter", "mixed_timeseries", "waterfall",
-        "big_number", "big_number_total",
-    }
     if actual_viz in TIME_BASED_TYPES:
         if not fixed.get("granularity_sqla"):  # catches None, "", missing
             time_col = fixed.get("x_axis") or "ds"
             fixed["granularity_sqla"] = time_col
         if not fixed.get("time_grain_sqla"):
-            fixed["time_grain_sqla"] = fixed.pop("time_grain_sqla", None) or "P1D"
+            fixed["time_grain_sqla"] = "P1D"
         if not fixed.get("time_range"):
             fixed["time_range"] = "No filter"
 

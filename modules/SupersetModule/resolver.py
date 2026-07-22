@@ -265,7 +265,7 @@ def resolve_chart_params(
     # Only fix column name casing — don't change a plain column reference
     # into an aggregate formula (e.g., 'sales' → 'AVG(sales)').
     # Ad-hoc formulas like 'SUM(sales)' get converted by auto_fix_chart_params.
-    for axis in ["x", "y", "size"]:
+    for axis in ["x", "y", "size", "size_metric", "series"]:
         if axis in resolved and isinstance(resolved[axis], str):
             if re.match(r"^(SUM|AVG|MIN|MAX|COUNT|COUNT_DISTINCT)\s*\(.+\)$", resolved[axis], re.IGNORECASE):
                 # Formula string: resolve column name within it

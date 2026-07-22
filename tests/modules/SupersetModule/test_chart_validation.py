@@ -631,23 +631,22 @@ class TestDatasourceCompatibilityValidation:
         assert errors == []
     
     def test_parallel_requires_dimensions(self):
-        """Parallel chart should fail if dimensions field is missing."""
+        """Parallel chart removed — validate_datasource_compatibility returns no errors."""
         from modules.SupersetModule.superset_validation import validate_datasource_compatibility
         
         params = {"viz_type": "parallel"}
         errors = validate_datasource_compatibility("parallel", params)
         
-        assert len(errors) > 0
-        assert "dimensions" in errors[0].lower()
+        assert errors == []  # parallel removed from registered types
     
     def test_parallel_passes_with_dimensions(self):
-        """Parallel chart should pass when dimensions are provided."""
+        """Parallel chart removed — validate_datasource_compatibility returns no errors."""
         from modules.SupersetModule.superset_validation import validate_datasource_compatibility
         
         params = {"viz_type": "parallel", "dimensions": ["col1", "col2"]}
         errors = validate_datasource_compatibility("parallel", params)
         
-        assert errors == []
+        assert errors == []  # parallel removed from registered types
     
     def test_big_number_trendline_requires_temporal_x_axis(self):
         """Big number with trendline should fail if x_axis is not temporal."""

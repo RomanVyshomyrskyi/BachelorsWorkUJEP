@@ -740,23 +740,6 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                         if "expressionType" not in m:
                             m["expressionType"] = "SIMPLE"
 
-        # Fix 'orderby' — replace null/empty column references, remove invalid entries
-        if "orderby" in fixed and isinstance(fixed["orderby"], list):
-            clean_orderby = []
-            for entry in fixed["orderby"]:
-                if isinstance(entry, list) and len(entry) >= 1:
-                    if entry[0] is None or (isinstance(entry[0], str) and not entry[0].strip()):
-                        continue  # drop invalid entry entirely
-                    clean_orderby.append(entry)
-                elif isinstance(entry, dict):
-                    col_entry = entry.get("column", {})
-                    if isinstance(col_entry, dict):
-                        col_name = col_entry.get("column_name")
-                        if col_name is None or (isinstance(col_name, str) and not col_name.strip()):
-                            continue  # drop invalid entry
-                    clean_orderby.append(entry)
-            fixed["orderby"] = clean_orderby
-
         # Fix 'timeseries_limit_metric' — replace null with fallback
         if "timeseries_limit_metric" in fixed:
             tlm = fixed["timeseries_limit_metric"]
@@ -766,6 +749,25 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                 col_name = tlm.get("column", {}).get("column_name")
                 if col_name is None:
                     tlm.setdefault("column", {})["column_name"] = fallback_col
+
+    # --- Fix 13b: Universal orderby cleanup (runs for ALL chart types) ---
+    # Drops orderby entries with null/empty column references instead of
+    # substituting fallback values, which would be invalid sort columns.
+    if "orderby" in fixed and isinstance(fixed["orderby"], list):
+        clean_orderby = []
+        for entry in fixed["orderby"]:
+            if isinstance(entry, list) and len(entry) >= 1:
+                if entry[0] is None or (isinstance(entry[0], str) and not entry[0].strip()):
+                    continue
+                clean_orderby.append(entry)
+            elif isinstance(entry, dict):
+                col_entry = entry.get("column", {})
+                if isinstance(col_entry, dict):
+                    col_name = col_entry.get("column_name")
+                    if col_name is None or (isinstance(col_name, str) and not col_name.strip()):
+                        continue
+                clean_orderby.append(entry)
+        fixed["orderby"] = clean_orderby
 
     # --- Fix 14: Superset 6.x — all remaining string metrics → AdHocMetricObject ---
     # ALL chart types in Superset 6.x require ad-hoc metric objects.

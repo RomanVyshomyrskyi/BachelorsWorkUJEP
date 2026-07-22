@@ -929,26 +929,25 @@ class WorldMapStrategy(ChartParamsStrategy):
         return base
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  27. Parallel  –  parallel  (generic fallback strategy)
-# ─────────────────────────────────────────────────────────────────────────────
-
-class ParallelStrategy(ChartParamsStrategy):
-    VIZ_TYPE = "parallel"
-    DEFAULTS = {
-        "groupby": [],
-        "metrics": ["count"],
-        "color_scheme": "supersetColors",
-    }
-
-    def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
-        d = dict(self.DEFAULTS)
-        d["viz_type"] = self.VIZ_TYPE
-        d["groupby"] = self._normalize_groupby(kwargs.get("groupby", d["groupby"]))
-        d["metrics"] = kwargs.get("metrics", d["metrics"])
-        base = self._base(datasource_id)
-        base.update(d)
-        return base
+# REMOVED: parallel — chart plugin not registered on Superset 6.1.0 instance.
+# #  27. Parallel  –  parallel  (generic fallback strategy)
+#
+# class ParallelStrategy(ChartParamsStrategy):
+#     VIZ_TYPE = "parallel"
+#     DEFAULTS = {
+#         "groupby": [],
+#         "metrics": ["count"],
+#         "color_scheme": "supersetColors",
+#     }
+#
+#     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
+#         d = dict(self.DEFAULTS)
+#         d["viz_type"] = self.VIZ_TYPE
+#         d["groupby"] = self._normalize_groupby(kwargs.get("groupby", d["groupby"]))
+#         d["metrics"] = kwargs.get("metrics", d["metrics"])
+#         base = self._base(datasource_id)
+#         base.update(d)
+#         return base
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -986,7 +985,7 @@ TYPE_MAP: Dict[str, str] = {
     "word_cloud": "word_cloud",
     "world_map": "world_map",
     "map": "world_map",
-    "parallel": "parallel",
+    # REMOVED: "parallel": "parallel",  — chart plugin not registered on Superset 6.1.0
 }
 
 _REGISTRY: Dict[str, ChartParamsStrategy] = {
@@ -1016,7 +1015,7 @@ _REGISTRY: Dict[str, ChartParamsStrategy] = {
     "mixed_timeseries": MixedTimeseriesStrategy(),
     "word_cloud": WordCloudStrategy(),
     "world_map": WorldMapStrategy(),
-    "parallel": ParallelStrategy(),
+    # REMOVED: "parallel": ParallelStrategy(),  — chart plugin not registered
 }
 
 

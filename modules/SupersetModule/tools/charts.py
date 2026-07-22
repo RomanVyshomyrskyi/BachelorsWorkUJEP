@@ -877,17 +877,14 @@ async def create_chart(
             else:
                 warning = None
             
-            # Validate Sankey charts for proper params
+            # Validate Sankey charts — errors and cycle warnings both block creation
             sankey_warning = _validate_sankey_params(fixed_params, slice_name)
             if sankey_warning:
-                if "error" in str(sankey_warning).lower() or "missing" in str(sankey_warning).lower():
-                    return ChartError(
-                        sankey_warning["title"],
-                        details=sankey_warning["body"],
-                        status_code=400,
-                    ).to_json()
-                else:
-                    warning = f"Sankey: {sankey_warning['body']}"
+                return ChartError(
+                    sankey_warning["title"],
+                    details=sankey_warning["body"],
+                    status_code=400,
+                ).to_json()
             
             # Validate chart data against dataset BEFORE creating
             logger.info(f"Running pre-chart data validation for datasource_id={datasource_id}")

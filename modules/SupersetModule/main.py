@@ -81,10 +81,11 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Retrieves metadata about the chart API from _info endpoint (filters, permissions, properties)."""
         return await charts.get_chart_api_info(manager, server_id)
 
-    @mcp.tool(name="superset_create_chart")
-    async def tool_create_chart(server_id: str, slice_name: str, viz_type: str, datasource_id: int, datasource_type: str, params: str, description: Optional[str] = None) -> str:
-        """Creates a new chart with auto-fix validation."""
-        return await charts.create_chart(manager, server_id, slice_name, viz_type, datasource_id, datasource_type, params, description)
+    # REMOVED: superset_create_chart — consolidated into generate_chart (2025-07-22)
+    # @mcp.tool(name="superset_create_chart")
+    # async def tool_create_chart(server_id: str, slice_name: str, viz_type: str, datasource_id: int, datasource_type: str, params: str, description: Optional[str] = None) -> str:
+    #     """Creates a new chart with auto-fix validation."""
+    #     return await charts.create_chart(manager, server_id, slice_name, viz_type, datasource_id, datasource_type, params, description)
 
     @mcp.tool(name="superset_generate_simple_dashboard_layout")
     async def tool_generate_simple_dashboard_layout(server_id: str, chart_ids: List[int], layout_type: str = "row_of_charts", chart_width: int = 6, chart_height: int = 50) -> str:
@@ -197,9 +198,9 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         return await dashboards.get_dashboard_info(manager, server_id, dashboard_id)
 
     @mcp.tool(name="generate_chart")
-    async def tool_generate_chart(server_id: str, dataset_id: int, config: str, slice_name: Optional[str] = None, save_chart: bool = True, description: Optional[str] = None) -> str:
-        """Create and optionally save a new chart. Use generate_explore_link for ad-hoc exploration."""
-        return await charts.generate_chart(manager, server_id, dataset_id, config, slice_name, save_chart, description)
+    async def tool_generate_chart(server_id: str, dataset_id: int, config: str, slice_name: Optional[str] = None, description: Optional[str] = None) -> str:
+        """Create and save a new chart. Use generate_explore_link for ad-hoc exploration."""
+        return await charts.generate_chart(manager, server_id, dataset_id, config, slice_name, description)
 
     @mcp.tool(name="get_chart_preview")
     async def tool_get_chart_preview(server_id: str, chart_id: Union[int, str]) -> str:

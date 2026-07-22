@@ -1093,7 +1093,6 @@ async def generate_chart(
     dataset_id: int,
     config: str,
     slice_name: Optional[str] = None,
-    save_chart: bool = True,
     description: Optional[str] = None
  ) -> str:
     ctx = manager.get_context(server_id)
@@ -1194,21 +1193,6 @@ async def generate_chart(
             validation_warning = "Validation: " + validation_errors
         elif validation_errors and validation_warning:
             validation_warning = validation_warning + " | " + validation_errors
-
-        if not save_chart:
-            base_url = ctx.config.base_url.rstrip("/")
-            explore_url = f"{base_url}/explore/?form_data={json.dumps(fixed_params)}"
-            mc = get_metrics()
-            mc.tool_calls.labels(tool="superset_generate_chart", status="success").inc()
-            mc.tool_duration.labels(tool="superset_generate_chart").observe(time.monotonic() - start_time)
-            result = {
-                "url": explore_url,
-                "saved": False,
-                "config": fixed_params,
-            }
-            if validation_warning:
-                result["_validation_warning"] = validation_warning
-            return json.dumps(result, indent=2)
 
         chart_name = slice_name or f"Chart from dataset {dataset_id}"
 

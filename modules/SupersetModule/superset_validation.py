@@ -784,19 +784,19 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
             else:
                 del fixed[field]
 
-    # --- Fix 17: Time series charts — ensure granularity_sqla + time_range ---
-    # Missing granularity_sqla causes 'Chart has no query context saved' (400)
-    # which is the most frequent data endpoint failure.
+    # --- Fix 17: Time series + big_number — ensure granularity_sqla + time_range ---
+    # Missing or null granularity_sqla causes 'Datetime column not provided'
+    # and 'Chart has no query context saved' errors (most frequent failures).
     TIME_BASED_TYPES = {
         "echarts_timeseries_line", "echarts_timeseries_bar", "echarts_area",
         "echarts_timeseries_scatter", "mixed_timeseries", "waterfall",
+        "big_number", "big_number_total",
     }
     if actual_viz in TIME_BASED_TYPES:
-        if "granularity_sqla" not in fixed:
+        if not fixed.get("granularity_sqla"):  # catches None, "", missing
             time_col = fixed.get("x_axis") or "ds"
-            time_grain = fixed.pop("time_grain_sqla", None) or "P1D"
-            fixed["granularity_sqla"] = {"time_column": time_col, "time_grain": time_grain}
-        if "time_range" not in fixed:
+            fixed["granularity_sqla"] = time_col
+        if not fixed.get("time_range"):
             fixed["time_range"] = "No filter"
 
     # --- Fix 14: Superset 6.x — all remaining string metrics → AdHocMetricObject ---
@@ -829,7 +829,7 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
             if agg != "AVG" or col_name != fixed[axis]:
                 fixed[axis] = _build_adhoc_metric_from_string(fixed[axis])
 
-    # --- Fix 16: Universal aggregate + expressionType for ALL metric dicts ---
+    # --- Fix 16: Universal aggregate + expressionType + label for ALL metric dicts ---
     # Uses .get() instead of 'in' to catch None, "", 0 (all falsy).
     # Covers singular metric, plural metrics, metrics_b, timeseries_limit_metric.
     for field in ["metric", "timeseries_limit_metric"]:
@@ -838,6 +838,10 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                 fixed[field]["aggregate"] = "AVG"
             if not fixed[field].get("expressionType"):
                 fixed[field]["expressionType"] = "SIMPLE"
+            if not fixed[field].get("label"):
+                agg = fixed[field].get("aggregate", "AVG")
+                col = fixed[field].get("column", {}).get("column_name", "?")
+                fixed[field]["label"] = f"{agg}({col})"
     for metric_field in ["metrics", "metrics_b"]:
         if metric_field in fixed and isinstance(fixed[metric_field], list):
             for m in fixed[metric_field]:
@@ -846,6 +850,10 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                         m["aggregate"] = "AVG"
                     if not m.get("expressionType"):
                         m["expressionType"] = "SIMPLE"
+                    if not m.get("label"):
+                        agg = m.get("aggregate", "AVG")
+                        col = m.get("column", {}).get("column_name", "?")
+                        m["label"] = f"{agg}({col})"
 
     return fixed
 

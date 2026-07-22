@@ -261,15 +261,28 @@ def resolve_chart_params(
             warnings.append(f"X-axis column '{resolved['x_axis']}' renamed to '{actual}' to match dataset")
             resolved["x_axis"] = actual
     
-    # Resolve axis values for scatter/bubble charts
+    # Resolve axis values for scatter/bubble charts.
+    # Only fix column name casing — don't change a plain column reference
+    # into an aggregate formula (e.g., 'sales' → 'AVG(sales)').
+    # Ad-hoc formulas like 'SUM(sales)' get converted by auto_fix_chart_params.
     for axis in ["x", "y", "size"]:
         if axis in resolved and isinstance(resolved[axis], str):
-            agg, col_name = parse_metric_string(resolved[axis])
-            actual = resolve_column_name(col_name, dataset_columns)
-            if actual is None:
-                warnings.append(f"{axis}-axis metric column '{col_name}' not found in dataset")
-            elif actual != col_name:
-                warnings.append(f"{axis}-axis column '{col_name}' renamed to '{actual}' to match dataset")
-                resolved[axis] = f"{agg}({actual})"
+            if re.match(r"^(SUM|AVG|MIN|MAX|COUNT|COUNT_DISTINCT)\s*\(.+\)$", resolved[axis], re.IGNORECASE):
+                # Formula string: resolve column name within it
+                agg, col_name = parse_metric_string(resolved[axis])
+                actual = resolve_column_name(col_name, dataset_columns)
+                if actual is None:
+                    warnings.append(f"{axis}-axis metric column '{col_name}' not found in dataset")
+                elif actual != col_name:
+                    warnings.append(f"{axis}-axis column '{col_name}' renamed to '{actual}'")
+                    resolved[axis] = f"{agg}({actual})"
+            else:
+                # Plain column name: just resolve casing
+                actual = resolve_column_name(resolved[axis], dataset_columns)
+                if actual is None:
+                    warnings.append(f"{axis}-axis column '{resolved[axis]}' not found in dataset")
+                elif actual != resolved[axis]:
+                    warnings.append(f"{axis}-axis column '{resolved[axis]}' renamed to '{actual}'")
+                    resolved[axis] = actual
     
     return resolved, warnings

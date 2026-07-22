@@ -150,6 +150,11 @@ def _resolve_single_metric(
     warnings: List[str],
 ) -> str:
     """Resolve a single string metric against dataset columns."""
+    # Bare 'count' is a built-in Superset metric, not a column reference.
+    # Never convert it to 'COUNT(count)' regardless of dataset columns.
+    if metric_str.strip().lower() == "count":
+        return metric_str
+
     agg, col_name = parse_metric_string(metric_str)
     actual = resolve_column_name(col_name, dataset_columns)
     

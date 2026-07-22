@@ -172,14 +172,17 @@ class TestAutoFixChartParams:
         assert fixed["metric"]["expressionType"] == "SIMPLE"
 
     def test_fix_big_number_string_metric(self):
-        """Big number string metric should remain as string (valid format)."""
+        """Big number string metric should be converted to AdHocMetricObject for Superset 6.x."""
         params = {
             "viz_type": "big_number",
             "metric": "count",
         }
         fixed = auto_fix_chart_params("big_number", params)
-        assert isinstance(fixed["metric"], str)
-        assert fixed["metric"] == "count"
+        assert isinstance(fixed["metric"], dict)
+        assert fixed["metric"]["aggregate"] == "COUNT"
+        assert fixed["metric"]["column"]["column_name"] == "count"
+        assert fixed["metric"]["expressionType"] == "SIMPLE"
+        assert fixed["metric"]["label"] == "COUNT(count)"
 
     def test_fix_scatter_flat_column_name(self):
         """Auto-fix scatter flat column_name to nested column object."""

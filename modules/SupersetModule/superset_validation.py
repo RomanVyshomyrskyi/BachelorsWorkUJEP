@@ -568,8 +568,22 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
         if "metrics" in fixed:
             del fixed["metrics"]
 
-    # --- Fix 4: Pie/waterfall — string metric → AdHocMetricObject ---
-    if actual_viz in SINGULAR_ADHOC_METRIC_TYPES:
+    # --- Fix 3.1: SINGULAR_STRING_METRIC_TYPES — metrics array → metric string ---
+    if actual_viz in SINGULAR_STRING_METRIC_TYPES and "metrics" in fixed and "metric" not in fixed:
+        metric_list = fixed["metrics"]
+        if isinstance(metric_list, list) and len(metric_list) > 0:
+            first = metric_list[0]
+            if isinstance(first, str):
+                fixed["metric"] = first
+            elif isinstance(first, dict):
+                col = first.get("column", {}).get("column_name", "count")
+                agg = first.get("aggregate", "AVG")
+                fixed["metric"] = f"{agg}({col})"
+        if "metrics" in fixed:
+            del fixed["metrics"]
+
+    # --- Fix 4: Singular metric types — string metric → AdHocMetricObject ---
+    if actual_viz in SINGULAR_ADHOC_METRIC_TYPES or actual_viz in SINGULAR_STRING_METRIC_TYPES:
         if "metric" in fixed and _is_string_metric(fixed["metric"]):
             fixed["metric"] = _build_adhoc_metric_from_string(fixed["metric"])
 
@@ -738,6 +752,16 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                 col_name = tlm.get("column", {}).get("column_name")
                 if col_name is None:
                     tlm.setdefault("column", {})["column_name"] = fallback_col
+
+    # --- Fix 14: Superset 6.x — all remaining string metrics → AdHocMetricObject ---
+    # ALL chart types in Superset 6.x require ad-hoc metric objects.
+    # Plain strings like 'SUM(sales)' in 'metrics' array are not accepted.
+    if actual_viz not in NO_METRICS_TYPES and "metrics" in fixed:
+        metrics_list = fixed["metrics"]
+        if isinstance(metrics_list, list):
+            for i, m in enumerate(metrics_list):
+                if isinstance(m, str):
+                    fixed["metrics"][i] = _build_adhoc_metric_from_string(m)
 
     return fixed
 

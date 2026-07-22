@@ -70,7 +70,7 @@ async def _ensure_chart_types_cached(manager: ConnectionManager, server_id: str)
             if file_age < CACHE_TTL_SECONDS:
                 with open(CHART_TYPES_CACHE_FILE, "r") as f:
                     cached = json.load(f)
-                return cached.get("chart_types", [])
+                return [t for t in cached.get("chart_types", []) if t != "parallel"]
         except (json.JSONDecodeError, OSError):
             pass
 
@@ -121,6 +121,10 @@ async def _ensure_chart_types_cached(manager: ConnectionManager, server_id: str)
 
     if not chart_types:
         chart_types = list(TYPE_MAP.values())
+
+    # Filter out chart types not registered on this Superset instance
+    CHART_TYPES_BLOCKED = {"parallel"}
+    chart_types = [t for t in chart_types if t not in CHART_TYPES_BLOCKED]
 
     # Save cache
     try:
@@ -1223,6 +1227,15 @@ async def generate_chart(
                 f"Could not fetch dataset columns for dataset_id={dataset_id}, "
                 f"skipping column validation"
             )
+        
+        # ── Sankey validation (unconditional) ──
+        sankey_warning = _validate_sankey_params(fixed_params, slice_name)
+        if sankey_warning:
+            return ChartError(
+                sankey_warning["title"],
+                details=sankey_warning["body"],
+                status_code=400,
+            ).to_json()
         
         # ── Metric validation (blocks creation if errors found) ──
         metric_errors = _validate_metrics_against_dataset(

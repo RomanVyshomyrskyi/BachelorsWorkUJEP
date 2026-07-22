@@ -796,8 +796,9 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
     if actual_viz in TIME_BASED_TYPES:
         if not fixed.get("granularity_sqla"):  # catches None, "", missing
             time_col = fixed.get("x_axis") or "ds"
-            time_grain = fixed.pop("time_grain_sqla", None) or "P1D"
-            fixed["granularity_sqla"] = {"time_column": time_col, "time_grain": time_grain}
+            fixed["granularity_sqla"] = time_col
+        if not fixed.get("time_grain_sqla"):
+            fixed["time_grain_sqla"] = fixed.pop("time_grain_sqla", None) or "P1D"
         if not fixed.get("time_range"):
             fixed["time_range"] = "No filter"
 
@@ -857,10 +858,10 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                         col = m.get("column", {}).get("column_name", "?")
                         m["label"] = f"{agg}({col})"
 
-    # --- Fix 18: Universal label for groupby/orderby dict entries ---
-    # Superset 6.x frontend iterates over groupby/orderby expecting .label
-    # on each item. Dict entries without label cause 'can't access property'.
-    for field in ["groupby", "orderby"]:
+    # --- Fix 18: Universal label for groupby/orderby/columns dict entries ---
+    # Superset 6.x frontend iterates over groupby/orderby/columns expecting
+    # .label on each item. Dict entries without label cause 'can't access property'.
+    for field in ["groupby", "orderby", "columns", "all_columns"]:
         if field in fixed and isinstance(fixed[field], list):
             for item in fixed[field]:
                 if isinstance(item, dict) and not item.get("label"):

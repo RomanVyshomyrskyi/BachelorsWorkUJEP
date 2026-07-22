@@ -56,10 +56,11 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Lists all available resource types for superset_list_resources."""
         return await resources.list_resource_types()
 
-    @mcp.tool(name="superset_api_request")
-    async def tool_superset_api(server_id: str, method: str, endpoint: str, json_body: Optional[str] = None, params: Optional[str] = None) -> str:
-        """Executes a raw API request against a Superset server (GET/POST/PUT only, DELETE forbidden)."""
-        return await general.superset_api_request(manager, server_id, method, endpoint, json_body, params)
+    # REMOVED: direct API access disabled for agent safety.
+    # @mcp.tool(name="superset_api_request")
+    # async def tool_superset_api(server_id: str, method: str, endpoint: str, json_body: Optional[str] = None, params: Optional[str] = None) -> str:
+    #     """Executes a raw API request against a Superset server (GET/POST/PUT only, DELETE forbidden)."""
+    #     return await general.superset_api_request(manager, server_id, method, endpoint, json_body, params)
 
     @mcp.tool(name="superset_list_resources")
     async def tool_list_resources(server_id: str, resource_type: str) -> str:

@@ -546,7 +546,7 @@ async def _test_chart_data_endpoint(
         
         if resp.status_code != 200:
             logger.warning(
-                "Chart %s data endpoint HTTP %s: %s",
+                "Chart %s data endpoint HTTP %s body=%s",
                 chart_id, resp.status_code, str(resp.text)[:1000],
             )
             return {"is_valid": False, "error": f"HTTP {resp.status_code}: {resp.text[:300]}", "row_count": None}
@@ -559,6 +559,7 @@ async def _test_chart_data_endpoint(
         
         # Explicit error field
         if error:
+            logger.warning("Chart %s data endpoint error field: %s", chart_id, str(error)[:500])
             return {"is_valid": False, "error": f"Data endpoint error: {error}", "row_count": row_count}
         
         # Non-success status
@@ -1276,6 +1277,10 @@ async def generate_chart(
             data_test = await _test_chart_data_endpoint(manager, server_id, chart_id)
             if not data_test["is_valid"]:
                 data_err = data_test["error"]
+                logger.warning(
+                    "Chart %s dataset=%s viz=%s data test failed: %s",
+                    chart_id, dataset_id, actual_viz_type, data_err[:500],
+                )
                 if validation_warning:
                     validation_warning = validation_warning + " | Data endpoint: " + data_err
                 else:

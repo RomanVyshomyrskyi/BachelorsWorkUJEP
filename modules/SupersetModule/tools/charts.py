@@ -1132,9 +1132,15 @@ async def generate_chart(
         fixed_params = auto_fix_chart_params(actual_viz_type, form_data)
         
         dataset_columns = []
+        dataset_metrics = []
         try:
             dataset_response = await impl_superset_api(manager, server_id, "GET", f"/api/v1/dataset/{dataset_id}")
             dataset_columns = _extract_columns_from_dataset_response(dataset_response)
+            try:
+                dataset_data = json.loads(dataset_response)
+                dataset_metrics = dataset_data.get("result", {}).get("metrics", [])
+            except Exception:
+                pass
         except Exception:
             pass
         
@@ -1186,6 +1192,30 @@ async def generate_chart(
                 f"skipping column validation"
             )
         
+        # ── Metric validation (advisory warnings only, never blocks creation) ──
+        metric_errors = _validate_metrics_against_dataset(
+            fixed_params, dataset_metrics, actual_viz_type, dataset_columns
+        )
+        if not dataset_columns and not dataset_metrics and not metric_errors:
+            metric_errors = _validate_metric_string_format(fixed_params)
+        if metric_errors:
+            metric_warn_text = " | ".join(metric_errors)
+            if validation_warning:
+                validation_warning = validation_warning + " | Metrics: " + metric_warn_text
+            else:
+                validation_warning = "Metrics: " + metric_warn_text
+        
+        # ── Datasource compatibility (advisory warnings only, never blocks creation) ──
+        if dataset_columns:
+            from modules.SupersetModule.superset_validation import validate_datasource_compatibility
+            compat_errors = validate_datasource_compatibility(actual_viz_type, fixed_params, dataset_columns)
+            if compat_errors:
+                compat_warn_text = " | ".join(compat_errors)
+                if validation_warning:
+                    validation_warning = validation_warning + " | Compat: " + compat_warn_text
+                else:
+                    validation_warning = "Compat: " + compat_warn_text
+        
         errors = validate_chart_params(actual_viz_type, fixed_params)
         validation_errors = format_error_summary(errors) if errors else None
         
@@ -1218,6 +1248,25 @@ async def generate_chart(
         resp = await execute_request(ctx, "POST", endpoint, json=chart_payload)
         resp.raise_for_status()
         result = resp.json()
+        chart_id = result.get("id") or result.get("result", {}).get("id", 0)
+
+        # ── Post-creation verification (advisory warnings, never auto-deletes) ──
+        if chart_id:
+            params_errors = await _verify_chart_params_saved(manager, server_id, chart_id)
+            if params_errors:
+                params_txt = " | ".join(params_errors)
+                if validation_warning:
+                    validation_warning = validation_warning + " | Saved params: " + params_txt
+                else:
+                    validation_warning = "Saved params: " + params_txt
+
+            data_test = await _test_chart_data_endpoint(manager, server_id, chart_id)
+            if not data_test["is_valid"]:
+                data_err = data_test["error"]
+                if validation_warning:
+                    validation_warning = validation_warning + " | Data endpoint: " + data_err
+                else:
+                    validation_warning = "Data endpoint: " + data_err
 
         try:
             result["_mermaid_graph"] = chart_to_mermaid(actual_viz_type, fixed_params, chart_name)
@@ -1233,9 +1282,9 @@ async def generate_chart(
         mc.resources_created.labels(resource_type="chart").inc()
         return json.dumps({
             "saved": True,
-            "chart_id": result.get("id"),
+            "chart_id": chart_id,
             "slice_name": chart_name,
-            "url": f"{ctx.config.base_url.rstrip('/')}/chart/{result.get('id')}/",
+            "url": f"{ctx.config.base_url.rstrip('/')}/chart/{chart_id}/",
             "result": result
         }, indent=2)
 

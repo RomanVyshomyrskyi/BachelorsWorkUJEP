@@ -1325,7 +1325,7 @@ class TestAutoFixOrderby:
     """Test auto_fix handles null column_name in orderby/timeseries_limit_metric."""
 
     def test_auto_fix_null_orderby_array(self):
-        """Null entry in orderby array should be fixed."""
+        """Null entry in orderby array should be dropped (not replaced)."""
         from modules.SupersetModule.superset_validation import auto_fix_chart_params
 
         params = {
@@ -1334,10 +1334,11 @@ class TestAutoFixOrderby:
             "orderby": [["count", False], [None, False]],
         }
         fixed = auto_fix_chart_params("echarts_timeseries_line", params)
-        assert fixed["orderby"][1][0] == "count"
+        assert len(fixed["orderby"]) == 1
+        assert fixed["orderby"][0][0] == "count"
 
     def test_auto_fix_null_orderby_dict(self):
-        """Dict entry in orderby with null column_name should be fixed."""
+        """Dict entry in orderby with null column_name should be dropped (not replaced)."""
         from modules.SupersetModule.superset_validation import auto_fix_chart_params
 
         params = {
@@ -1347,7 +1348,7 @@ class TestAutoFixOrderby:
             "orderby": [{"column": {"column_name": None}, "asc": True}],
         }
         fixed = auto_fix_chart_params("echarts_timeseries_line", params)
-        assert fixed["orderby"][0]["column"]["column_name"] == "category"
+        assert fixed["orderby"] == []
 
     def test_auto_fix_null_timeseries_limit_metric(self):
         """Null timeseries_limit_metric should be replaced."""

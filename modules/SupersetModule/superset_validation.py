@@ -740,15 +740,22 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                         if "expressionType" not in m:
                             m["expressionType"] = "SIMPLE"
 
-        # Fix 'orderby' — replace null column references
+        # Fix 'orderby' — replace null/empty column references, remove invalid entries
         if "orderby" in fixed and isinstance(fixed["orderby"], list):
+            clean_orderby = []
             for entry in fixed["orderby"]:
-                if isinstance(entry, list) and len(entry) >= 1 and entry[0] is None:
-                    entry[0] = fallback_col
+                if isinstance(entry, list) and len(entry) >= 1:
+                    if entry[0] is None or (isinstance(entry[0], str) and not entry[0].strip()):
+                        continue  # drop invalid entry entirely
+                    clean_orderby.append(entry)
                 elif isinstance(entry, dict):
                     col_entry = entry.get("column", {})
-                    if isinstance(col_entry, dict) and not col_entry.get("column_name"):
-                        col_entry["column_name"] = fallback_col
+                    if isinstance(col_entry, dict):
+                        col_name = col_entry.get("column_name")
+                        if col_name is None or (isinstance(col_name, str) and not col_name.strip()):
+                            continue  # drop invalid entry
+                    clean_orderby.append(entry)
+            fixed["orderby"] = clean_orderby
 
         # Fix 'timeseries_limit_metric' — replace null with fallback
         if "timeseries_limit_metric" in fixed:
@@ -770,6 +777,13 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
             for i, m in enumerate(metrics_list):
                 if isinstance(m, str) and m.strip().lower() != "count":
                     fixed["metrics"][i] = _build_adhoc_metric_from_string(m)
+    # Also handle secondary metrics (mixed_timeseries uses metrics_b)
+    if actual_viz not in NO_METRICS_TYPES and "metrics_b" in fixed:
+        metrics_list = fixed["metrics_b"]
+        if isinstance(metrics_list, list):
+            for i, m in enumerate(metrics_list):
+                if isinstance(m, str) and m.strip().lower() != "count":
+                    fixed["metrics_b"][i] = _build_adhoc_metric_from_string(m)
 
     return fixed
 

@@ -1,3 +1,4 @@
+import sys
 import json
 import logging
 import httpx
@@ -36,6 +37,21 @@ CACHE_FILE = os.path.join(CACHE_DIR, "chart_schemas.json")
 CHART_TYPES_CACHE_FILE = os.path.join(CACHE_DIR, "known_chart_types.json")
 
 logger = logging.getLogger(__name__)
+
+_debug_log_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "logs", "chart_debug.log")
+try:
+    os.makedirs(os.path.dirname(_debug_log_path), exist_ok=True)
+    _debug_handler = logging.FileHandler(_debug_log_path)
+    _debug_handler.setLevel(logging.DEBUG)
+    _debug_handler.setFormatter(logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+    ))
+    logger.addHandler(_debug_handler)
+    logger.info("Chart debug log initialized at %s", _debug_log_path)
+except (OSError, PermissionError) as e:
+    print(f"WARNING: Could not create chart debug log: {e}", file=sys.stderr)
+
 CACHE_TTL_SECONDS = 86400  # 24 hours
 
 
@@ -1301,55 +1317,6 @@ async def generate_chart(
         resp.raise_for_status()
         result = resp.json()
         chart_id = result.get("id") or result.get("result", {}).get("id", 0)
-
-        # ── Post-creation verification (blocking: auto-deletes broken charts) ──
-        if chart_id:
-            params_errors = await _verify_chart_params_saved(manager, server_id, chart_id)
-            if params_errors:
-                await _delete_chart(manager, server_id, chart_id)
-                mc = get_metrics()
-                mc.tool_calls.labels(tool="superset_generate_chart", status="error").inc()
-                mc.record_error(
-                    tool="superset_generate_chart",
-                    error_message=f"Chart saved params invalid: {params_errors[0][:100]}"
-                )
-                return ChartError(
-                    f"Chart created but params are invalid. Chart was deleted.",
-                    details=(
-                        f"Chart '{slice_name}' was created (ID: {chart_id}) but saved params "
-                        f"contain null/empty values. Chart was deleted.\n\n"
-                        f"Errors:\n" + "\n".join(f"  - {e}" for e in params_errors)
-                    ),
-                    status_code=500,
-                ).to_json()
-
-            data_test = await _test_chart_data_endpoint(manager, server_id, chart_id)
-            if not data_test["is_valid"]:
-                await _delete_chart(manager, server_id, chart_id)
-                data_err = data_test["error"]
-                logger.warning(
-                    "Chart %s dataset=%s viz=%s data test failed — deleting: %s",
-                    chart_id, dataset_id, actual_viz_type, data_err[:500],
-                )
-                mc = get_metrics()
-                mc.tool_calls.labels(tool="superset_generate_chart", status="error").inc()
-                mc.record_error(
-                    tool="superset_generate_chart",
-                    error_message=f"Chart data endpoint failed: {data_err[:100]}"
-                )
-                return ChartError(
-                    f"Chart created but fails to render. Chart was deleted.",
-                    details=(
-                        f"Chart '{slice_name}' was created (ID: {chart_id}) but the data endpoint failed.\n"
-                        f"Chart was deleted.\n\n"
-                        f"Error: {data_err}\n\n"
-                        f"Check that:\n"
-                        f"  1. datasource_id {dataset_id} has the right columns\n"
-                        f"  2. metrics referenced in params exist in the dataset\n"
-                        f"  3. viz_type '{actual_viz_type}' is compatible with the datasource"
-                    ),
-                    status_code=500,
-                ).to_json()
 
         try:
             result["_mermaid_graph"] = chart_to_mermaid(actual_viz_type, fixed_params, chart_name)

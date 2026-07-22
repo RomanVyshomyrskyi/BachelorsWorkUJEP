@@ -761,11 +761,12 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                     continue
                 clean_orderby.append(entry)
             elif isinstance(entry, dict):
-                col_entry = entry.get("column", {})
-                if isinstance(col_entry, dict):
-                    col_name = col_entry.get("column_name")
-                    if col_name is None or (isinstance(col_name, str) and not col_name.strip()):
-                        continue
+                col_entry = entry.get("column")
+                if col_entry is None or not isinstance(col_entry, dict):
+                    continue  # column is null, missing, or not a dict — drop
+                col_name = col_entry.get("column_name")
+                if col_name is None or (isinstance(col_name, str) and not col_name.strip()):
+                    continue  # column_name is null/empty — drop
                 clean_orderby.append(entry)
         fixed["orderby"] = clean_orderby
 
@@ -795,7 +796,8 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
     if actual_viz in TIME_BASED_TYPES:
         if not fixed.get("granularity_sqla"):  # catches None, "", missing
             time_col = fixed.get("x_axis") or "ds"
-            fixed["granularity_sqla"] = time_col
+            time_grain = fixed.pop("time_grain_sqla", None) or "P1D"
+            fixed["granularity_sqla"] = {"time_column": time_col, "time_grain": time_grain}
         if not fixed.get("time_range"):
             fixed["time_range"] = "No filter"
 
@@ -820,7 +822,7 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
     # --- Fix 14a: Axis fields → AdHocMetricObject ---
     # Scatter/bubble x, y, size, series values like 'MAX(SP.POP.TOTL)'
     # must be ad-hoc metric objects in Superset 6.x, not plain strings.
-    for axis in ["x", "y", "size", "series"]:
+    for axis in ["x", "y", "size", "size_metric", "series"]:
         if axis in fixed and isinstance(fixed[axis], str):
             s = fixed[axis].strip().lower()
             if s == "count":
@@ -854,6 +856,16 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                         agg = m.get("aggregate", "AVG")
                         col = m.get("column", {}).get("column_name", "?")
                         m["label"] = f"{agg}({col})"
+
+    # --- Fix 18: Universal label for groupby/orderby dict entries ---
+    # Superset 6.x frontend iterates over groupby/orderby expecting .label
+    # on each item. Dict entries without label cause 'can't access property'.
+    for field in ["groupby", "orderby"]:
+        if field in fixed and isinstance(fixed[field], list):
+            for item in fixed[field]:
+                if isinstance(item, dict) and not item.get("label"):
+                    col = item.get("column", {}).get("column_name", "")
+                    item["label"] = col or "unknown"
 
     return fixed
 

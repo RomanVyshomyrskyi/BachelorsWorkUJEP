@@ -467,7 +467,7 @@ def _build_simple_layout_json(chart_ids: List[int]) -> str:
             "name": f"Chart {cid}"
         })
     layout = _build_simple_layout(chart_info, "row_of_charts", 6, 50)
-    return log.collect(json.dumps(layout))
+    return json.dumps(layout)
 
 
 def _build_robust_layout_json(chart_ids: List[int]) -> str:
@@ -479,7 +479,7 @@ def _build_robust_layout_json(chart_ids: List[int]) -> str:
             "name": f"Chart {cid}"
         })
     layout = rules.generate_robust_dashboard_layout(chart_info)
-    return log.collect(json.dumps(layout))
+    return json.dumps(layout)
 
 
 async def add_chart_to_existing_dashboard(

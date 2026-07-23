@@ -8,6 +8,15 @@ Provides structured validation results with:
 - Missing columns with suggestions
 - Temporal column validation for time series charts
 - LLM-friendly error messages
+
+Key functions:
+    validate_chart_data_against_dataset: Main validation entry point
+    format_validation_error: Format results into LLM-friendly error messages
+    _is_column_temporal: Check if a column is a date/time type
+    _get_temporal_columns: Extract temporal column names from dataset
+    _extract_metric_columns: Parse column names from metric expressions
+    _extract_columns_from_params: Extract all column references from chart params
+    _find_column_suggestions: Find matching columns using case-insensitive and fuzzy matching
 """
 
 import logging
@@ -48,15 +57,15 @@ def _is_column_temporal(column: Dict[str, Any], dataset_columns: List[Dict[str, 
     col_name = column.get("column_name", "")
     data_type = column.get("data_type", "").lower()
     is_dttm = column.get("is_dttm", False)
-    
+
     logger.info(f"Checking if column '{col_name}' is temporal: data_type={data_type}, is_dttm={is_dttm}")
-    
-    # Explicit is_dttm flag
+
+    # Step 1: Explicit is_dttm flag — most reliable indicator
     if is_dttm:
         logger.info(f"Column '{col_name}' marked as temporal (is_dttm=True)")
         return True
-    
-    # Check data type keywords
+
+    # Step 2: Check data type keywords for temporal patterns (date, time, timestamp, etc.)
     temporal_keywords = [
         "date", "time", "timestamp", "datetime", "timetz",
         "timestamptz", "interval", "year",
@@ -85,7 +94,7 @@ def _get_temporal_columns(dataset_columns: List[Dict[str, Any]]) -> List[str]:
     for col in dataset_columns:
         if _is_column_temporal(col, dataset_columns):
             temporal_cols.append(col["column_name"])
-    
+
     logger.info(f"Found {len(temporal_cols)} temporal columns: {temporal_cols}")
     return temporal_cols
 
@@ -108,12 +117,13 @@ def _extract_metric_columns(metric_str: str) -> List[str]:
     """
     columns = []
     metric_lower = metric_str.strip().lower()
-    
+
+    # Step 1: Handle the special 'count' metric (built-in row count, not a column reference)
     if metric_lower == "count":
         columns.append("count")
         return columns
-    
-    # Extract column from aggregation functions
+
+    # Step 2: Extract column name from AGGREGATION(column_name) pattern
     match = re.match(
         r"^(SUM|AVG|MIN|MAX|COUNT|COUNT_DISTINCT)\s*\(\s*(.+?)\s*\)$",
         metric_str.strip(),
@@ -145,8 +155,8 @@ def _extract_columns_from_params(
         List of (field_name, column_value) tuples
     """
     column_refs = []
-    
-    # Extract from 'metric' (singular)
+
+    # Step 1: Extract from 'metric' (singular) — can be string or AdHocMetricObject dict
     if "metric" in params and params["metric"]:
         metric = params["metric"]
         if isinstance(metric, str):
@@ -157,7 +167,7 @@ def _extract_columns_from_params(
             if col_name:
                 column_refs.append(("metric (object)", col_name))
     
-    # Extract from 'metrics' (plural array)
+    # Step 2: Extract from 'metrics' (plural array) — list of metric strings/objects
     if "metrics" in params and params["metrics"]:
         metrics = params["metrics"]
         if isinstance(metrics, list):
@@ -170,7 +180,7 @@ def _extract_columns_from_params(
                     if col_name:
                         column_refs.append((f"metrics[{i}] (object)", col_name))
     
-    # Extract from 'groupby'
+    # Step 3: Extract from 'groupby' — list of dimension columns for grouping
     if "groupby" in params and params["groupby"]:
         groupby = params["groupby"]
         if isinstance(groupby, list):
@@ -180,11 +190,11 @@ def _extract_columns_from_params(
         elif isinstance(groupby, str):
             column_refs.append(("groupby", groupby))
     
-    # Extract from 'x_axis' (time series)
+    # Step 4: Extract from 'x_axis' (time series x-axis)
     if "x_axis" in params and params["x_axis"]:
         column_refs.append(("x_axis", params["x_axis"]))
     
-    # Extract from scatter/bubble axis fields
+    # Step 5: Extract from scatter/bubble axis fields (x, y, size)
     for axis in ["x", "y", "size"]:
         if axis in params and params[axis]:
             val = params[axis]
@@ -192,7 +202,7 @@ def _extract_columns_from_params(
                 for col in _extract_metric_columns(val):
                     column_refs.append((axis, col))
     
-    # Extract from 'columns' (sunburst, treemap, boxplot, etc.)
+    # Step 6: Extract from 'columns' (sunburst, treemap, boxplot, etc.)
     if "columns" in params and params["columns"]:
         cols = params["columns"]
         if isinstance(cols, list):
@@ -202,7 +212,7 @@ def _extract_columns_from_params(
         elif isinstance(cols, str):
             column_refs.append(("columns", cols))
     
-    # Extract from 'all_columns' (table chart)
+    # Step 7: Extract from 'all_columns' (table chart)
     if "all_columns" in params and params["all_columns"]:
         cols = params["all_columns"]
         if isinstance(cols, list):
@@ -210,26 +220,26 @@ def _extract_columns_from_params(
                 if isinstance(col, str):
                     column_refs.append(("all_columns", col))
     
-    # Extract from gantt-specific fields
+    # Step 8: Extract from gantt-specific fields (start_time, end_time)
     for field in ["start_time", "end_time"]:
         if field in params and params[field]:
             column_refs.append((field, params[field]))
     
-    # Extract from graph/sankey fields
+    # Step 9: Extract from graph/sankey fields (source, target)
     for field in ["source", "target"]:
         if field in params and params[field]:
             column_refs.append((field, params[field]))
     
-    # Extract from wordcloud/bubble series
+    # Step 10: Extract from wordcloud/bubble series field
     for field in ["series"]:
         if field in params and params[field]:
             column_refs.append((field, params[field]))
     
-    # Extract from map entity field
+    # Step 11: Extract from map entity field
     if "entity" in params and params["entity"]:
         column_refs.append(("entity", params["entity"]))
     
-    # Extract from 'orderby' — format: [["col", true], ...] or [{"column": {"column_name": "x"}, "asc": true}, ...]
+    # Step 12: Extract from 'orderby' — array of column references with sort direction
     if "orderby" in params and params["orderby"]:
         orderby = params["orderby"]
         if isinstance(orderby, list):
@@ -245,7 +255,7 @@ def _extract_columns_from_params(
                         if isinstance(col_name, str) and col_name.strip():
                             column_refs.append((f"orderby[{i}]", col_name))
     
-    # Extract from 'timeseries_limit_metric' — can be a string or an AdHocMetricObject
+    # Step 13: Extract from 'timeseries_limit_metric' — string or AdHocMetricObject
     if "timeseries_limit_metric" in params and params["timeseries_limit_metric"]:
         tlm = params["timeseries_limit_metric"]
         if isinstance(tlm, str):
@@ -282,15 +292,15 @@ def _find_column_suggestions(
         List of suggested column names
     """
     requested_lower = requested_column.lower()
-    
-    # Case-insensitive exact match
+
+    # Step 1: Case-insensitive exact match — fastest and most reliable check
     for col in dataset_columns:
         col_name = col.get("column_name", "")
         if col_name.lower() == requested_lower:
             logger.info(f"Exact case-insensitive match found: '{requested_column}' -> '{col_name}'")
             return [col_name]
-    
-    # Fuzzy matching for typos
+
+    # Step 2: Fuzzy matching for typos using difflib's get_close_matches
     available_names = [col.get("column_name", "") for col in dataset_columns]
     suggestions = get_close_matches(
         requested_lower,
@@ -298,8 +308,8 @@ def _find_column_suggestions(
         n=max_suggestions,
         cutoff=0.6,
     )
-    
-    # Map back to original case
+
+    # Step 3: Map fuzzy-matched lowercase names back to original case from the dataset
     original_cases = {}
     for name in available_names:
         original_cases[name.lower()] = name
@@ -340,7 +350,8 @@ def validate_chart_data_against_dataset(
     """
     logger.info(f"Starting chart data validation for viz_type='{actual_viz_type}'")
     logger.info(f"  Dataset has {len(dataset_columns)} columns")
-    
+
+    # Step 1: Initialize the result dict with default values
     result: Dict[str, Any] = {
         "is_valid": True,
         "missing_columns": [],
@@ -350,14 +361,14 @@ def validate_chart_data_against_dataset(
         "errors": [],
         "warnings": [],
     }
-    
-    # Build lookup of available columns
+
+    # Step 2: Build case-insensitive lookup of available columns
     available_columns_lower = {}
     for col in dataset_columns:
         col_name = col.get("column_name", "")
         available_columns_lower[col_name.lower()] = col
-    
-    # Populate available_columns list
+
+    # Step 3: Populate available_columns list with type and temporal info
     for col in dataset_columns:
         col_name = col.get("column_name", "")
         data_type = col.get("data_type", "unknown")
@@ -369,11 +380,11 @@ def validate_chart_data_against_dataset(
         })
     
     logger.info(f"Built available columns lookup: {list(available_columns_lower.keys())}")
-    
-    # Extract all column references from params
+
+    # Step 4: Extract all column references from chart params
     column_refs = _extract_columns_from_params(params, actual_viz_type)
-    
-    # Validate each column reference
+
+    # Step 5: Validate each column reference against the dataset
     missing_columns = []
     
     for field_name, column_value in column_refs:
@@ -420,8 +431,8 @@ def validate_chart_data_against_dataset(
     
     result["missing_columns"] = missing_columns
     logger.info(f"Validation found {len(missing_columns)} missing columns")
-    
-    # Temporal column validation for time series charts
+
+    # Step 6: Temporal column validation for time series charts
     if actual_viz_type in TEMPORAL_CHART_TYPES:
         logger.info(f"Temporal validation required for viz_type='{actual_viz_type}'")
         
@@ -503,28 +514,28 @@ def format_validation_error(
         Dict with 'title' and 'body' keys containing formatted error message
     """
     logger.info(f"Formatting validation error for chart '{slice_name}'")
-    
+
     title_parts = []
     body_lines = []
-    
-    # Title
+
+    # Step 1: Build the error title based on the type of validation failure
     missing_count = len(validation_result.get("missing_columns", []))
     temporal_error = validation_result.get("temporal_column_error")
-    
+
     if temporal_error:
         title_parts.append("Chart creation blocked: Temporal column validation failed")
     elif missing_count > 0:
         title_parts.append("Chart creation blocked: Missing required columns")
     else:
         title_parts.append("Chart creation blocked: Validation failed")
-    
+
     title = " | ".join(title_parts) if title_parts else "Chart creation blocked"
-    
+
     body_lines.append(f"")
     body_lines.append(f"Chart '{slice_name}' cannot be created - validation found issues:")
     body_lines.append(f"")
-    
-    # Missing columns section
+
+    # Step 2: Build the missing columns section with suggestions
     missing_columns = validation_result.get("missing_columns", [])
     if missing_columns:
         body_lines.append(f"Missing columns ({len(missing_columns)}):")
@@ -545,14 +556,14 @@ def format_validation_error(
             
             body_lines.append(f"")
     
-    # Temporal column error
+    # Step 3: Build the temporal column error section
     temporal_error = validation_result.get("temporal_column_error")
     if temporal_error:
         body_lines.append(f"Temporal column error:")
         body_lines.append(f"  {temporal_error}")
         body_lines.append(f"")
     
-    # Available columns
+    # Step 4: Build the available columns section (grouped by temporal/non-temporal)
     available_columns = validation_result.get("available_columns", [])
     if available_columns:
         body_lines.append(f"Available columns in dataset (ID: {datasource_id}):")
@@ -578,7 +589,7 @@ def format_validation_error(
                 body_lines.append(f"    ... and {len(non_temporal_cols) - 10} more columns")
             body_lines.append(f"")
     
-    # Warnings
+    # Step 5: Build the warnings section
     warnings = validation_result.get("warnings", [])
     if warnings:
         body_lines.append(f"Warnings ({len(warnings)}):")
@@ -586,7 +597,7 @@ def format_validation_error(
             body_lines.append(f"  - {warning}")
         body_lines.append(f"")
     
-    # Action guidance
+    # Step 6: Build the action guidance section with fix instructions
     body_lines.append(f"Fix:")
     if missing_columns:
         body_lines.append(f"  Update your chart params to use the correct column names shown above.")

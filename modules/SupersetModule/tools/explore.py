@@ -1,3 +1,14 @@
+"""
+Explore link tools for Apache Superset MCP integration.
+
+Provides tools for generating Superset Explore URLs for interactive chart
+exploration. The Explore interface lets users modify chart parameters,
+add filters, and preview changes without permanently saving a chart.
+
+MCP Tools Provided:
+    - superset_generate_explore_link: Generate an Explore URL for interactive chart building
+"""
+
 import json
 import httpx
 import time
@@ -14,6 +25,29 @@ async def generate_explore_link(
      dataset_id: int,
      config: Optional[str] = None
  ) -> str:
+     """
+     MCP Tool: superset_generate_explore_link - Generate an Explore URL for interactive chart building.
+
+     Generates a Superset Explore URL that opens the interactive chart builder
+     with a specific dataset pre-selected. Users can then configure chart type,
+     metrics, dimensions, filters, and other parameters visually. Unlike
+     create_chart/generate_chart, this does NOT create a permanent chart —
+     it only provides a URL for ad-hoc exploration.
+
+     Args:
+         manager: The ConnectionManager instance with Superset connection details.
+         server_id: The ID of the configured Superset server.
+         dataset_id: The numeric ID of the dataset to explore.
+         config: Optional JSON string of chart configuration parameters. These
+             will be pre-populated in the Explore interface (e.g., viz_type,
+             metrics, groupby). Useful for opening Explore with a starting
+             configuration already set.
+
+     Returns:
+         JSON string containing the Explore URL, dataset_id, config (if provided),
+         and a note that this is a temporary exploration link. Returns ExploreError
+         JSON on failure.
+     """
      ctx = manager.get_context(server_id)
      if not ctx:
          mc = get_metrics()
@@ -23,6 +57,7 @@ async def generate_explore_link(
 
      start_time = time.monotonic()
      try:
+         # Parse the optional config JSON string into a chart configuration dictionary
          chart_config = {}
          if config:
              try:
@@ -33,12 +68,14 @@ async def generate_explore_link(
                  mc.record_error(tool="superset_generate_explore_link", error_message="Invalid JSON in config")
                  return ExploreError("'config' is not a valid JSON string.", details=config).to_json()
 
+         # Build form_data payload with dataset reference and optional config overrides
          form_data: Dict[str, Any] = {
              "datasource_id": dataset_id,
              "datasource_type": "table",
          }
          form_data.update(chart_config)
 
+         # Construct the Explore URL with form_data encoded as a query parameter
          base_url = ctx.config.base_url.rstrip("/")
          explore_url = f"{base_url}/explore/?form_data={json.dumps(form_data)}"
 

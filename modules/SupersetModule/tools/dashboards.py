@@ -30,16 +30,36 @@ async def generate_simple_dashboard_layout(
     chart_ids: List[int],
     layout_type: str = "row_of_charts",
     chart_width: int = 6,
-    chart_height: int = 50
+     chart_height: int = 50
 ) -> str:
+    """
+    MCP Tool: superset_generate_simple_dashboard_layout - Generate a simple row/column layout.
+
+    Creates a position JSON with ROOT -> GRID -> ROW -> CHART hierarchy. Max 2 charts
+    per row for clear visibility. Uses consistent UUID-based IDs matching the Superset
+    dashboard v2 format.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        chart_ids: List of chart IDs to include in the layout.
+        layout_type: 'row_of_charts' (horizontal) or 'column_of_charts' (vertical).
+        chart_width: Width of each chart cell in grid units. Defaults to 6.
+        chart_height: Height of each chart cell in pixels. Defaults to 50.
+
+    Returns:
+        JSON string of the position_json layout object.
+    """
+    # Step 1: Validate server context exists
     ctx = manager.get_context(server_id)
     if not ctx:
         return log.collect(DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json())
 
+    # Step 2: Validate chart_ids is not empty
     if not chart_ids:
         return log.collect(DashboardError("At least one chart ID must be provided.").to_json())
 
-    # Build chart info list with names
+    # Step 3: Fetch chart names from Superset for descriptive row labels
     chart_info = []
     for chart_id in chart_ids:
         chart_details_str = await impl_get_resource(manager, server_id, "chart", chart_id)
@@ -51,6 +71,7 @@ async def generate_simple_dashboard_layout(
             slice_name = f"Chart {chart_id}"
         chart_info.append({"id": chart_id, "name": slice_name})
 
+    # Step 4: Build the layout using the private helper
     layout = _build_simple_layout(chart_info, layout_type, chart_width, chart_height)
     return log.collect(json.dumps(layout, indent=2))
 
@@ -63,15 +84,25 @@ def _build_simple_layout(
 ) -> Dict[str, Any]:
     """
     Builds position_json with ROOT -> GRID -> ROW -> CHART hierarchy.
-    
+
     Groups charts into rows (max 2 charts per row for clear visibility)
     and assigns proper X/Y positions based on layout type.
     Uses consistent UUID format: CHART-{uuid}-{chartId} and ROW-R{idx}-{uuid}
     matching working Superset dashboard format.
+
+    Args:
+        chart_info: List of dicts with 'id' and 'name' keys for each chart.
+        layout_type: 'row_of_charts' or 'column_of_charts'.
+        chart_width: Width of each chart cell in grid units.
+        chart_height: Height of each chart cell in pixels.
+
+    Returns:
+        Dict representing a valid Superset position_json dashboard layout.
     """
     import uuid
     dashboard_uuid = str(uuid.uuid4())[:8]
-    
+
+    # Step 1: Create the base layout skeleton (v2 format with ROOT + GRID)
     layout = {
         "DASHBOARD_VERSION_KEY": "v2",
         "ROOT_ID": {
@@ -87,13 +118,14 @@ def _build_simple_layout(
         }
     }
 
-    # Group charts into rows (max 2 charts per row)
+    # Step 2: Group charts into rows (max 2 charts per row)
     rows = [chart_info[i:i + 2] for i in range(0, len(chart_info), 2)]
-    
+
     for row_idx, row_charts in enumerate(rows):
         row_id = f"ROW-R{row_idx}-{dashboard_uuid}"
         layout["GRID_ID"]["children"].append(row_id)
-        
+
+        # Step 3: Create ROW component in the layout
         layout[row_id] = {
             "type": "ROW",
             "id": row_id,
@@ -104,8 +136,8 @@ def _build_simple_layout(
         
         for chart_idx, chart in enumerate(row_charts):
             chart_element_id = f"CHART-{dashboard_uuid}-{chart['id']}"
-            
-            # Calculate position within the row
+
+            # Step 4: Calculate position within the row based on layout type
             if layout_type == "row_of_charts":
                 current_x = chart_idx * chart_width
                 current_y = 0
@@ -163,6 +195,30 @@ async def create_dashboard(
      roles: Optional[List[int]] = None,
      published: Optional[bool] = False
  ) -> str:
+     """
+     MCP Tool: superset_create_dashboard - Create a dashboard with custom position JSON.
+
+     Creates a new Superset dashboard from a pre-built position_json layout.
+     Performs three levels of pre-flight validation: structure validation of the
+     position JSON, existence check of all chart IDs, and data endpoint testing
+     for each chart to ensure they render properly.
+
+     Args:
+         manager: The ConnectionManager instance with Superset connection details.
+         server_id: The ID of the configured Superset server.
+         dashboard_title: The display title for the dashboard in Superset.
+         position_json: JSON string defining the dashboard layout.
+         slug: Optional URL-friendly identifier for the dashboard.
+         json_metadata: Optional JSON string of additional metadata.
+         owners: Optional list of user IDs who own the dashboard.
+         roles: Optional list of role IDs that have access to the dashboard.
+         published: Whether the dashboard is published (visible) or saved as draft.
+
+     Returns:
+         JSON string containing the created dashboard's details on success,
+         or a DashboardError JSON with specific validation errors on failure.
+     """
+     # Step 1: Validate server context exists
      ctx = manager.get_context(server_id)
      if not ctx:
          mc = get_metrics()
@@ -170,11 +226,10 @@ async def create_dashboard(
          mc.record_error(tool="superset_create_dashboard", error_message=f"Server '{server_id}' not found.")
          return log.collect(DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json())
 
-     # ── Pre-flight validation (all checks block dashboard creation) ──
-
+     # Step 2: Extract chart IDs from position JSON for validation
      chart_ids = _extract_chart_ids_from_position_json(position_json)
 
-     # 1. Validate position JSON structure
+     # Step 3: Validate position JSON structure
      structure_errors = _validate_position_json_structure(position_json)
      if structure_errors:
          mc = get_metrics()
@@ -193,7 +248,7 @@ async def create_dashboard(
              status_code=400,
          ).to_json())
 
-     # 2. Validate all chart IDs exist
+     # Step 4: Validate all chart IDs exist
      if chart_ids:
          invalid_charts = await _validate_charts_exist(manager, server_id, chart_ids)
          if invalid_charts:
@@ -214,7 +269,7 @@ async def create_dashboard(
                  status_code=400,
              ).to_json())
 
-         # 3. Pre-flight: test all charts' data endpoints
+         # Step 5: Pre-flight — test all charts' data endpoints
          logger.info(f"Running pre-flight chart data validation for dashboard '{dashboard_title}'")
          failed_charts = await _pre_validate_chart_data(manager, server_id, chart_ids)
          
@@ -295,6 +350,20 @@ async def create_dashboard(
          return log.collect(DashboardError(f"Unexpected error creating dashboard: {e}", details=str(e)).to_json())
 
 async def get_dashboard_api_info(manager: ConnectionManager, server_id: str) -> str:
+    """
+    MCP Tool: superset_get_dashboard_api_info - Get metadata about the dashboard API.
+
+    Fetches the dashboard API's _info endpoint which contains metadata about
+    supported features, available filters, permissions, and API properties.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server to query.
+
+    Returns:
+        JSON string containing the dashboard API metadata from /api/v1/dashboard/_info.
+    """
+    # Delegate to the generic Superset API helper for the GET request
     return await impl_superset_api(manager, server_id, "GET", "/api/v1/dashboard/_info")
 
 async def update_dashboard(
@@ -303,6 +372,22 @@ async def update_dashboard(
     dashboard_id: int,
     json_body: str
 ) -> str:
+    """
+    MCP Tool: superset_update_dashboard - Update an existing dashboard's configuration.
+
+    Sends a PUT request to the Superset dashboard API to modify a dashboard's
+    settings such as title, position_json, slug, metadata, or ownership.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        dashboard_id: The numeric ID of the dashboard to update.
+        json_body: JSON string containing the fields to update.
+
+    Returns:
+        JSON string containing the updated dashboard's details from the API response,
+        or an error JSON if the update fails.
+    """
     return await impl_superset_api(manager, server_id, "PUT", f"/api/v1/dashboard/{dashboard_id}", json_body=json_body)
 
 async def bulk_link_charts(
@@ -311,10 +396,28 @@ async def bulk_link_charts(
     dashboard_id: int,
     chart_ids: List[int]
 ) -> str:
+    """
+    MCP Tool: superset_bulk_link_charts - Link multiple charts to a dashboard at once.
+
+    Iterates over the provided chart IDs and updates each chart's dashboard
+    association via PUT /api/v1/chart/{id}. Charts are linked to the target
+    dashboard individually, and any failures are collected and reported.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        dashboard_id: The numeric ID of the dashboard to link charts to.
+        chart_ids: List of chart IDs to link to the dashboard.
+
+    Returns:
+        String with per-chart status messages. Prefixed with "WARNING:" if any
+        charts failed to link, otherwise a plain list of success messages.
+    """
     results = []
     errors = []
     for cid in chart_ids:
         try:
+            # Step 1: Build payload to associate chart with dashboard
             payload = json.dumps({"dashboards": [dashboard_id]})
             res = await impl_superset_api(manager, server_id, "PUT", f"/api/v1/chart/{cid}", json_body=payload)
             results.append(f"Chart {cid}: linked successfully")
@@ -333,7 +436,19 @@ async def generate_robust_layout(
     chart_ids: List[int]
 ) -> str:
     """
-    Generates a robust, nested position_json for Superset dashboards.
+    MCP Tool: superset_generate_robust_dashboard_layout - Generate a robust nested layout.
+
+    Creates a nested position_json with auto-sizing for each chart based on its
+    viz_type. Uses ROOT -> GRID -> ROW -> [TABS -> ] CHART hierarchy. Appropriate
+    for complex dashboards with many charts and mixed chart types.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        chart_ids: List of chart IDs to include. Order determines layout position.
+
+    Returns:
+        JSON string of the position_json layout, or DashboardError if server not found.
     """
     chart_info = []
     for cid in chart_ids:
@@ -343,11 +458,21 @@ async def generate_robust_layout(
             chart_info.append({"id": cid, "name": data.get("result", {}).get("slice_name", f"Chart {cid}")})
         except:
             chart_info.append({"id": cid, "name": f"Chart {cid}"})
-    
+
     layout = rules.generate_robust_dashboard_layout(chart_info)
     return log.collect(json.dumps(layout, indent=2))
 
 def get_dashboard_creation_rules() -> str:
+    """
+    MCP Tool: superset_get_dashboard_creation_rules - Get expert rules for creating dashboards.
+
+    Returns a set of best practices and guidelines for building functional
+    Superset dashboards. Includes layout recommendations, chart sizing tips,
+    and common pitfalls to avoid.
+
+    Returns:
+        String containing the expert rules for dashboard creation.
+    """
     return rules.get_dashboard_creation_rules()
 
 async def transfer_dashboard(
@@ -358,6 +483,25 @@ async def transfer_dashboard(
     db_mappings: Optional[str] = None,
     table_mappings: Optional[str] = None
 ) -> str:
+    """
+    MCP Tool: superset_transfer_dashboard - Transfer a dashboard between servers.
+
+    Copies a dashboard and all its linked charts from one Superset server to
+    another. Optionally maps database IDs and table names between the source
+    and target servers for cross-environment transfers.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        source_server_id: The ID of the source Superset server.
+        target_server_id: The ID of the target Superset server.
+        dashboard_id: The numeric ID of the dashboard to transfer.
+        db_mappings: Optional JSON string of database ID mappings between servers.
+        table_mappings: Optional JSON string of table name mappings between servers.
+
+    Returns:
+        JSON string with transfer results, including updated chart/dashboard IDs
+        on the target server. Returns NEED_INPUT if manual mappings are required.
+    """
     return await new_transfer_dashboard(manager, source_server_id, target_server_id, dashboard_id, db_mappings, table_mappings)
 
 
@@ -371,6 +515,29 @@ async def generate_dashboard(
      published: bool = False,
      layout_type: str = "robust"
  ) -> str:
+     """
+     MCP Tool: superset_generate_dashboard - Generate a new dashboard from chart IDs.
+
+     Creates a new Superset dashboard by automatically generating a layout from
+     the provided chart IDs. Validates that all charts exist before creation,
+     generates the position JSON layout, creates the dashboard, and links
+     all charts to it.
+
+     Args:
+         manager: The ConnectionManager instance with Superset connection details.
+         server_id: The ID of the configured Superset server.
+         dashboard_title: The display title for the dashboard in Superset.
+         chart_ids: List of chart IDs to include in the dashboard.
+         slug: Optional URL-friendly identifier for the dashboard.
+         json_metadata: Optional JSON string of additional metadata.
+         published: Whether the dashboard is published or saved as draft.
+         layout_type: 'robust' (nested hierarchy) or 'simple' (flat row/column).
+
+     Returns:
+         JSON string containing the created dashboard's details on success,
+         or a DashboardError JSON with validation errors on failure.
+     """
+     # Step 1: Validate server context exists
      ctx = manager.get_context(server_id)
      if not ctx:
          mc = get_metrics()
@@ -378,13 +545,14 @@ async def generate_dashboard(
          mc.record_error(tool="superset_generate_dashboard", error_message=f"Server '{server_id}' not found.")
          return log.collect(DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json())
 
+     # Step 2: Validate chart_ids is not empty
      if not chart_ids:
          mc = get_metrics()
          mc.tool_calls.labels(tool="superset_generate_dashboard", status="error").inc()
          mc.record_error(tool="superset_generate_dashboard", error_message="At least one chart ID must be provided.")
          return log.collect(DashboardError("At least one chart ID must be provided.").to_json())
 
-     # Validate that all charts exist before creating dashboard
+     # Step 3: Validate that all charts exist before creating dashboard
      invalid_charts = await _validate_charts_exist(manager, server_id, chart_ids)
      if invalid_charts:
          mc = get_metrics()
@@ -405,6 +573,7 @@ async def generate_dashboard(
 
      start_time = time.monotonic()
      try:
+         # Step 4: Generate position JSON layout based on the chosen layout type
          if layout_type == "simple":
              position_json = _build_simple_layout_json(chart_ids)
          else:
@@ -421,11 +590,13 @@ async def generate_dashboard(
          }
          dashboard_payload = {k: v for k, v in dashboard_payload.items() if v is not None}
 
+         # Step 5: Send POST request to create the dashboard
          endpoint = "/api/v1/dashboard/"
          resp = await execute_request(ctx, "POST", endpoint, json=dashboard_payload)
          resp.raise_for_status()
          result = resp.json()
 
+         # Step 6: Link all chart IDs to the newly created dashboard
          await bulk_link_charts(manager, server_id, result.get("id"), chart_ids)
 
          try:
@@ -459,7 +630,18 @@ async def generate_dashboard(
 
 
 def _build_simple_layout_json(chart_ids: List[int]) -> str:
-    """Build a simple row layout JSON string."""
+    """
+    Build a simple row layout JSON string from a list of chart IDs.
+
+    Internal helper for generate_dashboard that creates a flat row/column
+    layout without fetching chart metadata from the server.
+
+    Args:
+        chart_ids: List of chart IDs to arrange in the layout.
+
+    Returns:
+        JSON string of the position_json layout.
+    """
     chart_info = []
     for cid in chart_ids:
         chart_info.append({
@@ -471,7 +653,18 @@ def _build_simple_layout_json(chart_ids: List[int]) -> str:
 
 
 def _build_robust_layout_json(chart_ids: List[int]) -> str:
-    """Build a robust nested layout JSON string."""
+    """
+    Build a robust nested layout JSON string from a list of chart IDs.
+
+    Internal helper for generate_dashboard that creates a hierarchical
+    layout with auto-sizing without fetching chart metadata.
+
+    Args:
+        chart_ids: List of chart IDs to arrange in the layout.
+
+    Returns:
+        JSON string of the position_json layout.
+    """
     chart_info = []
     for cid in chart_ids:
         chart_info.append({
@@ -488,11 +681,31 @@ async def add_chart_to_existing_dashboard(
     dashboard_id: int,
     chart_id: int
 ) -> str:
+    """
+    MCP Tool: superset_add_chart_to_existing_dashboard - Add a chart to a dashboard.
+
+    Appends a chart to an existing dashboard by modifying the dashboard's
+    position_json layout, updating the dashboard via PUT, and linking the
+    chart to the dashboard via the chart API.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        dashboard_id: The numeric ID of the target dashboard.
+        chart_id: The numeric ID of the chart to add.
+
+    Returns:
+        JSON string with a success message, dashboard_id, chart_id, and the
+        updated dashboard result. Returns DashboardError if the server/dashboard
+        is not found or the API request fails.
+    """
+    # Step 1: Validate server context exists
     ctx = manager.get_context(server_id)
     if not ctx:
         return log.collect(DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json())
 
     try:
+        # Step 2: Fetch the current dashboard configuration
         dash_str = await impl_get_resource(manager, server_id, "dashboard", dashboard_id)
         dash_data = json.loads(dash_str)
 
@@ -502,6 +715,7 @@ async def add_chart_to_existing_dashboard(
         dash_result = dash_data.get("result", {})
         position_json_raw = dash_result.get("position_json", "{}")
 
+        # Step 3: Normalize position_json to dict form (handles both dict and JSON string)
         if isinstance(position_json_raw, dict):
             position_json = position_json_raw
         else:
@@ -510,21 +724,25 @@ async def add_chart_to_existing_dashboard(
             except (json.JSONDecodeError, TypeError):
                 position_json = {}
 
+        # Step 4: Append the new chart element to the layout
         position_json = _add_chart_to_position_json(position_json, chart_id)
 
         update_payload = {
             "position_json": json.dumps(position_json)
         }
 
+        # Step 5: Update the dashboard with the modified position_json
         endpoint = f"/api/v1/dashboard/{dashboard_id}"
         resp = await execute_request(ctx, "PUT", endpoint, json=update_payload)
         resp.raise_for_status()
 
+        # Step 6: Link the chart to the dashboard via the chart API
         await bulk_link_charts(manager, server_id, dashboard_id, [chart_id])
 
         dash_title = dash_result.get("dashboard_title", f"Dashboard {dashboard_id}")
         result_data = resp.json()
 
+        # Step 7: Generate Mermaid graph for the updated dashboard
         try:
             existing_charts = dash_result.get("charts", [])
             chart_names = [c.get("slice_name", f"Chart {c.get('id')}") for c in existing_charts]
@@ -554,15 +772,29 @@ async def add_chart_to_existing_dashboard(
 
 
 def _add_chart_to_position_json(position_json: Dict, chart_id: int) -> Dict:
-    """Add a chart element to the position JSON layout."""
+    """
+    Add a chart element to the position JSON layout.
+
+    Finds the GRID component, creates a new ROW, and appends a CHART
+    element with the given chart_id inside it. Uses consistent UUID-based
+    IDs for compatibility with Superset's dashboard v2 format.
+
+    Args:
+        position_json: Existing dashboard position JSON dict.
+        chart_id: The numeric chart ID to add.
+
+    Returns:
+        The modified position JSON dict with the new chart element added.
+    """
     import time
     import uuid
-    
+
+    # Step 1: Generate unique IDs for the new chart element and its row
     dashboard_uuid = str(uuid.uuid4())[:8]
     chart_element_id = f"CHART-{dashboard_uuid}-{chart_id}"
     row_id = f"ROW-R{int(time.time()) % 10000}-{dashboard_uuid}"
-    
-    # Get current GRID_ID children to find the last row
+
+    # Step 2: Find the GRID component to attach the new row underneath
     grid_id = None
     for key, value in position_json.items():
         if isinstance(value, dict) and value.get("type") == "GRID":
@@ -611,11 +843,13 @@ def _extract_chart_ids_from_position_json(position_json: Union[str, Dict]) -> Li
     """
     chart_ids = []
     try:
+        # Step 1: Normalize input to dict form (accepts both str and dict)
         if isinstance(position_json, str):
             pos = json.loads(position_json)
         else:
             pos = position_json
-        
+
+        # Step 2: Recursive walker traverses dicts/lists looking for chart IDs
         def walk(obj):
             if isinstance(obj, dict):
                 if "chartId" in obj and isinstance(obj["chartId"], int):
@@ -649,7 +883,8 @@ def _validate_position_json_structure(position_json: Union[str, Dict]) -> List[s
     Returns list of error messages. Empty list = valid.
     """
     errors: List[str] = []
-    
+
+    # Step 1: Parse the position JSON (accepts both string and dict)
     try:
         if isinstance(position_json, str):
             pos = json.loads(position_json)
@@ -657,10 +892,11 @@ def _validate_position_json_structure(position_json: Union[str, Dict]) -> List[s
             pos = position_json
     except (json.JSONDecodeError, TypeError) as e:
         return [f"Position JSON is not valid JSON: {e}"]
-    
+
     if not isinstance(pos, dict):
         return ["Position JSON must be a dict"]
-    
+
+    # Step 2: Check for required top-level keys
     if "DASHBOARD_VERSION_KEY" not in pos:
         errors.append("Missing DASHBOARD_VERSION_KEY in position JSON")
     
@@ -684,7 +920,8 @@ def _validate_position_json_structure(position_json: Union[str, Dict]) -> List[s
     unknown_types: List[str] = []
     invalid_chart_ids: List[str] = []
     charts_under_grid: List[str] = []
-    
+
+    # Step 3: Iterate over all components (excluding top-level keys) to validate structure
     for key, component in pos.items():
         if key in ("DASHBOARD_VERSION_KEY", "ROOT_ID", "GRID_ID"):
             continue
@@ -724,17 +961,18 @@ async def _validate_charts_exist(manager: ConnectionManager, server_id: str, cha
     """
     Validate that all chart IDs exist on the Superset server.
     
-    Returns list of chart IDs that were not found.
+        Returns list of chart IDs that were not found.
     """
+    # Step 1: Retrieve server context
     ctx = manager.get_context(server_id)
     if not ctx:
         return chart_ids
-    
-    # Get all charts
+
+    # Step 2: Fetch all charts from the server (paginated)
     all_charts = []
     page = 1
     page_size = 100
-    
+
     while True:
         try:
             resp = await ctx.client.get("/api/v1/chart/", params={"page_size": page_size, "page": page})
@@ -749,7 +987,8 @@ async def _validate_charts_exist(manager: ConnectionManager, server_id: str, cha
             page += 1
         except Exception:
             break
-    
+
+    # Step 3: Compare requested IDs against existing ones
     existing_ids = {c["id"] for c in all_charts}
     return [cid for cid in chart_ids if cid not in existing_ids]
 
@@ -757,22 +996,44 @@ async def _validate_charts_exist(manager: ConnectionManager, server_id: str, cha
 async def _validate_chart_data_endpoint(manager: ConnectionManager, server_id: str, chart_id: int) -> Dict[str, Any]:
     """
     Test a single chart's data endpoint to verify it actually renders.
-    
+
     Delegates to the blunt version in charts.py that blocks on ANY sign of trouble.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        chart_id: The numeric ID of the chart to test.
+
+    Returns:
+        Dict with is_valid, error, row_count, and viz_type keys.
     """
+    # Step 1: Import and delegate to the charts module's data endpoint tester
     from modules.SupersetModule.tools.charts import _test_chart_data_endpoint
     result = await _test_chart_data_endpoint(manager, server_id, chart_id)
+    # Step 2: Add viz_type placeholder (populated by caller)
     result["viz_type"] = None
     return result
 
 
 async def _get_chart_info(manager: ConnectionManager, server_id: str, chart_id: int) -> Optional[Dict[str, Any]]:
-    """Get chart info including viz_type from Superset API."""
+    """Get chart info including viz_type from Superset API.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        chart_id: The numeric ID of the chart to inspect.
+
+    Returns:
+        Dict with id, viz_type, and slice_name keys, or None if the chart
+        cannot be retrieved.
+    """
+    # Step 1: Retrieve server context
     ctx = manager.get_context(server_id)
     if not ctx:
         return None
-    
+
     try:
+        # Step 2: Fetch chart metadata from the API
         resp = await execute_request(ctx, "GET", f"/api/v1/chart/{chart_id}")
         chart = resp.json().get("result", {})
         return {
@@ -787,20 +1048,28 @@ async def _get_chart_info(manager: ConnectionManager, server_id: str, chart_id: 
 async def _pre_validate_chart_data(manager: ConnectionManager, server_id: str, chart_ids: List[int]) -> List[Dict[str, Any]]:
     """
     Pre-validate all charts before dashboard creation by testing their data endpoints.
-    
-    Returns list of validation results for failed charts.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        chart_ids: List of chart IDs to validate.
+
+    Returns:
+        List of validation result dicts for failed charts, each with chart_id,
+        viz_type, slice_name, and error keys. Empty list means all valid.
     """
     failed_charts = []
-    
+
     for chart_id in chart_ids:
-        # Get chart info
+        # Step 1: Get chart metadata (viz_type, name) for context in error messages
         chart_info = await _get_chart_info(manager, server_id, chart_id)
         viz_type = chart_info.get("viz_type", "unknown") if chart_info else "unknown"
         slice_name = chart_info.get("slice_name", f"Chart {chart_id}") if chart_info else f"Chart {chart_id}"
-        
-        # Test data endpoint
+
+        # Step 2: Test the chart's data endpoint to verify it actually renders
         validation = await _validate_chart_data_endpoint(manager, server_id, chart_id)
-        
+
+        # Step 3: If chart fails validation, collect error details for reporting
         if not validation["is_valid"]:
             failed_charts.append({
                 "chart_id": chart_id,
@@ -808,5 +1077,5 @@ async def _pre_validate_chart_data(manager: ConnectionManager, server_id: str, c
                 "slice_name": slice_name,
                 "error": validation["error"],
             })
-    
+
     return failed_charts

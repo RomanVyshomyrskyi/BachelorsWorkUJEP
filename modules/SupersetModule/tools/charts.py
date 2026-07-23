@@ -1,3 +1,27 @@
+"""
+Chart management tools for Apache Superset MCP integration.
+
+This module provides comprehensive chart CRUD operations, validation,
+and metadata discovery for Apache Superset. It handles chart creation
+with extensive pre-validation to prevent "columns missing in dataset"
+errors, post-creation verification, data endpoint testing, and chart
+schema discovery with caching.
+
+MCP Tools Provided:
+    - superset_create_chart: Create a new Superset chart with full validation
+    - superset_update_chart: Update an existing chart's configuration
+    - superset_generate_chart: Generate a chart from a config dict and dataset
+    - superset_list_charts: List all charts on a Superset server
+    - superset_get_chart_info: Get detailed information about a specific chart
+    - superset_get_chart_data: Fetch underlying data for a chart
+    - superset_get_chart_preview: Get a visual preview URL for a chart
+    - superset_get_chart_type_schema: Get schema for a specific chart type
+    - superset_get_all_chart_schemas: Discover ALL chart types with their schemas
+    - superset_get_chart_api_info: Get metadata about the chart API
+    - superset_get_standard_chart_params: Get standard params for a viz type
+    - superset_get_chart_creation_rules: Get expert rules for creating charts
+"""
+
 import sys
 import json
 import logging
@@ -150,16 +174,63 @@ def _is_known_chart_type(chart_types: List[str], viz_type: str) -> bool:
 
 async def get_chart_api_info(manager: ConnectionManager, server_id: str) -> str:
     """
-    Retrieves metadata about the chart API.
+    MCP Tool: superset_get_chart_api_info - Retrieves metadata about the chart API.
+
+    Fetches the chart API's _info endpoint which contains metadata about
+    supported chart types, available filters, permissions, and API properties.
+    Useful for understanding what chart types and features are available
+    on a specific Superset instance.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server to query.
+
+    Returns:
+        JSON string containing the chart API metadata from /api/v1/chart/_info,
+        including supported viz_types, form_data schemas, and feature flags.
     """
+    # Delegate to the generic Superset API helper for the GET request
     return await impl_superset_api(manager, server_id, "GET", "/api/v1/chart/_info")
 
+
 def _resolve_viz_type(viz_type: str) -> str:
-    """Resolve a generic viz_type to the actual Superset viz_type using TYPE_MAP."""
+    """
+    Resolve a generic/human-friendly viz_type alias to the actual Superset viz_type string.
+
+    Maps common shorthand names (e.g., 'bar', 'line', 'table') to their full
+    Superset equivalents (e.g., 'echarts_bar', 'echarts_timeseries_line', 'table').
+    This allows users to specify chart types using familiar names.
+
+    Args:
+        viz_type: A chart type name, which may be a shorthand alias
+            (e.g., 'bar', 'line', 'pie', 'table', 'scatter') or a full
+            Superset viz_type string.
+
+    Returns:
+        The resolved Superset viz_type string. If the input is not a known
+        alias, returns the input unchanged (pass-through for full viz_types).
+    """
+    # Look up the type in the TYPE_MAP alias dictionary, fall back to original input
     return TYPE_MAP.get(viz_type, viz_type)
 
+
 def _extract_columns_from_dataset_response(response_str: str) -> List[Dict[str, Any]]:
-    """Extract columns list from dataset API response."""
+    """
+    Extract the columns list from a JSON-encoded Superset dataset API response.
+
+    Parses the response body from GET /api/v1/dataset/{id} and returns the
+    'columns' array, which contains column metadata (name, type, etc.)
+    for use in chart validation.
+
+    Args:
+        response_str: Raw JSON string response from the Superset dataset API.
+            Expected format: {"result": {"columns": [...], "metrics": [...]}}
+
+    Returns:
+        List of column dicts from the dataset response. Returns empty list
+        if parsing fails or no columns are found.
+    """
+    # Attempt to parse the JSON response and extract the columns array
     try:
         data = json.loads(response_str)
         result = data.get("result", {})
@@ -168,19 +239,30 @@ def _extract_columns_from_dataset_response(response_str: str) -> List[Dict[str, 
             if isinstance(columns, list):
                 return columns
         return []
+    # Return empty list on any parse error to avoid crashing the caller
     except (json.JSONDecodeError, TypeError):
         return []
 
 def _validate_metric_string_format(params: Dict[str, Any]) -> List[str]:
     """
     Basic syntax validation for metric strings.
-    
-    Runs when no dataset schema is available. Catches obviously wrong
-    metric strings by parsing their format.
+
+    Runs when no dataset schema is available for column-level validation.
+    Catches obviously wrong metric strings by parsing their format against
+    the expected AGGREGATION(column_name) pattern.
+
+    Args:
+        params: Chart params dict containing 'metric', 'metrics', 'entity',
+            'orderby', and/or 'timeseries_limit_metric' fields.
+
+    Returns:
+        List of error strings. Empty list means all metric strings have
+        valid syntax (though not necessarily correct column references).
     """
     import re
     errors: List[str] = []
-    
+
+    # Helper: validate a single metric string against the AGGREGATION(column_name) format
     def check_metric_string(ms: str, label: str) -> None:
         s = ms.strip()
         if not s:
@@ -188,8 +270,8 @@ def _validate_metric_string_format(params: Dict[str, Any]) -> List[str]:
             return
         s_lower = s.lower()
         if s_lower == "count":
-            return  # built-in count is always valid
-        # Must match AGG(col) format
+            return  # built-in count is always valid — skip regex check
+        # Must match AGG(col) format — catch obviously malformed strings
         match = re.match(r"^(SUM|AVG|MIN|MAX|COUNT|COUNT_DISTINCT)\s*\(\s*.+?\s*\)$", s, re.IGNORECASE)
         if not match:
             errors.append(
@@ -198,6 +280,7 @@ def _validate_metric_string_format(params: Dict[str, Any]) -> List[str]:
                 f"(e.g., 'SUM(sales)', 'AVG(price)')."
             )
     
+    # Step 1: Validate the singular 'metric' field — can be string, dict, or None
     if "metric" in params:
         m = params["metric"]
         if m is None:
@@ -208,7 +291,8 @@ def _validate_metric_string_format(params: Dict[str, Any]) -> List[str]:
             col_name = m.get("column", {}).get("column_name")
             if not col_name:
                 errors.append("'metric' object has null or missing column_name")
-    
+
+    # Step 2: Validate the 'metrics' array (plural) — each element is checked individually
     if "metrics" in params and params["metrics"]:
         for i, m in enumerate(params["metrics"]):
             if isinstance(m, str):
@@ -217,12 +301,12 @@ def _validate_metric_string_format(params: Dict[str, Any]) -> List[str]:
                 col_name = m.get("column", {}).get("column_name")
                 if not col_name:
                     errors.append(f"'metrics[{i}]' object has null or missing column_name")
-    
-    # Check 'entity' — null/empty entity for map types
+
+    # Step 3: Check 'entity' — null/empty entity for map types causes crashes
     if "entity" in params and not params["entity"]:
         errors.append("'entity' is null or empty — set it to a valid column name (e.g., 'country_code')")
 
-    # Check 'orderby' — format: [["col", true], ...] or [{"column": {"column_name": "x"}, "asc": true}, ...]
+    # Step 4: Check 'orderby' — format: [["col", true], ...] or [{"column": {"column_name": "x"}, "asc": true}, ...]
     if "orderby" in params and params["orderby"]:
         orderby = params["orderby"]
         if isinstance(orderby, list):
@@ -235,8 +319,8 @@ def _validate_metric_string_format(params: Dict[str, Any]) -> List[str]:
                     col_name = col_entry.get("column_name") if isinstance(col_entry, dict) else None
                     if col_name is None:
                         errors.append(f"'orderby[{i}]' has null or missing column reference")
-    
-    # Check 'timeseries_limit_metric' — can be string, dict, or None
+
+    # Step 5: Check 'timeseries_limit_metric' — can be string, dict, or None
     if "timeseries_limit_metric" in params:
         tlm = params["timeseries_limit_metric"]
         if tlm is None:
@@ -245,7 +329,7 @@ def _validate_metric_string_format(params: Dict[str, Any]) -> List[str]:
             col_name = tlm.get("column", {}).get("column_name")
             if col_name is None:
                 errors.append("'timeseries_limit_metric' object has null column_name")
-    
+
     return errors
 
 
@@ -266,18 +350,25 @@ def _validate_metrics_against_dataset(
 ) -> List[str]:
     """
     Validate that all metrics used in chart params exist in the dataset.
-    
+
     When dataset_metrics is empty (common for physical tables), falls back
     to checking that columns referenced in string metrics (e.g., 'SUM(sales)')
     actually exist in dataset_columns and have compatible types.
-    
-    Returns list of missing/invalid metric descriptions.
+
+    Args:
+        params: Chart params dict containing metric references.
+        dataset_metrics: List of predefined metric dicts from the dataset API.
+        viz_type: The chart visualization type (used for context).
+        dataset_columns: Optional list of column dicts for fallback validation.
+
+    Returns:
+        List of missing/invalid metric descriptions. Empty list = all valid.
     """
     import re
     missing_metrics: List[str] = []
     dataset_metric_names = {m["metric_name"] for m in dataset_metrics}
-    
-    # Build column lookup for type checking
+
+    # Step 1: Build column lookup for type checking on fallback validation
     column_map: Dict[str, Dict[str, Any]] = {}
     if dataset_columns:
         for col in dataset_columns:
@@ -379,11 +470,11 @@ def _validate_metrics_against_dataset(
     
     # Extract all metrics from params
     param_metrics = extract_metric_strings(params)
-    
+
     for pm in param_metrics:
         normalized = normalize_metric(pm)
-        
-        # Special: reject COUNT(count) with parentheses — user likely meant bare "count"
+
+        # Step 3: Reject COUNT(count) — user likely meant bare "count"
         # Bare "count" (no parens) is the built-in row count and should NOT be rejected.
         if "(" in pm and ")" in pm:
             parse_result = parse_metric_string(pm)
@@ -407,8 +498,8 @@ def _validate_metrics_against_dataset(
         # Parse for column fallback
         parse_result = parse_metric_string(pm)
         agg, col_in_metric = parse_result
-        
-        # Built-in count — always valid if dataset exists
+
+        # Step 4: Built-in count — always valid if dataset exists
         if normalized == "count":
             if dataset_metric_names and not any(m.lower().startswith("count") for m in dataset_metric_names):
                 missing_metrics.append(
@@ -417,7 +508,7 @@ def _validate_metrics_against_dataset(
                 )
             continue
         
-        # Check if metric exists in predefined dataset metrics.
+        # Step 5: Check if metric exists in predefined dataset metrics.
         # Skip for ad-hoc formulas (e.g., 'SUM(sales)') — they're expressions,
         # not saved metric names.
         if dataset_metric_names and not is_ad_hoc:
@@ -429,7 +520,7 @@ def _validate_metrics_against_dataset(
             if found:
                 continue  # matched a predefined metric
         
-        # Metric not in predefined list — try column fallback
+        # Step 6: Metric not in predefined list — try column fallback
         if col_in_metric and column_map:
             if col_in_metric in column_map:
                 # Column exists — check type compatibility
@@ -464,7 +555,7 @@ def _validate_metrics_against_dataset(
                 )
                 continue
         
-        # No dataset_metrics and no dataset_columns — can't validate, BLOCK
+        # Step 7: No dataset_metrics and no dataset_columns — can't validate, BLOCK
         if not dataset_metric_names and not column_map:
             available = [c.get("column_name", "") for c in dataset_columns] if dataset_columns else []
             missing_metrics.append(
@@ -474,7 +565,7 @@ def _validate_metrics_against_dataset(
             )
             continue
         
-        # If we got here and have metrics, mark as missing.
+        # Step 8: If we got here and have metrics, mark as missing.
         # Skip for ad-hoc formulas — they're not meant to be saved metrics.
         if dataset_metric_names and not is_ad_hoc:
             missing_metrics.append(
@@ -484,15 +575,28 @@ def _validate_metrics_against_dataset(
     return missing_metrics
 
 def _extract_chart_ids_from_position_json(position_json: str) -> List[int]:
-    """Extract all chart IDs from a position JSON string."""
+    """
+    Extract all chart IDs from a position JSON string.
+
+    Recursively walks the position_json structure to find all nodes
+    containing a ``slice_id`` key (the legacy Superset format for
+    embedding chart references within dashboard layout trees).
+
+    Args:
+        position_json: Raw JSON string of the dashboard position layout.
+
+    Returns:
+        List of integer chart (slice) IDs found in the layout.
+    """
     chart_ids = []
     try:
+        # Normalize input to dict form (accepts both str and dict)
         if isinstance(position_json, str):
             pos = json.loads(position_json)
         else:
             pos = position_json
-        
-        def walk(obj):
+
+        # Recursive walker: traverses dicts/lists looking for slice_id keys
             if isinstance(obj, dict):
                 if "slice_id" in obj and isinstance(obj["slice_id"], int):
                     chart_ids.append(obj["slice_id"])
@@ -505,37 +609,48 @@ def _extract_chart_ids_from_position_json(position_json: str) -> List[int]:
         walk(pos)
     except (json.JSONDecodeError, TypeError):
         pass
-    
+
     return chart_ids
 
 def _validate_sankey_params(params: Dict[str, Any], slice_name: str) -> Optional[Dict[str, str]]:
     """
     Validate Sankey chart params and return warning if potential cycle detected.
-    
+
     Sankey charts require a DAG (directed acyclic graph). If source/target
     columns have circular references, Superset will error at render time.
     We validate params structure and suggest the cycle-breaking SQL fix.
+
+    Args:
+        params: Chart params dict containing Sankey-specific fields
+            ('source', 'target') and viz_type='sankey_v2'.
+        slice_name: Name of the chart (used in warning title).
+
+    Returns:
+        Dict with 'title' and 'body' keys if warnings/errors found, or None
+        if the params are valid (or are not for a Sankey chart).
     """
+    # Step 1: Only apply to sankey_v2 charts — skip other viz types silently
     if "sankey_v2" not in params.get("viz_type", ""):
         return None
-    
+
     errors = []
-    
-    # Validate required fields using the validation module
+
+    # Step 2: Run structural validation via the shared validation module
     from modules.SupersetModule.superset_validation import validate_chart_params
     validation_errors = validate_chart_params("sankey_v2", params)
     if validation_errors:
         errors.extend(validation_errors)
-    
+
     if errors:
-        return {"title": f"Chart '{slice_name}' - Sankey validation errors", 
+        return {"title": f"Chart '{slice_name}' - Sankey validation errors",
                 "body": "\n".join(errors) + "\n\nSankey charts require 'source' and 'target' fields."}
-    
-    # Check if cycle fix has already been suggested
+
+    # Step 3: Check if cycle fix has already been suggested (avoid duplicate warnings)
     if params.get("_cycle_fix_suggested"):
         return None
-    
-    # Provide helpful cycle fix suggestion
+
+    # Step 4: Provide helpful cycle fix suggestion — Sankey requires a DAG,
+    #         and circular source/target relationships cause render errors.
     source_col = params.get("source", "unknown")
     target_col = params.get("target", "unknown")
     
@@ -556,51 +671,62 @@ async def _test_chart_data_endpoint(
     chart_id: int
 ) -> Dict[str, Any]:
     """
-    Blunt test: query the chart data endpoint and fail on ANY sign of trouble.
-    
-    Calls GET /api/v1/chart/{id}/data/. Blocks if:
-      - HTTP status != 200
-      - result has explicit 'error' field
-      - result.status != 'success'
-      - sql_rowcount is 0 or None (no data returned)
-      - response contains error keywords in body text
-    
-    Only returns is_valid=True if data was returned with no errors.
+    Test a chart's data endpoint to verify it returns valid data without errors.
+
+    Calls GET /api/v1/chart/{id}/data/ and checks multiple indicators of
+    chart health. This is used both pre-creation (via chart validation)
+    and post-creation to verify charts actually render.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        chart_id: The numeric ID of the chart to test.
+
+    Returns:
+        Dict with keys:
+          - is_valid (bool): True if chart data endpoint is healthy
+          - error (str|None): Error message if invalid, None if valid
+          - row_count (int|None): Number of rows returned by the chart query
     """
+    # Step 1: Retrieve the server context to access the Superset API client
     ctx = manager.get_context(server_id)
     if not ctx:
         return {"is_valid": False, "error": "Server context not found", "row_count": None}
-    
+
     try:
+        # Step 2: Execute the GET request to the chart's data endpoint
         resp = await execute_request(ctx, "GET", f"/api/v1/chart/{chart_id}/data/")
-        
+
+        # Step 3: Check if the HTTP response was successful
         if resp.status_code != 200:
             logger.warning(
                 "Chart %s data endpoint HTTP %s body=%s",
                 chart_id, resp.status_code, str(resp.text)[:1000],
             )
             return {"is_valid": False, "error": f"HTTP {resp.status_code}: {resp.text[:300]}", "row_count": None}
-        
+
+        # Step 4: Parse JSON response and extract key fields for validation
         data = resp.json()
         result = data.get("result", {})
         error = result.get("error")
         status = result.get("status", "unknown")
         row_count = result.get("sql_rowcount")
-        
-        # Explicit error field
+
+        # Step 5: Check for explicit error field in the API response
         if error:
             logger.warning("Chart %s data endpoint error field: %s", chart_id, str(error)[:500])
             return {"is_valid": False, "error": f"Data endpoint error: {error}", "row_count": row_count}
-        
-        # Non-success status
+
+        # Step 6: Check if the query execution status is successful
         if status != "success":
             return {"is_valid": False, "error": f"Data endpoint status: {status}", "row_count": row_count}
-        
-        # No rows returned → broken chart
+
+        # Step 7: A chart returning zero rows is considered broken
         if not row_count or row_count == 0:
             return {"is_valid": False, "error": "Chart returned no data rows (sql_rowcount=0)", "row_count": 0}
-        
-        # Scan the FULL response text for error keywords
+
+        # Step 8: Scan the FULL response text for common error keywords that might indicate
+        #         issues not caught by explicit status checks
         resp_lower = str(resp.text).lower()
         error_keywords = ["does not exist", "doesn't exist", "cannot compile", "undefined",
                           "db engine error", "data error", "error:", "exception:",
@@ -616,12 +742,14 @@ async def _test_chart_data_endpoint(
                 chart_id, matches, str(resp.text)[:1000],
             )
             return {"is_valid": False, "error": f"Chart response contains error keywords: {matches}", "row_count": row_count}
-        
-        # Success with data
+
+        # Step 9: All checks passed — chart data endpoint is healthy
         return {"is_valid": True, "error": None, "row_count": row_count}
-    
+
+    # Handle HTTP-level errors (e.g., 404, 403, 500)
     except httpx.HTTPStatusError as e:
         return {"is_valid": False, "error": f"HTTP {e.response.status_code}: {e.response.text[:300]}", "row_count": None}
+    # Catch-all for unexpected exceptions during the request
     except Exception as e:
         return {"is_valid": False, "error": f"Data endpoint exception: {str(e)[:300]}", "row_count": None}
 
@@ -630,16 +758,34 @@ async def _delete_chart(
     server_id: str,
     chart_id: int
 ) -> bool:
-    """Delete a chart by ID. Returns True on success."""
+    """
+    Delete a chart by its ID via the Superset API.
+
+    Used internally after chart creation fails post-creation validation
+    to clean up the partially-created chart.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        chart_id: The numeric ID of the chart to delete.
+
+    Returns:
+        True if the DELETE request returned HTTP 200 or 204, False otherwise
+        (including any exception during the request).
+    """
+    # Step 1: Retrieve server context for the API request
     ctx = manager.get_context(server_id)
     if not ctx:
         return False
-    
+
     try:
+        # Step 2: Send DELETE request to the chart API endpoint
         resp = await execute_request(ctx, "DELETE", f"/api/v1/chart/{chart_id}")
+        # Accept both 200 (OK with body) and 204 (No Content) as success
         return resp.status_code in [200, 204]
     except Exception:
         return False
+
 
 async def _validate_chart_on_datasource(
     manager: ConnectionManager,
@@ -647,41 +793,60 @@ async def _validate_chart_on_datasource(
     chart_id: int
 ) -> Dict[str, Any]:
     """
-    Validate a chart against its datasource by testing the data endpoint.
-    
-    Returns validation result dict for use in dashboard creation.
+    Validate an existing chart against its datasource configuration.
+
+    Fetches the chart's params and datasource, checks datasource compatibility,
+    and tests the data endpoint. Used for validating charts before adding them
+    to dashboards.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        chart_id: The numeric ID of the chart to validate.
+
+    Returns:
+        Dict with keys:
+          - chart_id (int): The chart ID that was validated
+          - is_valid (bool): True if all validations passed
+          - error (str|None): Error description if invalid
+          - viz_type (str|None): The chart's viz_type if available
+          - row_count (int|None): Rows returned by data endpoint if valid
     """
+    # Step 1: Retrieve server context for the API request
     ctx = manager.get_context(server_id)
     if not ctx:
         return {"chart_id": chart_id, "is_valid": False, "error": "Server not found"}
-    
+
     try:
+        # Step 2: Fetch the chart metadata to get viz_type, params, and datasource_id
         resp = await execute_request(ctx, "GET", f"/api/v1/chart/{chart_id}")
         chart = resp.json().get("result", {})
         viz_type = chart.get("viz_type", "unknown")
         params_str = chart.get("params", "{}")
-        
+
+        # Step 3: Parse the JSON-serialized params into a dict
         try:
             params = json.loads(params_str)
         except json.JSONDecodeError:
             params = {}
-        
+
         dataset_id = chart.get("datasource_id")
-        
-        # Get dataset columns
+
+        # Step 4: Fetch the dataset's column definitions for compatibility checking
         try:
             ds_resp = await execute_request(ctx, "GET", f"/api/v1/dataset/{dataset_id}")
             ds = ds_resp.json().get("result", {})
             columns = ds.get("columns", [])
         except Exception:
             columns = []
-        
-        # Run compatibility validation
+
+        # Step 5: Run datasource compatibility validation using the validation module
         from modules.SupersetModule.superset_validation import (
             validate_datasource_compatibility,
         )
         compat_errors = validate_datasource_compatibility(viz_type, params, columns)
-        
+
+        # Step 6: If compatibility check fails, return early with errors
         if compat_errors:
             return {
                 "chart_id": chart_id,
@@ -689,10 +854,11 @@ async def _validate_chart_on_datasource(
                 "error": "Compatibility: " + "; ".join(compat_errors),
                 "viz_type": viz_type,
             }
-        
-        # Test the data endpoint
+
+        # Step 7: Test the chart's data endpoint to ensure it actually returns data
         data_result = await _test_chart_data_endpoint(manager, server_id, chart_id)
-        
+
+        # Step 8: If data endpoint test fails, return the failure details
         if not data_result["is_valid"]:
             return {
                 "chart_id": chart_id,
@@ -700,7 +866,8 @@ async def _validate_chart_on_datasource(
                 "error": f"Data test failed: {data_result['error']}",
                 "viz_type": viz_type,
             }
-        
+
+        # Step 9: All validations passed — return success result
         return {
             "chart_id": chart_id,
             "is_valid": True,
@@ -721,28 +888,41 @@ async def _verify_chart_params_saved(
     chart_id: int
 ) -> List[str]:
     """
-    After creation, fetch the chart from Superset and verify its saved params
-    have no null/empty values for critical fields.
-    
-    This catches cases where Superset's API accepted bad params (e.g., null metric)
-    and stored them as-is, which later cause render-time errors.
+    Verify that a chart's saved params have no null/empty values for critical fields.
+
+    After chart creation, fetches the chart from Superset and inspects the stored
+    params. This catches cases where Superset's API silently accepted bad params
+    (e.g., null metric reference) and stored them, which later cause render-time errors.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        chart_id: The numeric ID of the chart to verify.
+
+    Returns:
+        List of error strings. Empty list means all saved params are valid.
+        Each string describes a specific field that has null/empty values.
     """
+    # Step 1: Retrieve server context for the API request
     ctx = manager.get_context(server_id)
     if not ctx:
         return ["Server context not found"]
-    
+
     try:
+        # Step 2: Fetch the chart to inspect its saved params
         resp = await execute_request(ctx, "GET", f"/api/v1/chart/{chart_id}")
         chart = resp.json().get("result", {})
         params_str = chart.get("params", "{}")
+
+        # Step 3: Parse the JSON-serialized params; fail immediately if not valid JSON
         try:
             params = json.loads(params_str)
         except (json.JSONDecodeError, TypeError):
             return [f"Chart params is not valid JSON: {params_str[:100]}"]
-        
+
         errors: List[str] = []
-        
-        # Check metric (singular)
+
+        # Step 4: Check the 'metric' field (singular) — must not be null or have null column_name
         if "metric" in params:
             m = params["metric"]
             if m is None:
@@ -752,7 +932,7 @@ async def _verify_chart_params_saved(
                 if col_name is None:
                     errors.append("saved 'metric' has null column_name")
         
-        # Check metrics (array)
+        # Step 5: Check the 'metrics' field (plural array) — each element must not be null
         if "metrics" in params and isinstance(params["metrics"], list):
             for i, m in enumerate(params["metrics"]):
                 if m is None:
@@ -762,7 +942,7 @@ async def _verify_chart_params_saved(
                     if col_name is None:
                         errors.append(f"saved 'metrics[{i}]' has null column_name")
         
-        # Check orderby
+        # Step 6: Check 'orderby' — array of column references, each must have valid column
         if "orderby" in params and isinstance(params["orderby"], list):
             for i, entry in enumerate(params["orderby"]):
                 if isinstance(entry, list) and len(entry) >= 1 and entry[0] is None:
@@ -772,15 +952,15 @@ async def _verify_chart_params_saved(
                     if isinstance(col_entry, dict) and col_entry.get("column_name") is None:
                         errors.append(f"saved 'orderby[{i}]' has null column_name")
         
-        # Check timeseries_limit_metric
+        # Step 7: Check 'timeseries_limit_metric' — must not be null
         if "timeseries_limit_metric" in params and params["timeseries_limit_metric"] is None:
             errors.append("saved 'timeseries_limit_metric' is null")
         
-        # Check entity
+        # Step 8: Check 'entity' — required for graph/map charts, must not be empty
         if "entity" in params and not params["entity"]:
             errors.append("saved 'entity' is null or empty")
         
-        # Check columns (sunburst, treemap, boxplot, etc.)
+        # Step 9: Check 'columns' array (sunburst, treemap, boxplot, etc.) — no null/empty entries
         if "columns" in params and isinstance(params["columns"], list):
             for i, col in enumerate(params["columns"]):
                 if col is None:
@@ -788,7 +968,7 @@ async def _verify_chart_params_saved(
                 elif isinstance(col, str) and not col.strip():
                     errors.append(f"saved 'columns[{i}]' is empty")
         
-        # Check all_columns (table chart)
+        # Step 10: Check 'all_columns' array (table chart) — no null/empty entries
         if "all_columns" in params and isinstance(params["all_columns"], list):
             for i, col in enumerate(params["all_columns"]):
                 if col is None:
@@ -796,7 +976,7 @@ async def _verify_chart_params_saved(
                 elif isinstance(col, str) and not col.strip():
                     errors.append(f"saved 'all_columns[{i}]' is empty")
         
-        # Check groupby
+        # Step 11: Check 'groupby' array — no null/empty entries
         if "groupby" in params and isinstance(params["groupby"], list):
             for i, col in enumerate(params["groupby"]):
                 if col is None:
@@ -804,7 +984,7 @@ async def _verify_chart_params_saved(
                 elif isinstance(col, str) and not col.strip():
                     errors.append(f"saved 'groupby[{i}]' is empty")
         
-        # Check granularity_sqla for time-based charts
+        # Step 12: Check time-based chart types require a temporal column reference
         viz_type = chart.get("viz_type", "")
         time_based_types = {
             "echarts_timeseries_line", "echarts_timeseries_bar", "echarts_area",
@@ -834,6 +1014,36 @@ async def create_chart(
     params: str,
     description: Optional[str] = None
  ) -> str:
+    """
+    MCP Tool: superset_create_chart - Create a new Superset chart with full validation.
+
+    This is the primary chart creation tool. It performs extensive pre-validation
+    including: viz_type existence check, metric validation against dataset columns,
+    datasource compatibility check, column-level validation, Sankey cycle detection,
+    and structural parameter validation. After creation, it verifies saved params
+    and tests the data endpoint to catch any issues Superset may have silently accepted.
+
+    The chart is ONLY created if ALL validation passes. If any check fails, the
+    tool returns a detailed error with suggestions for fixing the params.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server where the chart will be created.
+        slice_name: The display name for the chart in Superset's UI.
+        viz_type: The chart type. Can be a shorthand alias ('bar', 'line', 'pie', 'table',
+            'scatter') or a full Superset viz_type string. Must be known to Superset.
+        datasource_id: The numeric ID of the dataset to use as the chart's datasource.
+        datasource_type: The type of datasource, e.g., 'table' for physical/virtual datasets.
+        params: JSON string of chart configuration parameters. Must include metric references,
+            groupby fields, and any viz_type-specific settings. Must reference valid columns
+            from the datasource.
+        description: Optional human-readable description of the chart's purpose.
+
+    Returns:
+        JSON string containing the created chart's details (ID, name, URL, params) on success,
+        or a ChartError JSON with detailed error message and fix suggestions on failure.
+    """
+    # Step 1: Retrieve the server context for API access
     ctx = manager.get_context(server_id)
     if not ctx:
         mc = get_metrics()
@@ -841,14 +1051,15 @@ async def create_chart(
         mc.record_error(tool="superset_create_chart", error_message=f"Server '{server_id}' not found.")
         return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
 
-    # Ensure chart types cache is available
+    # Step 2: Ensure chart types cache is available for validation
     known_types = await _ensure_chart_types_cached(manager, server_id)
 
     start_time = time.monotonic()
     try:
+        # Step 3: Resolve shorthand viz_type (e.g., 'bar') to full Superset type (e.g., 'echarts_bar')
         actual_viz_type = _resolve_viz_type(viz_type)
 
-        # Validate viz_type against known chart types
+        # Step 4: Validate viz_type against known chart types
         if not _is_known_chart_type(known_types, actual_viz_type):
             mc = get_metrics()
             mc.tool_calls.labels(tool="superset_create_chart", status="error").inc()
@@ -859,7 +1070,8 @@ async def create_chart(
             ).to_json()
         params_dict = json.loads(params) if params else {}
         fixed_params = auto_fix_chart_params(actual_viz_type, params_dict)
-        
+
+        # Step 5: Fetch dataset schema for column and metric validation
         dataset_columns = []
         dataset_metrics = []
         try:
@@ -869,15 +1081,15 @@ async def create_chart(
             dataset_metrics = dataset_data.get("result", {}).get("metrics", [])
         except Exception:
             pass
-        
-        # ── Metric validation (always runs, even when columns/metrics are empty) ──
+
+        # Step 6: ── Metric validation (always runs, even when columns/metrics are empty) ──
         # When dataset_columns is empty, we can't check column existence, but we
         # still validate metric string format and run the post-creation data test.
         metric_errors = _validate_metrics_against_dataset(
             fixed_params, dataset_metrics, actual_viz_type, dataset_columns
         )
         
-        # Even without schema data, validate metric string format (syntax check)
+        # Step 7: Even without schema data, validate metric string format (syntax check)
         if not dataset_columns and not dataset_metrics and not metric_errors:
             metric_errors = _validate_metric_string_format(fixed_params)
         if metric_errors:
@@ -899,15 +1111,16 @@ async def create_chart(
                 status_code=400,
             ).to_json()
 
-        # ── Column-level validation (only when dataset columns are available) ──
+        # Step 8: ── Column-level validation (only when dataset columns are available) ──
         if dataset_columns:
+            # Step 8a: Auto-fix column name typos and resolve column references
             fixed_params, column_warnings = resolve_chart_params(fixed_params, dataset_columns)
             if column_warnings:
                 warning = "Column name fixes: " + "; ".join(column_warnings)
             else:
                 warning = None
             
-            # Validate Sankey charts — errors and cycle warnings both block creation
+            # Step 8b: Validate Sankey charts — errors and cycle warnings both block creation
             sankey_warning = _validate_sankey_params(fixed_params, slice_name)
             if sankey_warning:
                 return ChartError(
@@ -916,7 +1129,7 @@ async def create_chart(
                     status_code=400,
                 ).to_json()
             
-            # Validate chart data against dataset BEFORE creating
+            # Step 8c: Validate chart data against dataset BEFORE creating
             logger.info(f"Running pre-chart data validation for datasource_id={datasource_id}")
             validation_result = validate_chart_data_against_dataset(
                 fixed_params, dataset_columns, actual_viz_type
@@ -943,7 +1156,7 @@ async def create_chart(
                     status_code=400,
                 ).to_json()
             
-            # Merge validation warnings
+            # Step 8d: Merge validation warnings into the warning string
             if validation_result.get("warnings"):
                 validation_warnings = "; ".join(validation_result["warnings"])
                 if warning:
@@ -957,7 +1170,7 @@ async def create_chart(
                 f"Metric validation already ran; chart will be tested via data endpoint."
             )
         
-        # Validate datasource compatibility for known viz types
+        # Step 9: Validate datasource compatibility for known viz types
         if dataset_columns:
             from modules.SupersetModule.superset_validation import validate_datasource_compatibility
             compat_errors = validate_datasource_compatibility(actual_viz_type, fixed_params, dataset_columns)
@@ -976,7 +1189,8 @@ async def create_chart(
                     ),
                     status_code=400,
                 ).to_json()
-        
+
+        # Step 10: Run structural chart param validation against chart type schema
         errors = validate_chart_params(actual_viz_type, fixed_params)
         validation_errors = format_error_summary(errors) if errors else None
         
@@ -986,7 +1200,7 @@ async def create_chart(
             else:
                 warning = "Validation: " + validation_errors
 
-        # Ensure datasource_id is in params (required by Superset frontend)
+        # Step 11: Ensure datasource_id is in params (required by Superset frontend)
         if "datasource_id" not in fixed_params or fixed_params["datasource_id"] is None:
             fixed_params["datasource_id"] = datasource_id
         # Ensure datasource field is set
@@ -1005,14 +1219,14 @@ async def create_chart(
             "params": json.dumps(fixed_params),
         }
 
+        # Step 12: Send POST request to Superset API to create the chart
         endpoint = "/api/v1/chart/"
         resp = await execute_request(ctx, "POST", endpoint, json=chart_payload)
         resp.raise_for_status()
         result = resp.json()
 
-        # Post-creation: verify saved params have no null/empty values
+        # Step 13: Post-creation — verify saved params have no null/empty values
         chart_id = result.get("id") or result.get("result", {}).get("id", 0)
-        params_errors = await _verify_chart_params_saved(manager, server_id, chart_id)
         if params_errors:
             deleted = await _delete_chart(manager, server_id, chart_id)
             mc = get_metrics()
@@ -1032,9 +1246,9 @@ async def create_chart(
                 status_code=500,
             ).to_json()
         
-        # Post-creation: test chart data endpoint to verify it renders
+        # Step 14: Post-creation — test chart data endpoint to verify it renders
         data_test = await _test_chart_data_endpoint(manager, server_id, chart_id)
-        
+
         if not data_test["is_valid"]:
             # Chart created but fails data endpoint — delete it and return error
             deleted = await _delete_chart(manager, server_id, chart_id)
@@ -1095,22 +1309,90 @@ async def update_chart(
     chart_id: int,
     json_body: str
 ) -> str:
+    """
+    MCP Tool: superset_update_chart - Update an existing chart's configuration.
+
+    Sends a PUT request to the Superset chart API to modify a chart's settings
+    such as name, params, description, or other properties.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        chart_id: The numeric ID of the chart to update.
+        json_body: JSON string containing the fields to update. See Superset API
+            docs for the chart model structure. Only the fields included in this
+            JSON will be modified.
+
+    Returns:
+        JSON string containing the updated chart's details from the API response,
+        or an error JSON if the update fails.
+    """
+    # Delegate to the generic Superset API helper for the PUT request
     return await impl_superset_api(manager, server_id, "PUT", f"/api/v1/chart/{chart_id}", json_body=json_body)
+
 
 def get_standard_chart_params(viz_type: str, datasource_id: int, overrides_json: Optional[str] = None) -> str:
     """
-    Returns a JSON string of standard parameters for a given visualization type.
+    MCP Tool: superset_get_standard_chart_params - Get standard params for a viz type.
+
+    Returns a JSON object with sensible default parameters for the given visualization
+    type and datasource. These defaults include required fields and typical values
+    that work with most datasets. Use this as a starting point when building chart
+    configuration, then customize as needed.
+
+    Args:
+        viz_type: The chart visualization type (e.g., 'echarts_bar', 'echarts_line',
+            'table', 'pivot_table', 'time_table').
+        datasource_id: The ID of the dataset to use. Used to populate dataset-specific
+            defaults like available metrics and column references.
+        overrides_json: Optional JSON string of parameter overrides that replace
+            the default values. Use this to set specific values while keeping
+            the rest of the defaults.
+
+    Returns:
+        JSON string of the standard parameters for the given viz_type and datasource.
+        This can be used as the base for chart creation or exploration.
     """
+    # Step 1: Parse override JSON if provided, otherwise use empty dict
     overrides = json.loads(overrides_json) if overrides_json else {}
+    # Step 2: Get base params from rules module, applying user overrides on top
     params = rules.get_standard_chart_params(viz_type, datasource_id, **overrides)
     return json.dumps(params, indent=2)
 
+
 def get_chart_creation_rules() -> str:
-    """Returns the expert rules for creating functional Superset charts."""
+    """
+    MCP Tool: superset_get_chart_creation_rules - Get expert rules for creating charts.
+
+    Returns a set of expert guidelines and best practices for creating functional
+    Superset charts. These rules cover common pitfalls, required fields per chart
+    type, and tips for ensuring charts render correctly.
+
+    Returns:
+        String containing the expert rules for chart creation, formatted as
+        readable text with guidelines organized by topic.
+    """
+    # Delegate to the rules module which contains the expert chart creation guide
     return rules.get_chart_creation_rules()
 
 
 async def list_charts(manager: ConnectionManager, server_id: str) -> str:
+    """
+    MCP Tool: superset_list_charts - List all charts on a Superset server.
+
+    Fetches the paginated list of all charts from the Superset API.
+    Useful for discovering existing charts and their IDs before creating
+    dashboards or making updates.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server to query.
+
+    Returns:
+        JSON string containing the paginated list of charts from GET /api/v1/chart/,
+        including each chart's ID, name, viz_type, and datasource info.
+    """
+    # Delegate to the generic Superset API helper for the paginated GET request
     return await impl_superset_api(manager, server_id, "GET", "/api/v1/chart/")
 
 
@@ -1119,6 +1401,23 @@ async def get_chart_info(
     server_id: str,
     chart_id: Union[int, str]
 ) -> str:
+    """
+    MCP Tool: superset_get_chart_info - Get detailed information about a specific chart.
+
+    Fetches the complete configuration and metadata for a single chart, including
+    its viz_type, params (as JSON), datasource reference, slice name, and description.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        chart_id: The numeric (or string) ID of the chart to inspect.
+
+    Returns:
+        JSON string containing the full chart details from GET /api/v1/chart/{id},
+        including slice_name, viz_type, params, datasource_id, datasource_type,
+        and other metadata.
+    """
+    # Delegate to the generic Superset API helper for the GET request
     return await impl_superset_api(
        manager, server_id, "GET", f"/api/v1/chart/{chart_id}"
     )
@@ -1131,6 +1430,29 @@ async def generate_chart(
     slice_name: Optional[str] = None,
     description: Optional[str] = None
  ) -> str:
+    """
+    MCP Tool: superset_generate_chart - Generate a chart from a config dict and dataset.
+
+    Similar to create_chart but takes a config dict (instead of individual params)
+    and a dataset_id (instead of datasource_id/type). Performs the same comprehensive
+    validation pipeline: viz_type check, metric validation, column validation,
+    datasource compatibility, and post-creation data endpoint testing.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        dataset_id: The numeric ID of the dataset to use as the chart's datasource.
+        config: JSON string of the chart configuration. Must include 'viz_type' and
+            any viz_type-specific fields (metrics, columns, groupby, etc.).
+        slice_name: Optional display name for the chart. Defaults to
+            "Chart from dataset {dataset_id}" if not provided.
+        description: Optional human-readable description of the chart.
+
+    Returns:
+        JSON string containing the created chart's details (chart_id, slice_name, url,
+        result) on success, or a ChartError JSON with detailed error messages on failure.
+    """
+    # Step 1: Retrieve server context and validate it exists
     ctx = manager.get_context(server_id)
     if not ctx:
         mc = get_metrics()
@@ -1138,17 +1460,18 @@ async def generate_chart(
         mc.record_error(tool="superset_generate_chart", error_message=f"Server '{server_id}' not found.")
         return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
 
-    # Ensure chart types cache is available
+    # Step 2: Ensure chart types cache is available for validation
     known_types = await _ensure_chart_types_cached(manager, server_id)
 
     start_time = time.monotonic()
     try:
+        # Step 3: Parse the config JSON string into a dict
         chart_config = json.loads(config) if config else {}
 
         viz_type = chart_config.get("viz_type", "table")
         actual_viz_type = _resolve_viz_type(viz_type)
 
-        # Validate viz_type against known chart types
+        # Step 4: Validate viz_type against known chart types
         if not _is_known_chart_type(known_types, actual_viz_type):
             mc = get_metrics()
             mc.tool_calls.labels(tool="superset_generate_chart", status="error").inc()
@@ -1165,8 +1488,10 @@ async def generate_chart(
         form_data.update(chart_config)
         form_data["viz_type"] = actual_viz_type
 
+        # Step 5: Auto-fix params (set defaults, remove invalid keys)
         fixed_params = auto_fix_chart_params(actual_viz_type, form_data)
-        
+
+        # Step 6: Fetch dataset schema (columns + metrics) for validation
         dataset_columns = []
         dataset_metrics = []
         try:
@@ -1180,6 +1505,7 @@ async def generate_chart(
         except Exception:
             pass
         
+        # Step 7: ── Column-level validation (with dataset columns available) ──
         if dataset_columns:
             fixed_params, column_warnings = resolve_chart_params(fixed_params, dataset_columns)
             if column_warnings:
@@ -1187,7 +1513,7 @@ async def generate_chart(
             else:
                 validation_warning = None
             
-            # NEW: Validate chart data against dataset BEFORE creating
+            # Step 7a: Validate chart data against dataset BEFORE creating
             logger.info(f"Running pre-chart data validation for dataset_id={dataset_id}")
             validation_result = validate_chart_data_against_dataset(
                 fixed_params, dataset_columns, actual_viz_type
@@ -1214,7 +1540,7 @@ async def generate_chart(
                     status_code=400,
                 ).to_json()
             
-            # Merge validation warnings
+            # Step 7b: Merge validation warnings
             if validation_result.get("warnings"):
                 validation_warnings = "; ".join(validation_result["warnings"])
                 if validation_warning:
@@ -1228,7 +1554,7 @@ async def generate_chart(
                 f"skipping column validation"
             )
         
-        # ── Sankey validation (unconditional) ──
+        # Step 8: ── Sankey validation (unconditional) ──
         sankey_warning = _validate_sankey_params(fixed_params, slice_name)
         if sankey_warning:
             return ChartError(
@@ -1237,7 +1563,7 @@ async def generate_chart(
                 status_code=400,
             ).to_json()
         
-        # ── Metric validation (blocks creation if errors found) ──
+        # Step 9: ── Metric validation (blocks creation if errors found) ──
         metric_errors = _validate_metrics_against_dataset(
             fixed_params, dataset_metrics, actual_viz_type, dataset_columns
         )
@@ -1262,7 +1588,7 @@ async def generate_chart(
                 status_code=400,
             ).to_json()
         
-        # ── Datasource compatibility (blocks creation if errors found) ──
+        # Step 10: ── Datasource compatibility (blocks creation if errors found) ──
         if dataset_columns:
             from modules.SupersetModule.superset_validation import validate_datasource_compatibility
             compat_errors = validate_datasource_compatibility(actual_viz_type, fixed_params, dataset_columns)
@@ -1377,13 +1703,35 @@ async def get_chart_preview(
     server_id: str,
     chart_id: Union[int, str]
 ) -> str:
+    """
+    MCP Tool: superset_get_chart_preview - Get a visual preview URL for a chart.
+
+    Generates URLs for previewing a chart in Superset's Explore interface or
+    embedded in other pages. Useful for sharing chart links or embedding charts
+    in external dashboards.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        chart_id: The numeric (or string) ID of the chart to preview.
+
+    Returns:
+        JSON string containing:
+          - preview_url: URL to view the chart in Superset's Explore interface
+          - chart_id: The chart ID
+          - embed_url: URL suitable for embedding in external pages
+        Returns ChartError JSON if the server is not found.
+    """
+    # Step 1: Retrieve server context
     ctx = manager.get_context(server_id)
     if not ctx:
        return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
 
     try:
+       # Step 2: Build the Explore URL for interactive preview
        base_url = ctx.config.base_url.rstrip("/")
        preview_url = f"{base_url}/explore/?slice_id={chart_id}"
+       # Step 3: Build the embed URL for inline display
        embed_url = f"{base_url}/superset/slice/{chart_id}/"
 
        return ChartPreviewResponse(
@@ -1400,11 +1748,30 @@ async def get_chart_data(
     server_id: str,
     chart_id: Union[int, str]
 ) -> str:
+    """
+    MCP Tool: superset_get_chart_data - Fetch underlying data for a chart.
+
+    Calls the chart's data endpoint to retrieve the raw data that the chart
+    visualizes. Useful for debugging chart rendering issues, exporting data,
+    or analyzing the query results that power a visualization.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        chart_id: The numeric (or string) ID of the chart whose data to fetch.
+
+    Returns:
+        JSON string containing the chart's data from GET /api/v1/chart/{id}/data/,
+        including the data rows, SQL query, row count, and execution metadata.
+        Returns ChartError JSON if the request fails.
+    """
+    # Step 1: Retrieve server context
     ctx = manager.get_context(server_id)
     if not ctx:
        return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
 
     try:
+       # Step 2: Execute the GET request to fetch the chart's underlying data
        endpoint = f"/api/v1/chart/{chart_id}/data/"
        resp = await execute_request(ctx, "GET", endpoint)
        resp.raise_for_status()
@@ -1424,14 +1791,36 @@ async def get_chart_type_schema(
     server_id: str,
     chart_type: str
 ) -> str:
+    """
+    MCP Tool: superset_get_chart_type_schema - Get schema for a specific chart type.
+
+    Fetches the JSON schema for a specific chart type's parameters from the Superset API.
+    The schema describes all valid parameters, their types, required fields, and default
+    values. Useful for understanding what configuration options are available for a
+    particular chart type.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        chart_type: The Superset viz_type to get the schema for (e.g., 'echarts_bar',
+            'echarts_timeseries_line', 'table').
+
+    Returns:
+        JSON string containing the chart type schema with the chart_type name and
+        the raw schema object from the Superset API. Returns ChartError JSON if
+        the schema cannot be retrieved.
+    """
+    # Step 1: Validate server context exists
     ctx = manager.get_context(server_id)
     if not ctx:
        return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
 
     try:
+        # Step 2: Fetch the schema from the Superset charts API
         result = await impl_superset_api(
             manager, server_id, "GET", f"/api/v1/chart/schemas/{chart_type}/"
         )
+        # Step 3: Wrap the raw result in a ChartTypeSchema model for structured output
         return ChartTypeSchema(chart_type=chart_type, schema_data={"raw": result}).model_dump_json(indent=2)
     except Exception as e:
         return ChartError(f"Unexpected error getting chart type schema: {e}", details=str(e)).to_json()
@@ -1592,11 +1981,12 @@ async def get_all_chart_schemas(manager: ConnectionManager, server_id: str) -> s
         return "\n".join(lines)
 
     # --- Main logic ---
+    # Step 1: Validate server context exists
     ctx = manager.get_context(server_id)
     if not ctx:
         return ChartError(f"Server '{server_id}' not found.", status_code=404).to_json()
 
-    # Check cache
+    # Step 2: Check cache for previously fetched schemas (24-hour TTL)
     if os.path.isfile(CACHE_FILE):
         try:
             file_age = time.time() - os.path.getmtime(CACHE_FILE)
@@ -1607,14 +1997,14 @@ async def get_all_chart_schemas(manager: ConnectionManager, server_id: str) -> s
         except (json.JSONDecodeError, OSError):
             pass
 
-    # Fetch chart API info to discover all chart types
+    # Step 3: Fetch chart API info to discover all chart types
     try:
         info_raw = await impl_superset_api(manager, server_id, "GET", "/api/v1/chart/_info")
         info_data = json.loads(info_raw)
     except Exception as e:
         return ChartError(f"Failed to fetch chart API info: {e}", details=str(e)).to_json()
 
-    # Extract chart type names from _info response
+    # Step 4: Extract chart type names from _info response
     chart_types = []
     properties = info_data.get("result", {}).get("properties", {})
 
@@ -1659,11 +2049,11 @@ async def get_all_chart_schemas(manager: ConnectionManager, server_id: str) -> s
         chart_types = list(set(chart_types))
         chart_types.sort()
 
-    # Fetch schemas for all chart types (parallel)
+    # Step 5: Fetch schemas for all chart types in parallel
     tasks = [_fetch_schema(ct) for ct in chart_types]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Process results
+    # Step 6: Process results, building parsed schema entries for each chart type
     all_schemas = []
     for result in results:
         if isinstance(result, Exception):

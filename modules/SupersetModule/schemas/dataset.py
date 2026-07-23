@@ -1,58 +1,95 @@
+"""
+Pydantic schemas for Apache Superset dataset API interactions.
+
+Defines models for dataset listing, detail views, creation payloads
+(for both virtual and physical datasets), and database schema responses.
+"""
+
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
 class DatasetListItem(BaseModel):
-    id: int
-    table_name: Optional[str] = None
-    schema: Optional[str] = None
-    database_id: Optional[int] = None
-    database_name: Optional[str] = None
-    sql: Optional[str] = None
-    description: Optional[str] = None
-    changed_on: Optional[str] = None
-    created_on: Optional[str] = None
+    """
+    Lightweight dataset summary for list/index views.
+
+    Used in paginated dataset listing responses. Contains only essential
+    identity and metadata without full column or metric definitions.
+    """
+    id: int  # Unique dataset ID in Superset
+    table_name: Optional[str] = None  # Name of the underlying table or query alias
+    schema: Optional[str] = None  # Database schema name (e.g., "public", "analytics")
+    database_id: Optional[int] = None  # ID of the database this dataset belongs to
+    database_name: Optional[str] = None  # Human-readable database name
+    sql: Optional[str] = None  # SQL query for virtual datasets
+    description: Optional[str] = None  # Dataset description text
+    changed_on: Optional[str] = None  # Last modified timestamp
+    created_on: Optional[str] = None  # Creation timestamp
 
 
 class DatasetDetail(BaseModel):
-    id: int
-    table_name: Optional[str] = None
-    schema: Optional[str] = None
-    description: Optional[str] = None
-    sql: Optional[str] = None
-    database: Optional[Dict[str, Any]] = None
-    columns: List[Dict[str, Any]] = Field(default_factory=list)
-    metrics: List[Dict[str, Any]] = Field(default_factory=list)
-    owners: List[Dict[str, Any]] = Field(default_factory=list)
-    changed_on: Optional[str] = None
-    created_on: Optional[str] = None
-    changed_by: Optional[Dict[str, Any]] = None
-    created_by: Optional[Dict[str, Any]] = None
-    datasource_type: Optional[str] = None
+    """
+    Full dataset details including columns, metrics, and ownership.
+
+    Used when fetching a single dataset by ID. Contains all column definitions,
+    computed metrics, ownership info, and datasource type classification.
+    """
+    id: int  # Unique dataset ID
+    table_name: Optional[str] = None  # Name of the underlying table or query alias
+    schema: Optional[str] = None  # Database schema name
+    description: Optional[str] = None  # Dataset description
+    sql: Optional[str] = None  # SQL query (for virtual datasets)
+    database: Optional[Dict[str, Any]] = None  # Database object details
+    columns: List[Dict[str, Any]] = Field(default_factory=list)  # Column definitions with types and metadata
+    metrics: List[Dict[str, Any]] = Field(default_factory=list)  # Computed metric definitions
+    owners: List[Dict[str, Any]] = Field(default_factory=list)  # Owners of this dataset
+    changed_on: Optional[str] = None  # Last modified timestamp
+    created_on: Optional[str] = None  # Creation timestamp
+    changed_by: Optional[Dict[str, Any]] = None  # User who last modified the dataset
+    created_by: Optional[Dict[str, Any]] = None  # User who created the dataset
+    datasource_type: Optional[str] = None  # Type: "table" for physical, "query" for virtual
 
 
 class VirtualDatasetCreatePayload(BaseModel):
-    dataset_name: str
-    database_id: int
-    sql: str
-    schema: Optional[str] = None
-    description: Optional[str] = None
-    columns: Optional[List[Dict[str, Any]]] = None
-    metrics: Optional[List[Dict[str, Any]]] = None
+    """
+    Request payload for creating a virtual dataset from a SQL query.
+
+    Used by the create_virtual_dataset automation tool. Takes a raw SQL
+    SELECT statement and registers it as a dataset for charting.
+    """
+    dataset_name: str  # Display name for the virtual dataset
+    database_id: int  # Database ID where the SQL query will be executed
+    sql: str  # SQL SELECT query to define the dataset
+    schema: Optional[str] = None  # Optional database schema for query resolution
+    description: Optional[str] = None  # Optional dataset description
+    columns: Optional[List[Dict[str, Any]]] = None  # Optional explicit column definitions
+    metrics: Optional[List[Dict[str, Any]]] = None  # Optional computed metric definitions
 
 
 class PhysicalDatasetCreatePayload(BaseModel):
-    table_name: str
-    database_id: int
-    schema: Optional[str] = None
-    owners: Optional[List[int]] = None
-    metrics: Optional[List[Dict[str, Any]]] = None
-    columns: Optional[List[Dict[str, Any]]] = None
-    sql_expression: Optional[str] = None
+    """
+    Request payload for registering a physical database table as a dataset.
+
+    Used by the create_dataset automation tool. Wraps a database table
+    reference in a Superset dataset with optional custom columns and metrics.
+    """
+    table_name: str  # Name of the physical table in the database
+    database_id: int  # Database ID where the table resides
+    schema: Optional[str] = None  # Optional schema name (defaults to public)
+    owners: Optional[List[int]] = None  # Optional list of owner user IDs
+    metrics: Optional[List[Dict[str, Any]]] = None  # Optional metric definitions to add
+    columns: Optional[List[Dict[str, Any]]] = None  # Optional column overrides
+    sql_expression: Optional[str] = None  # Optional custom SQL expression for derived columns
 
 
 class DatabaseSchemaResponse(BaseModel):
-    database_id: int
-    database_name: Optional[str] = None
-    engine: Optional[str] = None
-    tables: List[Dict[str, Any]] = Field(default_factory=list)
+    """
+    Response containing database schema metadata with its tables.
+
+    Used when introspecting a database's schema structure. Returns
+    the database identity (ID, name, engine) and a list of table definitions.
+    """
+    database_id: int  # ID of the database being inspected
+    database_name: Optional[str] = None  # Human-readable database name
+    engine: Optional[str] = None  # Database engine type (e.g., "postgresql", "mssql")
+    tables: List[Dict[str, Any]] = Field(default_factory=list)  # List of table metadata in the database

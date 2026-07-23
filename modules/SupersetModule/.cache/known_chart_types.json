@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-20 14:49:00 UTC",
+  "generated_at": "2026-07-23 10:18:11 UTC",
   "chart_types": [
     "echarts_timeseries_line",
     "echarts_timeseries_bar",
@@ -29,7 +29,6 @@
     "mixed_timeseries",
     "word_cloud",
     "world_map",
-    "world_map",
-    "parallel"
+    "world_map"
   ]
 }

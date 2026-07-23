@@ -1,3 +1,25 @@
+"""
+Superset dashboard layout generation and chart/dashboard creation rule builders.
+
+Provides functions for:
+1. Generating robust dashboard layouts with the ROOT→GRID→ROW→CHART hierarchy
+   required by Superset's frontend. This prevents "Cannot read properties of
+   undefined" errors that occur when charts are placed directly under GRID_ID
+   without intermediate ROW containers.
+
+2. Producing human-readable Markdown rule guides for chart and dashboard
+   creation, serving as documentation and LLM context for Superset API usage.
+
+Key Functions:
+    - generate_robust_dashboard_layout(): Builds a hierarchical position_json
+      with proper parent-child relationships. Charts are grouped into rows of 2
+      (using a 12-column Bootstrap grid) to ensure proper grid layout.
+    - get_chart_creation_rules(): Returns Markdown guide covering 20+ chart types
+      with required parameters, metric formats, and creation workflow.
+    - get_dashboard_creation_rules(): Returns Markdown guide covering dashboard
+      hierarchy rules, required properties, and grid sizing.
+"""
+
 import json
 import uuid
 from typing import Any, Dict, List
@@ -15,22 +37,58 @@ __all__ = [
 def generate_robust_dashboard_layout(chart_info: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Generates a robust position_json for Superset.
-    Enforces ROOT -> GRID -> ROW hierarchy.
-    chart_info: List of dicts with {'id': int, 'name': str}
+
+    Description:
+        Builds a nested layout dictionary that enforces the ROOT → GRID → ROW →
+        CHART hierarchy required by Superset's frontend. Charts are grouped into
+        rows of 2 (6 columns each in a 12-column Bootstrap grid) to ensure
+        proper responsive layout.
+
+        The ROOT→GRID→ROW→CHART hierarchy is mandatory because Superset's
+        dashboard rendering engine iterates children of GRID_ID expecting ROW
+        containers. Placing a CHART directly under GRID_ID causes "Cannot read
+        properties of undefined (reading 'length')" errors.
+
+    Args:
+        chart_info: List of dicts, each with:
+            - 'id' (int): The chart's numerical ID in Superset.
+            - 'name' (str): The chart's human-readable slice name.
+
+    Returns:
+        A position_json dict with the following structure:
+        {
+            "DASHBOARD_VERSION_KEY": "v2",
+            "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["GRID_ID"]},
+            "GRID_ID": {"type": "GRID", "id": "GRID_ID", "children": ["ROW-R0-xxx", ...], "parents": ["ROOT_ID"]},
+            "ROW-R0-xxx": {"type": "ROW", "id": "ROW-R0-xxx", "children": ["CHART-xxx-42"], "parents": ["GRID_ID"], "meta": {...}},
+            "CHART-xxx-42": {"type": "CHART", "id": "CHART-xxx-42", "children": [], "parents": ["ROW-R0-xxx"], "meta": {"chartId": 42, ...}},
+            ...
+        }
     """
+    # Step 1: Generate a unique dashboard UUID to ensure chart/row IDs are unique
+    #   across different dashboards (prevents ID collisions in Superset's store).
     dashboard_uuid = str(uuid.uuid4())[:8]
+
+    # Step 2: Create the base layout structure.
+    #   ROOT_ID is the top-level container; GRID_ID is the only child of ROOT.
+    #   All content rows will be children of GRID_ID.
     layout = {
         "DASHBOARD_VERSION_KEY": "v2",
         "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["GRID_ID"]},
         "GRID_ID": {"type": "GRID", "id": "GRID_ID", "children": [], "parents": ["ROOT_ID"]},
     }
 
+    # Step 3: Group charts into rows — 2 charts per row (12-column grid, 6 cols each).
+    #   Using window_size=2 ensures charts don't overflow the Bootstrap grid.
     rows = [chart_info[i : i + 2] for i in range(0, len(chart_info), 2)]
 
+    # Step 4: For each row, create a ROW container and add chart children.
     for row_idx, row_charts in enumerate(rows):
+        # Step 4a: Create the row ID and register it as a child of GRID_ID
         row_id = f"ROW-R{row_idx}-{dashboard_uuid}"
         layout["GRID_ID"]["children"].append(row_id)
 
+        # Step 4b: Initialize the ROW container with metadata for transparent background
         layout[row_id] = {
             "type": "ROW",
             "id": row_id,
@@ -39,10 +97,17 @@ def generate_robust_dashboard_layout(chart_info: List[Dict[str, Any]]) -> Dict[s
             "meta": {"background": "BACKGROUND_TRANSPARENT"},
         }
 
+        # Step 4c: Create each chart child under this row
         for chart_idx, chart in enumerate(row_charts):
+            # Generate a unique chart container ID
             chart_cid = f"CHART-{dashboard_uuid}-{chart['id']}"
             layout[row_id]["children"].append(chart_cid)
 
+            # Step 4d: Build the CHART node with required metadata
+            #   - chartId: the Superset chart's integer ID for API referencing
+            #   - height: row height in grid units (50 = ~400px)
+            #   - width: column span (6 out of 12 = half width)
+            #   - sliceName: the display name shown on the dashboard
             layout[chart_cid] = {
                 "type": "CHART",
                 "id": chart_cid,
@@ -60,6 +125,21 @@ def generate_robust_dashboard_layout(chart_info: List[Dict[str, Any]]) -> Dict[s
 
 
 def get_chart_creation_rules() -> str:
+    """Return comprehensive Markdown guide for creating Superset charts.
+
+    Description:
+        Produces a structured reference document covering all 20+ Superset
+        viz_types with their required and optional parameters, metric format
+        specifications, creation workflow steps, and important notes about
+        datasource format, row limits, and time grain values.
+
+        This serves as both developer documentation and LLM context for the
+        Superset automation tools.
+
+    Returns:
+        A Markdown string with sections: Chart Types & Required Params,
+        Metric Format, Chart Creation Workflow, and Important Notes.
+    """
     return """
 # Superset Chart Creation Rules
 
@@ -210,6 +290,20 @@ Example:
 
 
 def get_dashboard_creation_rules() -> str:
+    """Return Markdown guide for creating Superset dashboards.
+
+    Description:
+        Produces a structured reference covering the mandatory dashboard layout
+        hierarchy (ROOT→GRID→ROW→CHART), required component properties,
+        metadata requirements, and common pitfalls.
+
+        Used as LLM context and developer documentation for the Superset
+        dashboard automation tools.
+
+    Returns:
+        A Markdown string with sections: Strict Hierarchy, Required Properties,
+        Meta Data, and Avoid Top-Level Charts.
+    """
     return """
 # Superset Dashboard Creation Rules
 

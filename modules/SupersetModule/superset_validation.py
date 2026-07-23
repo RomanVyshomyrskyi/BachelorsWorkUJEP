@@ -8,6 +8,52 @@ The core issue: Superset's frontend expects specific nested structures
 for metrics and axis values. When these structures are malformed, the
 frontend crashes with TypeError when trying to access e.column.columnName.
 
+Architecture Overview:
+    This module implements a two-phase pipeline for chart parameter hygiene:
+
+    Phase 1 — Validation (`validate_chart_params`):
+        Checks chart params against the expected format for each viz_type.
+        Uses 10 category sets that define which metric format each viz_type expects:
+          1. SINGULAR_STRING_METRIC_TYPES  — single string metric ("metric": "count")
+          2. SINGULAR_ADHOC_METRIC_TYPES   — single AdHocMetricObject dict
+          3. STRING_METRICS_ARRAY_TYPES    — array of string metrics
+          4. ADHOC_METRICS_ARRAY_TYPES     — array of AdHocMetricObject dicts
+          5. MIXED_METRICS_TYPES           — accepts both strings and objects in array
+          6. NO_METRICS_TYPES              — no metric/metrics field at all
+          7. ENTITY_REQUIRED_TYPES         — needs 'entity' field (world_map)
+          8. SANKEY_TYPES                  — needs source/target fields
+          9. DATASOURCE_REQUIREMENTS       — needs specific column types
+         10. TIME_BASED_TYPES              — needs granularity_sqla + time_range
+        Checks duplicate labels, nested axis structure, and required fields.
+
+    Phase 2 — Auto-Fix (`auto_fix_chart_params`):
+        Applies 18+ fix rules in sequence to correct common parameter mistakes:
+          Fix 0:  datasource_id type conversion (str → int)
+          Fix 1:  entity field for map types
+          Fix 1.5: Sankey cycle-breaking SQL hint
+          Fix 2:  Pie/waterfall groupby normalization (list → string)
+          Fix 3:  Pie/waterfall metrics array → metric object
+          Fix 3.1: Singular string types metrics array → metric string
+          Fix 4:  String metrics → AdHocMetricObject conversion (except bare 'count')
+          Fix 5:  Scatter/bubble axis nesting correction (flat → nested column)
+          Fix 6:  String array type malformed object fix
+          Fix 7:  AdHocMetricObject required fields completion
+          Fix 8:  AdHoc metrics array fix
+          Fix 9:  Mixed metrics type fix
+          Fix 11: Universal groupby array normalization (string → [string])
+          Fix 12: Big number time config defaults
+          Fix 13: Universal null column_name replacement
+          Fix 13b: Universal orderby cleanup (drop null entries)
+          Fix 13c: Columns/all_columns null entry cleanup
+          Fix 14: String metrics → AdHocMetricObject in arrays
+          Fix 14a: Axis fields → AdHocMetricObject
+          Fix 16: Universal aggregate/expressionType/label completion
+          Fix 17: Time series granularity/time_range defaults
+          Fix 18: Universal label for groupby/orderby/columns dict entries
+
+    The auto-fixer is iterative and covers multiple metric fields (metric, metrics,
+    metrics_b, timeseries_limit_metric) plus axis fields (x, y, size, series).
+
 Categorization matches ACTUAL working chart formats from Superset's own examples.
 """
 
@@ -17,8 +63,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 # ── Viz type categories – matches ACTUAL working chart formats ────────────────
+# These 10 category sets classify every Superset chart viz_type by the
+# metric format it expects. Used by validate_chart_params to check format
+# correctness and by auto_fix_chart_params to apply the right conversions.
 
-# Single string metric:  "metric": "count"  or  "metric": "SUM(sales)"
+# Category 1: Chart types that expect a SINGLE STRING metric.
+#   "metric": "count"  or  "metric": "SUM(sales)"
 SINGULAR_STRING_METRIC_TYPES: set = {
     "big_number",
     "big_number_total",
@@ -34,13 +84,15 @@ SINGULAR_STRING_METRIC_TYPES: set = {
     "world_map",
 }
 
-# Single AdHocMetricObject:  "metric": {"aggregate": "SUM", "column": {...}}
+# Category 2: Chart types that expect a SINGLE AdHocMetricObject dict.
+#   "metric": {"aggregate": "SUM", "column": {...}}
 SINGULAR_ADHOC_METRIC_TYPES: set = {
     "pie",
     "waterfall",
 }
 
-# Array of strings:  "metrics": ["count", "SUM(col)"]
+# Category 3: Chart types that expect an ARRAY of string metrics.
+#   "metrics": ["count", "SUM(col)"]
 STRING_METRICS_ARRAY_TYPES: set = {
     "echarts_timeseries_line",
     "echarts_timeseries_bar",
@@ -51,37 +103,37 @@ STRING_METRICS_ARRAY_TYPES: set = {
     # REMOVED: "parallel"  — chart plugin not registered on Superset 6.1.0
 }
 
-# Array of AdHocMetricObjects:  "metrics": [{"aggregate": "SUM", ...}]
+# Category 4: Chart types that expect an ARRAY of AdHocMetricObject dicts.
+#   "metrics": [{"aggregate": "SUM", ...}]
 ADHOC_METRICS_ARRAY_TYPES: set = {
     "mixed_timeseries",
     "pivot_table_v2",
 }
 
-# Mixed: accepts BOTH strings and objects in the array
+# Category 5: Chart types that accept BOTH strings and objects in the metrics array.
 MIXED_METRICS_TYPES: set = {
     "radar",
 }
 
-# No metric/metrics field at all
+# Category 6: Chart types that have NO metric/metrics field at all.
 NO_METRICS_TYPES: set = {
     "table",
     "histogram_v2",
     "gantt_chart",
 }
 
-# Requires an 'entity' field for geographic mapping
+# Category 7: Requires an 'entity' field for geographic mapping.
 ENTITY_REQUIRED_TYPES: set = {
     "world_map",
 }
 
-# Requires source/target fields and validates DAG structure
+# Category 8: Requires source/target fields and validates DAG structure.
 SANKEY_TYPES: set = {
     "sankey_v2",
 }
 
-# Viz types that need specific datasource column types for compatibility
-# Key = viz_type, Value = required column patterns
-# Each pattern: {"required": [...], "optional": [...], "x_axis_temporal": bool}
+# Category 9: Viz types that need specific datasource column types for compatibility.
+#   Maps viz_type → {required, optional, x_axis_temporal, description}
 DATASOURCE_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
     "world_map": {
         "required": ["entity"],
@@ -160,7 +212,8 @@ DATASOURCE_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
 }
 
 
-# Chart types that need granularity_sqla + time_range (all time-based + big_number)
+# Category 10: Chart types that need granularity_sqla + time_range.
+#   All time-based charts plus big_number (which can show trend lines).
 TIME_BASED_TYPES: set = {
     "echarts_timeseries_line", "echarts_timeseries_bar", "echarts_area",
     "echarts_timeseries_scatter", "mixed_timeseries", "waterfall",
@@ -177,20 +230,49 @@ INVALID_METRIC_STRINGS: set = {
 
 
 def _is_adhoc_metric_object(val: Any) -> bool:
-    """Check if a value is a properly formatted AdHocMetricObject dict."""
+    """
+    Check if a value is a properly formatted AdHocMetricObject dict.
+
+    Description:
+        Validates that a dict has the required nested structure of an AdHocMetricObject:
+        a 'column' key containing a dict with a non-empty 'column_name' string.
+
+    Args:
+        val: Value to check.
+
+    Returns:
+        True if val is a dict with valid column.column_name structure, False otherwise.
+    """
+    # Step 1: Must be a dict — non-dict values (strings, None, lists) are never valid
     if not isinstance(val, dict):
         return False
+    # Step 2: Must have a 'column' key whose value is itself a dict
     column = val.get("column")
     if not isinstance(column, dict):
         return False
+    # Step 3: The nested 'column_name' must exist and be a non-empty string
     column_name = column.get("column_name")
     return bool(column_name and isinstance(column_name, str))
 
 
 def _is_string_metric(val: Any) -> bool:
-    """Check if a value is a valid string metric like 'count', 'SUM(col)', etc."""
+    """
+    Check if a value is a valid string metric like 'count', 'SUM(col)', etc.
+
+    Description:
+        Returns True if val is a non-empty, non-whitespace string that could
+        represent a metric (e.g. "count", "SUM(sales)", "AVG(price)").
+
+    Args:
+        val: Value to check.
+
+    Returns:
+        True if val is a non-empty string, False otherwise.
+    """
+    # Step 1: Must be a string type
     if not isinstance(val, str):
         return False
+    # Step 2: Must have non-whitespace content (empty/whitespace strings are invalid)
     return val.strip() != ""
 
 
@@ -198,12 +280,25 @@ def _parse_string_metric(metric_str: str) -> Tuple[str, str]:
     """
     Parse a string metric like 'SUM(sales)' or 'AVG(price)' into (aggregate, column_name).
 
-    Returns ('AVG', 'unknown') if the metric doesn't match a known pattern.
+    Description:
+        Extracts the aggregation function and column name from a metric string.
+        Handles special case 'count' and standard SQL expressions.
+        Falls back to ('AVG', metric_str) for unrecognized patterns.
+
+    Args:
+        metric_str: Metric string like 'SUM(sales)', 'AVG(price)', or 'count'.
+
+    Returns:
+        Tuple of (aggregate, column_name). Returns ('COUNT', 'count') for 'count'.
+        Returns ('AVG', metric_str) as fallback for unrecognized patterns.
     """
     metric_str = metric_str.strip()
+    # Step 1: Special case — bare 'count' is a built-in Superset metric (COUNT(*))
     if metric_str.lower() == "count":
         return ("COUNT", "count")
 
+    # Step 2: Match SQL expression format: SUM(column), AVG(column), etc.
+    #   Uses case-insensitive regex to extract function name and column inside parens.
     match = re.match(
         r"^(SUM|AVG|MIN|MAX|COUNT|COUNT_DISTINCT)\s*\(\s*(.+?)\s*\)$",
         metric_str,
@@ -212,12 +307,36 @@ def _parse_string_metric(metric_str: str) -> Tuple[str, str]:
     if match:
         return (match.group(1).upper(), match.group(2).strip())
 
+    # Step 3: Fallback — treat entire string as column name with AVG aggregation
     return ("AVG", metric_str)
 
 
 def _build_adhoc_metric_from_string(metric_str: str) -> Dict[str, Any]:
-    """Convert a string metric like 'SUM(sales)' to an AdHocMetricObject."""
+    """
+    Convert a string metric like 'SUM(sales)' to an AdHocMetricObject.
+
+    Description:
+        Parses a string metric and constructs a properly nested AdHocMetricObject
+        dict with aggregate, column, expressionType, and label fields.
+
+    Args:
+        metric_str: String metric like 'SUM(sales)' or 'AVG(price)'.
+
+    Returns:
+        Dict formatted as an AdHocMetricObject with all required fields.
+
+    Example:
+        >>> _build_adhoc_metric_from_string("SUM(sales)")
+        {'aggregate': 'SUM', 'column': {'column_name': 'sales'}, 'expressionType': 'SIMPLE', 'label': 'SUM(sales)'}
+    """
+    # Step 1: Parse the metric string to extract aggregate function and column name
+    #   "SUM(sales)" → agg="SUM", col_name="sales"
+    #   "AVG(price)" → agg="AVG", col_name="price"
     agg, col_name = _parse_string_metric(metric_str)
+
+    # Step 2: Build the AdHocMetricObject dict with proper nested structure.
+    #   The frontend requires this exact shape — flat alternatives cause
+    #   'e.column is undefined' errors.
     return {
         "aggregate": agg,
         "column": {"column_name": col_name},
@@ -233,12 +352,30 @@ def validate_chart_params(viz_type: str, params: Dict[str, Any]) -> List[str]:
     """
     Validate chart params and return a list of human-readable error messages.
 
-    Returns an empty list if params are valid.
+    Description:
+        Performs comprehensive validation of chart parameters against the expected
+        format for each viz type. Checks metric format, required fields, axis
+        structure, and duplicate labels. Returns an empty list if params are valid.
+
+    Args:
+        viz_type: The Superset viz_type string (e.g. "echarts_timeseries_line", "pie").
+        params: Chart params dict to validate.
+
+    Returns:
+        List of error message strings. Empty list means params are valid.
+
+    Example:
+        >>> errors = validate_chart_params("pie", {"groupby": ["product_line"]})
+        >>> errors  # Missing 'metric' field
+        ["Chart 'pie' is missing 'metric' field. Add: 'metric': 'count' (or 'SUM(column_name)')."]
     """
     errors: List[str] = []
     actual_viz = viz_type
 
-    # --- Check 1: entity field for map types ---
+    # ═══ Phase 1: Field existence checks (entity, source/target) ═══
+
+    # Check 1: world_map needs an 'entity' field for geographic mapping resolution.
+    #   Without this, Superset can't map data points to geographic regions.
     if actual_viz in ENTITY_REQUIRED_TYPES:
         if not params.get("entity"):
             errors.append(
@@ -246,7 +383,8 @@ def validate_chart_params(viz_type: str, params: Dict[str, Any]) -> List[str]:
                 f"Add: 'entity': 'country_code' (or the column with country identifiers)."
             )
 
-    # --- Check 1.5: Sankey charts require source/target fields ---
+    # Check 1.5: Sankey charts need source/target to define flow between nodes.
+    #   Missing either causes the DAG to be incomplete — no edges to render.
     if actual_viz in SANKEY_TYPES:
         if "source" not in params:
             errors.append(
@@ -259,10 +397,14 @@ def validate_chart_params(viz_type: str, params: Dict[str, Any]) -> List[str]:
                 f"Add: 'target': 'channel_2' (the target column name)."
             )
 
-    # --- Check 2: metric vs metrics (singular vs plural) based on viz type ---
+    # ═══ Phase 2: Metric format validation per viz type category ═══
+    #   Each viz_type belongs to exactly one category that specifies the expected
+    #   format (singular vs. array, string vs. AdHocMetricObject).
 
     if actual_viz in SINGULAR_STRING_METRIC_TYPES:
-        # Should have "metric": "string_value"
+        # Category 1: Expects a single string metric.
+        #   Valid: "metric": "count", "metric": "SUM(sales)"
+        #   Invalid: "metrics" array, null metric, placeholder strings like "undefined"
         if "metric" not in params and "metrics" not in params:
             errors.append(
                 f"Chart '{actual_viz}' is missing 'metric' field. "
@@ -276,6 +418,7 @@ def validate_chart_params(viz_type: str, params: Dict[str, Any]) -> List[str]:
             )
         elif "metric" in params:
             metric_val = params["metric"]
+            # Check for null metric value
             if metric_val is None:
                 errors.append(
                     f"Chart '{actual_viz}' has null 'metric'. "
@@ -283,6 +426,7 @@ def validate_chart_params(viz_type: str, params: Dict[str, Any]) -> List[str]:
                 )
             elif _is_string_metric(metric_val):
                 ms = metric_val.strip().lower()
+                # Check for invalid placeholder strings
                 if ms in INVALID_METRIC_STRINGS:
                     errors.append(
                         f"Chart '{actual_viz}' has invalid metric string "
@@ -427,13 +571,16 @@ def validate_chart_params(viz_type: str, params: Dict[str, Any]) -> List[str]:
                         )
 
     elif actual_viz in NO_METRICS_TYPES:
-        # table, histogram_v2, gantt_chart – no metrics field
+        # Category 6: table, histogram_v2, gantt_chart — should NOT have metric/metrics
         if "metric" in params or "metrics" in params:
             errors.append(
                 f"Chart '{actual_viz}' should not have a 'metric' or 'metrics' field."
             )
 
-    # --- Check 5: Duplicate metric/column labels ---
+    # ═══ Phase 3: Duplicate label detection ═══
+    #   Superset frontend identifies metrics/columns by their labels, and duplicate
+    #   labels cause ambiguity in rendering. We check 'metric', 'metrics' array,
+    #   and 'groupby' for overlapping labels.
     labels_seen: set = set()
     # Collect labels from 'metric' (singular)
     if "metric" in params:
@@ -478,7 +625,13 @@ def validate_chart_params(viz_type: str, params: Dict[str, Any]) -> List[str]:
                 f"a metric with the same label. Rename one of them."
             )
 
-    # --- Check 3: Nested column structure for scatter/bubble axes ---
+    # ═══ Phase 4: Scatter/bubble axis nesting validation ═══
+    #   These charts use structured x/y axis objects that must have
+    #   {"column": {"column_name": "..."}} nesting — flat structures cause
+    #   'e.column is undefined' in the Superset frontend.
+    #   We detect two common anti-patterns:
+    #     a) "column_name" at the top level instead of inside "column"
+    #     b) "column" as a string instead of a dict with "column_name"
     if actual_viz in {"scatter", "echarts_timeseries_scatter", "bubble_v2"}:
         for axis in ["x", "y"]:
             if axis in params:
@@ -497,7 +650,10 @@ def validate_chart_params(viz_type: str, params: Dict[str, Any]) -> List[str]:
                             f"'expressionType': 'DIMENSION'}}'."
                         )
 
-    # --- Check 4: Required fields for AdHocMetricObjects ---
+    # ═══ Phase 5: Required fields for AdHocMetricObjects in singular metric types ═══
+    #   Pie/waterfall charts require a full AdHocMetricObject with both
+    #   'aggregate' and 'expressionType' fields. Missing either causes
+    #   the chart to fail silently or error on the frontend.
     if actual_viz in SINGULAR_ADHOC_METRIC_TYPES and "metric" in params:
         metric_val = params["metric"]
         if isinstance(metric_val, dict) and _is_adhoc_metric_object(metric_val):
@@ -517,27 +673,75 @@ def validate_chart_params(viz_type: str, params: Dict[str, Any]) -> List[str]:
 
 def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Auto-fix common parameter mistakes.
+    Auto-fix common parameter mistakes in chart params.
 
-    Returns a new params dict with corrections applied. Always call
-    validate_chart_params() after to check for remaining errors.
+    Description:
+        Applies a series of corrections to chart params to fix the most common
+        issues that cause Superset frontend errors (e.g., 'e.column is undefined',
+        'Data error', 'Cannot compile Column object'). Handles metric format
+        conversion, groupby normalization, null column replacement, and more.
+
+    Args:
+        viz_type: The Superset viz_type string.
+        params: Chart params dict with potential issues.
+
+    Returns:
+        A new params dict with corrections applied.
+
+    Note:
+        Always call validate_chart_params() after this function to check for
+        remaining errors that couldn't be auto-fixed.
+
+    Fixes applied (in order):
+        Fix 0:  datasource_id type conversion (str -> int)
+        Fix 1:  entity field for map types
+        Fix 1.5: cycle-breaking hint for Sankey charts
+        Fix 2:  Pie/waterfall groupby normalization (list -> string)
+        Fix 3:  Pie/waterfall metrics array -> metric object
+        Fix 3.1: Singular string metric types: metrics array -> metric string
+        Fix 4:  String metrics -> AdHocMetricObject conversion
+        Fix 5:  Scatter/bubble axis nesting correction
+        Fix 6:  String array type object fix
+        Fix 7:  AdHocMetricObject required fields completion
+        Fix 8:  AdHoc metrics array fix
+        Fix 9:  Mixed metrics type fix
+        Fix 11: Universal groupby array normalization
+        Fix 12: Big number time config for dashboard rendering
+        Fix 13: Universal null column_name replacement
+        Fix 13b: Universal orderby cleanup (drop null entries)
+        Fix 13c: Columns/all_columns null entry cleanup
+        Fix 17: Time series + big_number granularity/time_range defaults
+        Fix 14: String metrics -> AdHocMetricObject in arrays
+        Fix 14a: Axis fields -> AdHocMetricObject
+        Fix 16: Universal aggregate/expressionType/label completion
+        Fix 18: Universal label for groupby/orderby/columns dict entries
     """
-    fixed = json.loads(json.dumps(params))  # deep copy
+    # Deep copy via JSON round-trip — ensures no shared references with the
+    # original params dict, preventing unintended mutations.
+    fixed = json.loads(json.dumps(params))
     actual_viz = viz_type
 
-    # --- Fix 0: Ensure datasource_id is always present and is an integer ---
+    # ═══ Fix 0: Ensure datasource_id is always present and is an integer ═══
+    #   Superset expects datasource_id as int, but sometimes it comes as str
+    #   from JSON parsing or external API responses. The int conversion prevents
+    #   type mismatch errors when comparing or routing datasource references.
     if "datasource_id" in fixed and isinstance(fixed.get("datasource_id"), str):
         try:
             fixed["datasource_id"] = int(fixed["datasource_id"])
         except (ValueError, TypeError):
             pass
 
-    # --- Fix 1: Entity field for map types ---
+    # ═══ Fix 1: Entity field for map types ═══
+    #   World map uses 'entity' to identify the geographic column (e.g., country_code).
+    #   Default to "country_code" which is the most common column name.
     if actual_viz in ENTITY_REQUIRED_TYPES:
         if not fixed.get("entity"):
             fixed["entity"] = "country_code"
 
-    # --- Fix 1.5: Sankey charts — add cycle-breaking SQL hint ---
+    # ═══ Fix 1.5: Sankey charts — add cycle-breaking SQL hint ═══
+    #   Sankey diagrams require acyclic graphs. If source == target creates a cycle,
+    #   the chart fails. We inject a SQL hint that the user can add to their dataset
+    #   to break cycles (AND source_col < target_col).
     if actual_viz in SANKEY_TYPES:
         if "source" in fixed and "target" in fixed:
             source_col = fixed["source"]
@@ -550,7 +754,9 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                     f"HAVING {source_col} <> {target_col} AND {source_col} < {target_col}"
                 )
 
-    # --- Fix 2: Pie/waterfall — groupby must be string, not array ---
+    # ═══ Fix 2: Pie/waterfall — groupby must be string, not array ═══
+    #   These chart types expect a single dimension column, not a list.
+    #   If a list is provided, we pick the first element.
     if actual_viz in SINGULAR_ADHOC_METRIC_TYPES and "groupby" in fixed:
         groupby = fixed["groupby"]
         if isinstance(groupby, list) and len(groupby) == 1:
@@ -560,7 +766,9 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
         elif not isinstance(groupby, str):
             fixed["groupby"] = ""
 
-    # --- Fix 3: Pie/waterfall — metrics array → metric object ---
+    # ═══ Fix 3: Pie/waterfall — metrics array → metric object ═══
+    #   If the user mistakenly put metrics in an array (plural), move the
+    #   first element into the singular 'metric' field and delete the array.
     if actual_viz in SINGULAR_ADHOC_METRIC_TYPES and "metrics" in fixed and "metric" not in fixed:
         metric_list = fixed["metrics"]
         if isinstance(metric_list, list) and len(metric_list) > 0:
@@ -572,7 +780,7 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
         if "metrics" in fixed:
             del fixed["metrics"]
 
-    # --- Fix 3.1: SINGULAR_STRING_METRIC_TYPES — metrics array → metric string ---
+    # ═══ Fix 3.1: SINGULAR_STRING_METRIC_TYPES — metrics array → metric string ═══
     if actual_viz in SINGULAR_STRING_METRIC_TYPES and "metrics" in fixed and "metric" not in fixed:
         metric_list = fixed["metrics"]
         if isinstance(metric_list, list) and len(metric_list) > 0:
@@ -586,8 +794,10 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
         if "metrics" in fixed:
             del fixed["metrics"]
 
-    # --- Fix 4: Singular metric types — string metric → AdHocMetricObject ---
-    # SINGULAR_ADHOC_METRIC_TYPES (pie, waterfall) MUST have ad-hoc objects always.
+    # ═══ Fix 4: Singular metric types — string metric → AdHocMetricObject ═══
+    #   SINGULAR_ADHOC_METRIC_TYPES (pie, waterfall) MUST always have ad-hoc objects.
+    #   SINGULAR_STRING_METRIC_TYPES accept strings but should convert for Superset 6.x,
+    #   EXCEPT bare 'count' — which is a built-in metric the frontend understands natively.
     if actual_viz in SINGULAR_ADHOC_METRIC_TYPES:
         if "metric" in fixed and _is_string_metric(fixed["metric"]):
             fixed["metric"] = _build_adhoc_metric_from_string(fixed["metric"])
@@ -595,6 +805,7 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
     # but should still convert to ad-hoc for Superset 6.x — except bare 'count'.
     if actual_viz in SINGULAR_STRING_METRIC_TYPES:
         if "metric" in fixed and _is_string_metric(fixed["metric"]):
+            # Bare 'count' is a built-in Superset metric — leave it as string
             if fixed["metric"].strip().lower() != "count":
                 fixed["metric"] = _build_adhoc_metric_from_string(fixed["metric"])
 
@@ -702,9 +913,11 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
         if "adhoc_filters" not in fixed:
             fixed["adhoc_filters"] = []
 
-    # --- Fix 13: General null column_name fix for ALL metric types ---
-    # Prevents "Cannot compile Column object until its 'name' is assigned"
-    # by replacing null column_name with first available groupby or 'count'
+    # ═══ Fix 13: General null column_name fix for ALL metric types ═══
+    #   Prevents "Cannot compile Column object until its 'name' is assigned"
+    #   by replacing null column_name with first available groupby or 'count'.
+    #   This is the most critical fix — null column references cause the
+    #   frontend to crash with an unhelpful error message.
     if actual_viz not in NO_METRICS_TYPES:
         # Get fallback column name from groupby
         fallback_col = "count"
@@ -865,27 +1078,44 @@ def validate_datasource_compatibility(
 ) -> List[str]:
     """
     Validate that the datasource and params are compatible for the viz type.
-    
-    Checks datasource requirements like:
-    - world_map needs entity field
-    - bubble_v2 needs x, y, size fields
-    - heatmap_v2 needs x_axis and groupby
-    - sunburst/treemap need groupby or columns for hierarchy
-    - time series charts prefer temporal x_axis
-    
-    Returns list of error messages. Empty list means compatible.
+
+    Description:
+        Checks datasource-level compatibility requirements by cross-referencing
+        chart params against required/optional fields and column data types.
+        Used as a secondary check after metric format validation.
+
+    Args:
+        viz_type: The Superset viz_type string (e.g. "bubble_v2", "heatmap_v2").
+        params: Chart params dict to validate.
+        dataset_columns: Optional list of column dicts from the dataset, used
+            to verify column existence and data types (e.g., temporal vs. numeric).
+
+    Returns:
+        List of error message strings. Empty list means compatible.
+
+    Checks:
+        - world_map needs entity field
+        - bubble_v2 needs x, y, size fields
+        - heatmap_v2 needs x_axis and groupby
+        - sunburst/treemap need groupby or columns for hierarchy
+        - time series charts prefer temporal x_axis
+        - big_number trendline needs temporal x_axis
     """
     errors: List[str] = []
+    # Step 1: Look up datasource requirements for this viz_type from the
+    #   DATASOURCE_REQUIREMENTS dictionary (category 9).
     reqs = DATASOURCE_REQUIREMENTS.get(viz_type)
-    
+
     if not reqs:
-        return errors
-    
+        return errors  # No specific requirements — chart is datasource-agnostic
+
     required_fields = reqs.get("required", [])
     optional_fields = reqs.get("optional", [])
     description = reqs.get("description", "")
-    
-    # Check required fields
+
+    # Step 2: Validate each required field — must be present and non-empty.
+    #   'entity' and 'groupby' have special handling because they can be
+    #   string or array, and the error message needs to be domain-specific.
     for field in required_fields:
         if field == "entity":
             if not params.get("entity"):
@@ -901,6 +1131,7 @@ def validate_datasource_compatibility(
                     f"Add: 'groupby': '<column_name>' (dimension to categorize by)."
                 )
         elif field in params:
+            # Field exists — check it's not empty/blank
             val = params[field]
             if isinstance(val, str) and not val.strip():
                 errors.append(f"Chart '{viz_type}' field '{field}' is empty.")
@@ -911,18 +1142,20 @@ def validate_datasource_compatibility(
                 f"Chart '{viz_type}' requires field '{field}'. "
                 f"Add it to params. {description}"
             )
-    
-    # Check optional fields for empty/missing
+
+    # Step 3: Check optional fields — only report if present but empty.
     for field in optional_fields:
         if field == "entity":
             if "entity" not in params and viz_type == "world_map":
-                pass  # world_map has entity in required
+                pass  # world_map has entity in required, redundant to check here
         elif field in params:
             val = params[field]
             if isinstance(val, str) and not val.strip():
                 errors.append(f"Chart '{viz_type}' field '{field}' is empty.")
-    
-    # Check temporal x_axis for time series charts
+
+    # Step 4: For time series charts, verify x_axis is a temporal column.
+    #   Non-temporal x_axis columns on time series charts produce misleading results
+    #   since the chart expects date-based aggregation and range filtering.
     if reqs.get("x_axis_temporal") and params.get("x_axis"):
         if dataset_columns:
             x_axis_lower = params["x_axis"].lower()
@@ -931,6 +1164,7 @@ def validate_datasource_compatibility(
                 col_name = col.get("column_name", "").lower()
                 col_type = str(col.get("type", "")).lower()
                 if col_name == x_axis_lower:
+                    # Check if the column type contains any temporal keyword
                     is_temporal = any(
                         k in col_type for k in ["date", "time", "datetime", "timestamp", "temporal"]
                     )
@@ -947,8 +1181,9 @@ def validate_datasource_compatibility(
                     f"Chart '{viz_type}' uses x_axis='{params['x_axis']}' which doesn't exist in dataset. "
                     f"Available columns: {[c.get('column_name') for c in dataset_columns]}"
                 )
-    
-    # Check big_number trendline temporal requirement
+
+    # Step 5: Big number with trendline enabled also needs a temporal x_axis.
+    #   The trendline shows historical data, which requires a date field for ordering.
     if viz_type == "big_number" and params.get("show_trend_line", False):
         if not params.get("x_axis"):
             errors.append(
@@ -978,14 +1213,24 @@ def validate_datasource_compatibility(
                     f"Chart 'big_number' with trendline uses x_axis='{params['x_axis']}' which doesn't exist in dataset. "
                     f"Available columns: {[c.get('column_name') for c in dataset_columns]}"
                 )
-    
+
     return errors
 
 
 def format_error_summary(errors: List[str]) -> str:
-    """Format validation errors into a readable string."""
+    """Format validation errors into a readable numbered list.
+
+    Args:
+        errors: List of error message strings from validate_chart_params.
+
+    Returns:
+        A human-readable summary string, or a success message if no errors.
+    """
+    # Step 1: Handle the happy path — no errors means valid params.
     if not errors:
         return "No errors found. Parameters are valid."
+
+    # Step 2: Build a numbered list of errors for easy scanning.
     lines = [f"Found {len(errors)} error(s):"]
     for i, err in enumerate(errors, 1):
         lines.append(f"  {i}. {err}")

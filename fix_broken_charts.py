@@ -1,5 +1,26 @@
 #!/usr/bin/env python3
-"""Fix 5 broken charts by updating their params."""
+"""
+Fix 5 broken charts by updating their params.
+
+This script applies targeted parameter patches to five known-broken charts
+(CIDs 160–164) whose ``params`` JSON blobs had incorrect or incomplete
+configuration (e.g. wrong datasource, missing fields, stale viz_type).
+
+How it works:
+  1. Reads a pre-stored Superset auth token from disk.
+  2. Fetches a CSRF token from ``/api/v1/security/csrf_token/`` and attaches
+     it to every request.
+  3. Iterates over the ``CHART_FIXES`` dictionary (chart_id → params dict),
+     sends a ``PUT /api/v1/chart/<id>`` with the corrected ``params`` JSON.
+  4. Prints a per-chart status line and a final summary.
+
+CHART_FIXES mapping:
+    160  –  table chart  (datasource 2)
+    161  –  pie chart    (datasource 2, grouped by "name")
+    162  –  line chart   (datasource 6, echarts_timeseries_line)
+    163  –  pie chart    (datasource 20, grouped by "phase")
+    164  –  bar chart    (datasource 20, echarts_timeseries_bar)
+"""
 import httpx
 import json
 import asyncio
@@ -155,41 +176,85 @@ CHART_FIXES = {
 
 
 async def fix_chart(client: httpx.AsyncClient, chart_id: int, new_params: str) -> dict:
-    """Update a single chart with new params."""
+    """Update a single chart with new params.
+
+    Description
+    -----------
+    Sends a ``PUT`` request to ``/api/v1/chart/<id>`` with the corrected
+    ``params`` JSON blob.  Returns a status dict indicating whether the
+    patch succeeded.
+
+    Args
+    ----
+    client : httpx.AsyncClient
+        An authenticated async HTTP client already configured with the
+        Superset base URL, auth header, and CSRF header.
+    chart_id : int
+        The numeric ID of the chart to patch.
+    new_params : str
+        The JSON-serialized params dict that should replace the chart's
+        current ``params`` value.
+
+    Returns
+    -------
+    dict
+        A result dict with ``id`` and ``status`` keys.  ``status`` is
+        ``"ok"`` on success, ``"error"`` on failure (with a ``message``
+        field containing the server's error response).
+    """
+    # Send the PUT request to update only the params field of the chart
     resp = await client.put(
         f"{BASE_URL}/api/v1/chart/{chart_id}",
         json={"params": new_params},
     )
+    # Check if the update succeeded (HTTP 200)
     if resp.status_code != 200:
         return {"id": chart_id, "status": "error", "message": resp.text}
     return {"id": chart_id, "status": "ok"}
 
 
 async def main():
-    # Load token
+    """Apply targeted param fixes to the five broken charts (160–164).
+
+    Description
+    -----------
+    Orchestrates the repair flow:
+      1. Loads the Superset auth token from disk.
+      2. Fetches a CSRF token and attaches it to the client headers.
+      3. Iterates over ``CHART_FIXES``, calling ``fix_chart`` for each
+         chart ID.
+      4. Prints per-chart status and a final summary.
+
+    Returns
+    -------
+    None
+    """
+    # --- Step 1: Load the auth token from the pre-stored file ---
     with open(TOKEN_FILE) as f:
         token = f.read().strip()
-    
+
+    # --- Step 2: Create the HTTP client and attach the auth token ---
     async with httpx.AsyncClient() as client:
         client.headers.update({"Authorization": f"Bearer {token}"})
-        
-        # Get CSRF token
+
+        # --- Step 3: Fetch a CSRF token and attach it to every request ---
         csrf_resp = await client.get(f"{BASE_URL}/api/v1/security/csrf_token/")
         csrf_token = csrf_resp.json().get("result")
         client.headers.update({"X-CSRFToken": csrf_token})
-        
+
+        # --- Step 4: Fix each chart sequentially using CHART_FIXES mapping ---
         results = []
         for chart_id, fix in CHART_FIXES.items():
             print(f"Fixing chart {chart_id}...")
             result = await fix_chart(client, chart_id, fix["params"])
             results.append(result)
             print(f"  {result['status']}")
-        
-        # Summary
+
+        # --- Step 5: Print a summary of the repair operation ---
         ok = sum(1 for r in results if r["status"] == "ok")
         err = sum(1 for r in results if r["status"] == "error")
         print(f"\nDone! OK: {ok}, Errors: {err}")
-        
+
         if err:
             print("\nErrors:")
             for r in results:

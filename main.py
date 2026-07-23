@@ -27,6 +27,7 @@ import uvicorn
 from modules.registry import ModuleRegistry, resolve_dependency_order
 from modules.metrics import get_metrics
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from modules.openapi_utils import docstring_to_openapi
 
 # --- Logging Setup ---
 # Configure the root logger so every module can emit structured log lines with timestamps
@@ -364,13 +365,19 @@ for tool_name, tool in mcp._tool_manager._tools.items():
         # Read-only tools use GET; mutating tools use POST for Swagger clarity
         methods = ["GET"] if tool_name in READ_ONLY_TOOLS else ["POST"]
 
-        # Register the route on the FastAPI app with the tool's metadata
+        # Parse the function's Google-style docstring into OpenAPI metadata
+        # This extracts the summary (short description) and builds a rich Markdown
+        # description from the Args/Returns sections for display in Swagger UI.
+        meta = docstring_to_openapi(endpoint)
+
+        # Register the route on the FastAPI app with the parsed docstring metadata
         app.add_api_route(
             path=f"/{tool_name}",
             endpoint=endpoint,
             methods=methods,
             tags=[tag],
-            summary=tool.description or f"Execute {tool_name}",
+            summary=meta["summary"],
+            description=meta["description"],
             name=tool_name,
             operation_id=tool_name
         )

@@ -1,3 +1,17 @@
+"""Superset MCP Module entry point and FastMCP tool registration.
+
+This module serves as the main entry point for the SupersetModule within the
+MCP (Model Context Protocol) framework. It:
+- Initializes the ConnectionManager with the module's directory
+- Loads all server configurations on module registration
+- Registers 50+ MCP tools covering server management, resource CRUD operations,
+  chart/dashboard creation, SQL Lab execution, database profiling, and transfer operations
+- Exposes module API internals for inter-module communication via the registry
+
+Tools are organized into logical groups (server, resources, charts, dashboards,
+datasets, databases, sqllab, transfer, explore, system, semantic) imported
+from the tools subpackage and wrapped with @mcp.tool decorators.
+"""
 import os
 import sys
 import logging
@@ -19,22 +33,54 @@ from modules.SupersetModule.tools import explore
 from modules.SupersetModule.tools import system
 from modules.SupersetModule.tools import semantic
 
+# Configure structured logging with timestamp, module name, and log level
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', stream=sys.stderr)
 logger = logging.getLogger(__name__)
 
+# This module has no dependencies on other modules
 depends_on = []
 
+
 def get_module_api():
+    """Return a dictionary of internal APIs for inter-module communication.
+
+    Provides programmatic access to core SupersetModule functionality that other
+    modules may need, including the ConnectionManager class and key request helpers.
+
+    Returns:
+        Dictionary mapping API names to their callable implementations:
+        - "ConnectionManager": The ConnectionManager class for creating new contexts
+        - "api_request": The superset API request handler function
+        - "execute_request": The authenticated HTTP request executor with token refresh
+    """
     return {
         "ConnectionManager": ConnectionManager,
         "api_request": general.impl_superset_api,
         "execute_request": __import__("modules.SupersetModule.api_client", fromlist=["execute_request"]).execute_request,
     }
 
+
 def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
+    """Register all Superset MCP tools and initialize the connection manager.
+
+    This is the main entry point called by the MCP server during startup. It
+    creates a ConnectionManager, loads server configurations, and registers
+    all tool handlers with the FastMCP instance.
+
+    Args:
+        mcp: The FastMCP instance to register tools with. Tools are bound
+            to this instance and become available to the LLM.
+        registry: Optional ModuleRegistry for inter-module API exposure.
+            If provided, the module's internal API dictionary is registered
+            under the key "SupersetModule".
+    """
+    # Resolve the module's directory path for config file resolution
     module_dir = os.path.dirname(__file__)
+    # Create and initialize the connection manager with server configurations
     manager = ConnectionManager(module_dir)
     manager.load_servers()
+
+    # --- Server Management Tools ---
 
     @mcp.tool(name="list_superset_servers")
     async def tool_list_servers() -> str:
@@ -50,6 +96,8 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     async def tool_server_status(server_id: str) -> str:
         """Checks the status and connectivity of a specific Superset server."""
         return await server.server_status(manager, server_id)
+
+    # --- Resource Discovery Tools ---
 
     @mcp.tool(name="superset_available_resource_types")
     async def tool_list_resource_types() -> str:
@@ -77,6 +125,8 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Gets details for a specific resource by ID. Wrapper around GET /api/v1/{resource_type}/{pk}."""
         return await resources.get_resource(manager, server_id, resource_type, resource_id)
 
+    # --- Chart Tools ---
+
     @mcp.tool(name="superset_get_chart_api_info")
     async def tool_get_chart_api_info(server_id: str) -> str:
         """Retrieves metadata about the chart API from _info endpoint (filters, permissions, properties)."""
@@ -103,6 +153,8 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Creates a new dataset on a Superset server."""
         return await datasets.create_dataset(manager, server_id, table_name, database_id, schema, owners, metrics_json, columns_json, sql_expression)
 
+    # --- SQL Lab Tools ---
+
     @mcp.tool(name="superset_sqllab_execute_query")
     async def tool_sqllab_execute_query(server_id: str, database_id: int, sql_query: str, schema: Optional[str] = None, client_id: Optional[str] = None, tab_name: Optional[str] = None) -> str:
         """Executes an SQL query through Superset's SQL Lab API."""
@@ -113,6 +165,8 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Retrieves the results of a previously executed SQL Lab query."""
         return await sqllab.sqllab_get_query_results(manager, server_id, client_id)
 
+    # --- Transfer Tools ---
+
     @mcp.tool(name="transfer_dashboard")
     async def tool_transfer_dashboard(source_server_id: str, target_server_id: str, dashboard_id: int, db_mappings: Optional[str] = None, table_mappings: Optional[str] = None) -> str:
         """Transfers a dashboard (and its charts) between servers. 3-phase: datasets→charts→dashboard. Returns NEED_INPUT if mappings required."""
@@ -122,6 +176,8 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     async def tool_get_database_schema(server_id: str, database_id: int, schema_name: Optional[str] = None) -> str:
         """Retrieves schema (tables/columns) via information_schema SQL Lab queries."""
         return await datasets.get_database_schema(manager, server_id, database_id, schema_name)
+
+    # --- Dashboard Tools ---
 
     @mcp.tool(name="superset_get_dashboard_api_info")
     async def tool_get_dashboard_api_info(server_id: str) -> str:
@@ -148,6 +204,8 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Generates a nested position_json with ROOT→GRID→ROW→CHART hierarchy."""
         return await dashboards.generate_robust_layout(manager, server_id, chart_ids)
 
+    # --- Chart Configuration Tools ---
+
     @mcp.tool(name="superset_get_standard_chart_params")
     def tool_get_standard_params(viz_type: str, datasource_id: int, overrides_json: Optional[str] = None) -> str:
         """Returns standard chart params for a viz type to prevent empty query errors."""
@@ -163,6 +221,8 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Returns expert rules for creating functional dashboards."""
         return dashboards.get_dashboard_creation_rules()
 
+    # --- Chart Management Tools ---
+
     @mcp.tool(name="list_charts")
     async def tool_list_charts(server_id: str) -> str:
         """Lists all charts on a server. GET /api/v1/chart/."""
@@ -172,6 +232,8 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     async def tool_get_chart_info(server_id: str, chart_id: Union[int, str]) -> str:
         """Gets detailed information for a specific chart by ID."""
         return await charts.get_chart_info(manager, server_id, chart_id)
+
+    # --- Database Management Tools ---
 
     @mcp.tool(name="list_databases")
     async def tool_list_databases(server_id: str) -> str:
@@ -183,6 +245,8 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Gets detailed information for a specific database connection by ID."""
         return await databases.get_database_info(manager, server_id, database_id)
 
+    # --- Dataset Management Tools ---
+
     @mcp.tool(name="list_datasets")
     async def tool_list_datasets(server_id: str) -> str:
         """Lists all datasets. GET /api/v1/dataset/."""
@@ -193,10 +257,14 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Gets detailed information for a specific dataset by ID."""
         return await datasets.get_dataset_info(manager, server_id, dataset_id)
 
+    # --- Dashboard Info Tools ---
+
     @mcp.tool(name="get_dashboard_info")
     async def tool_get_dashboard_info(server_id: str, dashboard_id: Union[int, str]) -> str:
         """Gets detailed information for a specific dashboard by ID."""
         return await dashboards.get_dashboard_info(manager, server_id, dashboard_id)
+
+    # --- Chart Creation & Data Tools ---
 
     @mcp.tool(name="generate_chart")
     async def tool_generate_chart(server_id: str, dataset_id: int, config: str, slice_name: Optional[str] = None, description: Optional[str] = None) -> str:
@@ -223,6 +291,8 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Discover ALL chart types from Superset and return a consolidated Markdown reference. Use BEFORE generating charts to get the complete, up-to-date list of chart types with their required parameters. Cached for 24 hours."""
         return await charts.get_all_chart_schemas(manager, server_id)
 
+    # --- Dashboard Creation Tools ---
+
     @mcp.tool(name="generate_dashboard")
     async def tool_generate_dashboard(server_id: str, dashboard_title: str, chart_ids: List[int], slug: Optional[str] = None, json_metadata: Optional[str] = None, published: bool = False, layout_type: str = "robust") -> str:
         """Create a new dashboard from chart IDs with auto-generated layout."""
@@ -233,6 +303,8 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Add a chart to an existing dashboard. Preferred over generate_dashboard for existing dashboards."""
         return await dashboards.add_chart_to_existing_dashboard(manager, server_id, dashboard_id, chart_id)
 
+    # --- Virtual Dataset & Explore Tools ---
+
     @mcp.tool(name="create_virtual_dataset")
     async def tool_create_virtual_dataset(server_id: str, dataset_name: str, database_id: int, sql: str, schema: Optional[str] = None, description: Optional[str] = None) -> str:
         """Save a SQL query as a virtual dataset for charting."""
@@ -242,6 +314,8 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     async def tool_generate_explore_link(server_id: str, dataset_id: int, config: Optional[str] = None) -> str:
         """Generate interactive explore URL. Does NOT create a permanent chart."""
         return await explore.generate_explore_link(manager, server_id, dataset_id, config)
+
+    # --- Additional SQL Lab Tools ---
 
     @mcp.tool(name="execute_sql")
     async def tool_execute_sql(server_id: str, database_id: int, sql_query: str, schema: Optional[str] = None) -> str:
@@ -258,6 +332,8 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Generate SQL Lab URL with pre-filled sql."""
         return await sqllab.open_sql_lab_with_context(manager, server_id, database_id, sql, schema)
 
+    # --- System & Metadata Tools ---
+
     @mcp.tool(name="get_schema")
     async def tool_get_schema(server_id: str, model_type: Optional[str] = None) -> str:
         """Get schema metadata (filterable/sortable columns) for chart/dataset/dashboard/database."""
@@ -272,6 +348,8 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     async def tool_health_check(server_id: str) -> str:
         """Check the health status of a Superset server."""
         return await system.health_check(manager, server_id)
+
+    # --- Semantic & Data Profiling Tools ---
 
     @mcp.tool(name="profile_table")
     async def tool_profile_table(server_id: str, database_id: int, schema: str, table: str) -> str:
@@ -293,5 +371,6 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Generate a data dictionary for a table: column names, types, categories, recommended roles, and optional statistics."""
         return await semantic.get_data_dictionary(manager, server_id, database_id, schema, table, include_statistics)
 
+    # Register internal module API for inter-module communication
     if registry is not None:
         registry.register_module_api("SupersetModule", get_module_api())

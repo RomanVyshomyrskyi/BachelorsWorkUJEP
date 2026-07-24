@@ -74,7 +74,21 @@ html_title = "AutomationMCP Superset Docs"
 latex_elements = {
     "papersize": "a4paper",
     "pointsize": "10pt",
-    "preamble": "",
+    "preamble": r"""
+\usepackage{enumitem}
+\setlistdepth{9}
+\renewlist{itemize}{itemize}{9}
+\renewlist{enumerate}{enumerate}{9}
+\setlist[itemize,1]{label=\textbullet}
+\setlist[itemize,2]{label=\textbullet}
+\setlist[itemize,3]{label=\textbullet}
+\setlist[itemize,4]{label=\textbullet}
+\setlist[itemize,5]{label=\textbullet}
+\setlist[itemize,6]{label=\textbullet}
+\setlist[itemize,7]{label=\textbullet}
+\setlist[itemize,8]{label=\textbullet}
+\setlist[itemize,9]{label=\textbullet}
+""",
 }
 latex_documents = [
     ("index", "AutomationMCPSuperset.tex", "AutomationMCP Superset Documentation",

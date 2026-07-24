@@ -345,7 +345,7 @@ class MetricsCollector:
             # Start a monotonic clock timer (unaffected by system clock changes)
             self._start = time.monotonic()
 
-        def __enter__(self) -> "_tool_timing":
+        def __enter__(self) -> "MetricsCollector._tool_timing":
             """
             Enter the context manager.
 

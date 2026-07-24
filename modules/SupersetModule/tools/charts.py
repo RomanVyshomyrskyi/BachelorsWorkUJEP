@@ -1286,6 +1286,7 @@ async def create_chart(
 
         # Step 13: Post-creation — verify saved params have no null/empty values
         chart_id = result.get("id") or result.get("result", {}).get("id", 0)
+        params_errors = await _verify_chart_params_saved(manager, server_id, chart_id)
         if params_errors:
             deleted = await _delete_chart(manager, server_id, chart_id)
             mc = get_metrics()

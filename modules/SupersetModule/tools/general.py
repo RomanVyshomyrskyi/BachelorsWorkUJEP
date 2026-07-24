@@ -44,6 +44,10 @@ async def impl_superset_api(
         JSON-formatted string of the API response on success, or an error message
         string on failure. For non-JSON responses, returns a formatted string
         with status code and body text.
+
+    Example:
+        result = await impl_superset_api(manager, server_id="main", method="GET", endpoint="/api/v1/chart/")
+        # Returns JSON-formatted response from the Superset API, or error message string
     """
     # Block DELETE operations for safety — destructive actions are not allowed
     if method.upper() == "DELETE":
@@ -109,6 +113,13 @@ async def superset_api_request(
 
     Returns:
         JSON-formatted API response string on success, or an error message on failure.
+
+    Example:
+        result = await superset_api_request(
+            manager, server_id="main", method="GET",
+            endpoint="/api/v1/chart/", params='{"page_size": 10}'
+        )
+        # Returns JSON-formatted raw API response for direct access to any Superset endpoint
     """
     # Direct pass-through to the internal API executor — all validation happens there
     return await impl_superset_api(manager, server_id, method, endpoint, json_body, params)

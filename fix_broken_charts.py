@@ -178,29 +178,26 @@ CHART_FIXES = {
 async def fix_chart(client: httpx.AsyncClient, chart_id: int, new_params: str) -> dict:
     """Update a single chart with new params.
 
-    Description
-    -----------
     Sends a ``PUT`` request to ``/api/v1/chart/<id>`` with the corrected
-    ``params`` JSON blob.  Returns a status dict indicating whether the
+    ``params`` JSON blob. Returns a status dict indicating whether the
     patch succeeded.
 
-    Args
-    ----
-    client : httpx.AsyncClient
-        An authenticated async HTTP client already configured with the
-        Superset base URL, auth header, and CSRF header.
-    chart_id : int
-        The numeric ID of the chart to patch.
-    new_params : str
-        The JSON-serialized params dict that should replace the chart's
-        current ``params`` value.
+    Args:
+        client: An authenticated async HTTP client already configured with the
+            Superset base URL, auth header, and CSRF header.
+        chart_id: The numeric ID of the chart to patch.
+        new_params: The JSON-serialized params dict that should replace the
+            chart's current ``params`` value.
 
-    Returns
-    -------
-    dict
-        A result dict with ``id`` and ``status`` keys.  ``status`` is
+    Returns:
+        A result dict with ``id`` and ``status`` keys. ``status`` is
         ``"ok"`` on success, ``"error"`` on failure (with a ``message``
         field containing the server's error response).
+
+    Example:
+        >>> result = await fix_chart(client, 160, '{"viz_type": "table"}')
+        >>> print(result)
+        {'id': 160, 'status': 'ok'}
     """
     # Send the PUT request to update only the params field of the chart
     resp = await client.put(
@@ -216,18 +213,24 @@ async def fix_chart(client: httpx.AsyncClient, chart_id: int, new_params: str) -
 async def main():
     """Apply targeted param fixes to the five broken charts (160–164).
 
-    Description
-    -----------
     Orchestrates the repair flow:
-      1. Loads the Superset auth token from disk.
-      2. Fetches a CSRF token and attaches it to the client headers.
-      3. Iterates over ``CHART_FIXES``, calling ``fix_chart`` for each
-         chart ID.
-      4. Prints per-chart status and a final summary.
 
-    Returns
-    -------
-    None
+    1. Loads the Superset auth token from disk.
+    2. Fetches a CSRF token and attaches it to the client headers.
+    3. Iterates over ``CHART_FIXES``, calling ``fix_chart`` for each
+       chart ID.
+    4. Prints per-chart status and a final summary.
+
+    Returns:
+        None
+
+    Example:
+        >>> asyncio.run(main())
+        Fixing chart 160...
+          ok
+        Fixing chart 161...
+          ok
+        Done! OK: 5, Errors: 0
     """
     # --- Step 1: Load the auth token from the pre-stored file ---
     with open(TOKEN_FILE) as f:

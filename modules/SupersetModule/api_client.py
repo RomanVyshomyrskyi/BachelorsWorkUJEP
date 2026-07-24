@@ -104,6 +104,9 @@ async def _get_csrf_token(ctx: SupersetContext):
     Args:
         ctx: SupersetContext containing the HTTP client and storage for the
             csrf_token attribute where the fetched token will be saved.
+
+    Returns:
+        None
     """
     try:
         # Fetch the current CSRF token from Superset's security endpoint

@@ -42,6 +42,10 @@ async def get_schema(
         JSON string containing the schema metadata from GET /api/v1/metadata/,
         including filterable/sortable columns and available resources.
         Returns ServerError JSON if the server is not found.
+
+    Example:
+        result = await get_schema(manager, server_id="main", model_type="chart")
+        # Returns JSON with filterable/sortable columns and metadata for charts endpoint
     """
     ctx = manager.get_context(server_id)
     if not ctx:
@@ -77,6 +81,10 @@ async def get_instance_info(manager: ConnectionManager, server_id: str) -> str:
     Returns:
         JSON string containing user info (from GET /api/v1/me/) and feature flags
         (from GET /api/v1/feature-features/). Returns ServerError JSON on failure.
+
+    Example:
+        result = await get_instance_info(manager, server_id="main")
+        # Returns JSON with current user identity, roles, and enabled feature flags
     """
     ctx = manager.get_context(server_id)
     if not ctx:
@@ -128,6 +136,10 @@ async def health_check(manager: ConnectionManager, server_id: str) -> str:
           - authenticated: Whether the current session is authenticated
           - status_code: HTTP status code from the health check
           - error: Error description if status is not 'healthy'
+
+    Example:
+        result = await health_check(manager, server_id="main")
+        # Returns JSON with status ("healthy"), authentication state, and base URL
     """
     ctx = manager.get_context(server_id)
     if not ctx:

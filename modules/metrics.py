@@ -368,6 +368,9 @@ class MetricsCollector:
                 *exc: Exception info tuple (type, value, traceback) if an exception
                       was raised inside the ``with`` block. Unused but required by
                       the context manager protocol.
+
+            Returns:
+                None. Returning a truthy value would suppress exception propagation.
             """
             # Calculate elapsed time in seconds using monotonic clock
             elapsed = time.monotonic() - self._start

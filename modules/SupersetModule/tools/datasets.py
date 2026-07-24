@@ -43,6 +43,10 @@ async def list_datasets(manager: ConnectionManager, server_id: str) -> str:
         server_id: The ID of the configured Superset server.
     Returns:
         JSON string containing the list of datasets.
+
+    Example:
+        result = await list_datasets(manager, server_id="main")
+        # Returns JSON array of all datasets (physical and virtual) on the server
     """
     # Delegate to the generic Superset API executor for the dataset list endpoint
     return await impl_superset_api(manager, server_id, "GET", "/api/v1/dataset/")
@@ -65,6 +69,10 @@ async def get_dataset_info(
         dataset_id: The ID of the dataset to retrieve.
     Returns:
         JSON string containing the dataset details.
+
+    Example:
+        result = await get_dataset_info(manager, server_id="main", dataset_id=42)
+        # Returns JSON with columns, metrics, database reference, and SQL expression
     """
     # Delegate to the generic Superset API executor for the dataset detail endpoint
     return await impl_superset_api(
@@ -73,321 +81,335 @@ async def get_dataset_info(
 
 
 async def create_virtual_dataset(
-     manager: ConnectionManager,
-     server_id: str,
-     dataset_name: str,
-     database_id: int,
-     sql: str,
-     schema: Optional[str] = None,
-     description: Optional[str] = None,
-     default_endpoint_id: Optional[int] = None,
-     columns_json: Optional[str] = None,
-     metrics_json: Optional[str] = None
- ) -> str:
-     """
-     MCP Tool: superset_create_virtual_dataset - Create a virtual dataset from SQL.
+    manager: ConnectionManager,
+    server_id: str,
+    dataset_name: str,
+    database_id: int,
+    sql: str,
+    schema: Optional[str] = None,
+    description: Optional[str] = None,
+    default_endpoint_id: Optional[int] = None,
+    columns_json: Optional[str] = None,
+    metrics_json: Optional[str] = None
+) -> str:
+    """
+    MCP Tool: superset_create_virtual_dataset - Create a virtual dataset from SQL.
 
-     Creates a virtual dataset in Superset by saving a SQL query as a reusable
-     data source. Virtual datasets behave like tables in the Superset UI and can
-     be used as datasources for charts and dashboards without creating a physical
-     database table.
+    Creates a virtual dataset in Superset by saving a SQL query as a reusable
+    data source. Virtual datasets behave like tables in the Superset UI and can
+    be used as datasources for charts and dashboards without creating a physical
+    database table.
 
-     Args:
-         manager: The ConnectionManager instance with Superset connection details.
-         server_id: The ID of the configured Superset server.
-         dataset_name: The name for the virtual dataset as it will appear in Superset.
-         database_id: The numeric ID of the database to execute the SQL against.
-         sql: The SQL query that defines the virtual dataset. Must be a SELECT query.
-         schema: Optional schema name for databases that support schemas.
-         description: Optional human-readable description of the virtual dataset.
-         default_endpoint_id: Optional default endpoint ID for the dataset.
-         columns_json: Optional JSON string of column definitions to override
-             Superset's auto-detected columns. Format: [{"column_name": "...", ...}].
-         metrics_json: Optional JSON string of metric definitions. Format:
-             [{"metric_name": "...", "expression": "..."}, ...].
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        dataset_name: The name for the virtual dataset as it will appear in Superset.
+        database_id: The numeric ID of the database to execute the SQL against.
+        sql: The SQL query that defines the virtual dataset. Must be a SELECT query.
+        schema: Optional schema name for databases that support schemas.
+        description: Optional human-readable description of the virtual dataset.
+        default_endpoint_id: Optional default endpoint ID for the dataset.
+        columns_json: Optional JSON string of column definitions to override
+            Superset's auto-detected columns. Format: [{"column_name": "...", ...}].
+        metrics_json: Optional JSON string of metric definitions. Format:
+            [{"metric_name": "...", "expression": "..."}, ...].
 
-     Returns:
-         JSON string containing the created virtual dataset's details (ID, name,
-         SQL query, database reference) on success, or DatasetError JSON on failure.
-     """
-     ctx = manager.get_context(server_id)
-     if not ctx:
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
-         mc.record_error(tool="superset_create_virtual_dataset", error_message=f"Server '{server_id}' not found.")
-         return log.collect(DatasetError(f"Server '{server_id}' not found.", status_code=404).to_json())
+    Returns:
+        JSON string containing the created virtual dataset's details (ID, name,
+        SQL query, database reference) on success, or DatasetError JSON on failure.
 
-     start_time = time.monotonic()
-     try:
-         # Build the virtual dataset payload with required name, database, and SQL fields
-         dataset_payload: Dict[str, Any] = {
-             "table_name": dataset_name,
-             "database": database_id,
-             "sql": sql,
-         }
-         # Attach optional metadata fields only when provided
-         if schema:
-             dataset_payload["schema"] = schema
-         if description:
-             dataset_payload["description"] = description
-         if default_endpoint_id:
-             dataset_payload["default_endpoint_id"] = default_endpoint_id
-         if columns_json:
-             try:
-                 # Parse and validate columns JSON before sending to API
-                 dataset_payload["columns"] = json.loads(columns_json)
-             except json.JSONDecodeError:
-                 mc = get_metrics()
-                 mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
-                 mc.record_error(tool="superset_create_virtual_dataset", error_message="Invalid JSON in columns_json")
-                 return log.collect(DatasetError("'columns_json' is not a valid JSON string.", details=columns_json).to_json())
-         if metrics_json:
-             try:
-                 # Parse and validate metrics JSON before sending to API
-                 dataset_payload["metrics"] = json.loads(metrics_json)
-             except json.JSONDecodeError:
-                 mc = get_metrics()
-                 mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
-                 mc.record_error(tool="superset_create_virtual_dataset", error_message="Invalid JSON in metrics_json")
-                 return log.collect(DatasetError("'metrics_json' is not a valid JSON string.", details=metrics_json).to_json())
+    Example:
+        result = await create_virtual_dataset(
+            manager, server_id="main", dataset_name="My Virtual Dataset",
+            database_id=1, sql="SELECT * FROM public.sales WHERE amount > 100",
+            description="Filtered high-value sales"
+        )
+    """
+    ctx = manager.get_context(server_id)
+    if not ctx:
+        mc = get_metrics()
+        mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
+        mc.record_error(tool="superset_create_virtual_dataset", error_message=f"Server '{server_id}' not found.")
+        return log.collect(DatasetError(f"Server '{server_id}' not found.", status_code=404).to_json())
 
-         # Validate columns_json entries exist in the SQL query result
-         if "columns" in dataset_payload:
-             specified_columns = dataset_payload["columns"]
-             introspect_sql = f"SELECT * FROM ({sql}) AS _introspect LIMIT 0"
-             try:
-                 exec_raw = await sqllab_execute_query(
-                     manager, server_id, database_id, introspect_sql, schema=schema
-                 )
-                 exec_data = json.loads(exec_raw)
-                 client_id = exec_data.get("result", {}).get("query", {}).get("client_id")
-                 if client_id:
-                     await asyncio.sleep(1)
-                     results_raw = await sqllab_get_query_results(manager, server_id, client_id)
-                     results = json.loads(results_raw)
-                     actual_columns = [c.get("column_name", "") for c in results.get("columns", [])]
-                     if actual_columns:
-                         actual_set = {c.lower() for c in actual_columns}
-                         missing = []
-                         from difflib import get_close_matches
-                         for scol in specified_columns:
-                             if isinstance(scol, dict):
-                                 col_name = scol.get("column_name", "")
-                             else:
-                                 col_name = str(scol)
-                             if col_name.lower() not in actual_set:
-                                 suggestions = get_close_matches(col_name.lower(), list(actual_set), n=3, cutoff=0.6)
-                                 sug = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
-                                 missing.append(f"'{col_name}'{sug}")
-                         if missing:
-                             mc = get_metrics()
-                             mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
-                             mc.record_error(
-                                 tool="superset_create_virtual_dataset",
-                                 error_message=f"Column validation failed: {len(missing)} columns not found in SQL result"
-                             )
-                             return log.collect(DatasetError(
-                                 "Virtual dataset creation blocked: some columns don't exist in the SQL result",
-                                 details=(
-                                     f"The following columns specified in columns_json were not found "
-                                     f"in the SQL query result for '{dataset_name}':\n\n"
-                                     + "\n".join(f"  - {m}" for m in missing)
-                                     + f"\n\nColumns in SQL result: {', '.join(actual_columns)}"
-                                 ),
-                                 status_code=400,
-                             ).to_json())
-             except Exception as e:
-                 log.warning(f"Column introspection failed for virtual dataset '{dataset_name}': {e}")
+    start_time = time.monotonic()
+    try:
+        # Build the virtual dataset payload with required name, database, and SQL fields
+        dataset_payload: Dict[str, Any] = {
+            "table_name": dataset_name,
+            "database": database_id,
+            "sql": sql,
+        }
+        # Attach optional metadata fields only when provided
+        if schema:
+            dataset_payload["schema"] = schema
+        if description:
+            dataset_payload["description"] = description
+        if default_endpoint_id:
+            dataset_payload["default_endpoint_id"] = default_endpoint_id
+        if columns_json:
+            try:
+                # Parse and validate columns JSON before sending to API
+                dataset_payload["columns"] = json.loads(columns_json)
+            except json.JSONDecodeError:
+                mc = get_metrics()
+                mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
+                mc.record_error(tool="superset_create_virtual_dataset", error_message="Invalid JSON in columns_json")
+                return log.collect(DatasetError("'columns_json' is not a valid JSON string.", details=columns_json).to_json())
+        if metrics_json:
+            try:
+                # Parse and validate metrics JSON before sending to API
+                dataset_payload["metrics"] = json.loads(metrics_json)
+            except json.JSONDecodeError:
+                mc = get_metrics()
+                mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
+                mc.record_error(tool="superset_create_virtual_dataset", error_message="Invalid JSON in metrics_json")
+                return log.collect(DatasetError("'metrics_json' is not a valid JSON string.", details=metrics_json).to_json())
 
-         # POST the virtual dataset to Superset's dataset API endpoint
-         endpoint = "/api/v1/dataset/"
-         resp = await execute_request(ctx, "POST", endpoint, json=dataset_payload)
-         resp.raise_for_status()
+        # Validate columns_json entries exist in the SQL query result
+        if "columns" in dataset_payload:
+            specified_columns = dataset_payload["columns"]
+            introspect_sql = f"SELECT * FROM ({sql}) AS _introspect LIMIT 0"
+            try:
+                exec_raw = await sqllab_execute_query(
+                    manager, server_id, database_id, introspect_sql, schema=schema
+                )
+                exec_data = json.loads(exec_raw)
+                client_id = exec_data.get("result", {}).get("query", {}).get("client_id")
+                if client_id:
+                    await asyncio.sleep(1)
+                    results_raw = await sqllab_get_query_results(manager, server_id, client_id)
+                    results = json.loads(results_raw)
+                    actual_columns = [c.get("column_name", "") for c in results.get("columns", [])]
+                    if actual_columns:
+                        actual_set = {c.lower() for c in actual_columns}
+                        missing = []
+                        from difflib import get_close_matches
+                        for scol in specified_columns:
+                            if isinstance(scol, dict):
+                                col_name = scol.get("column_name", "")
+                            else:
+                                col_name = str(scol)
+                            if col_name.lower() not in actual_set:
+                                suggestions = get_close_matches(col_name.lower(), list(actual_set), n=3, cutoff=0.6)
+                                sug = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+                                missing.append(f"'{col_name}'{sug}")
+                        if missing:
+                            mc = get_metrics()
+                            mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
+                            mc.record_error(
+                                tool="superset_create_virtual_dataset",
+                                error_message=f"Column validation failed: {len(missing)} columns not found in SQL result"
+                            )
+                            return log.collect(DatasetError(
+                                "Virtual dataset creation blocked: some columns don't exist in the SQL result",
+                                details=(
+                                    f"The following columns specified in columns_json were not found "
+                                    f"in the SQL query result for '{dataset_name}':\n\n"
+                                    + "\n".join(f"  - {m}" for m in missing)
+                                    + f"\n\nColumns in SQL result: {', '.join(actual_columns)}"
+                                ),
+                                status_code=400,
+                            ).to_json())
+            except Exception as e:
+                log.warning(f"Column introspection failed for virtual dataset '{dataset_name}': {e}")
 
-         # Record success metrics and return the created dataset details
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="success").inc()
-         mc.tool_duration.labels(tool="superset_create_virtual_dataset").observe(time.monotonic() - start_time)
-         mc.resources_created.labels(resource_type="dataset").inc()
-         return log.collect(json.dumps(resp.json(), indent=2))
-     except httpx.HTTPStatusError as e:
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
-         mc.record_error(tool="superset_create_virtual_dataset", error_message=f"HTTP {e.response.status_code} creating virtual dataset", status_code=e.response.status_code)
-         log.error(f"HTTPStatusError creating virtual dataset for {server_id}: {e.response.status_code} - {e.response.text}")
-         return log.collect(DatasetError(
-             f"HTTP {e.response.status_code} creating virtual dataset",
-             status_code=e.response.status_code,
-             details=e.response.text,
-         ).to_json())
-     except Exception as e:
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
-         mc.record_error(tool="superset_create_virtual_dataset", error_message=str(e))
-         log.error(f"Unexpected error creating virtual dataset for {server_id}: {e}")
-         return log.collect(DatasetError(f"Unexpected error creating virtual dataset: {e}", details=str(e)).to_json())
+        # POST the virtual dataset to Superset's dataset API endpoint
+        endpoint = "/api/v1/dataset/"
+        resp = await execute_request(ctx, "POST", endpoint, json=dataset_payload)
+        resp.raise_for_status()
+
+        # Record success metrics and return the created dataset details
+        mc = get_metrics()
+        mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="success").inc()
+        mc.tool_duration.labels(tool="superset_create_virtual_dataset").observe(time.monotonic() - start_time)
+        mc.resources_created.labels(resource_type="dataset").inc()
+        return log.collect(json.dumps(resp.json(), indent=2))
+    except httpx.HTTPStatusError as e:
+        mc = get_metrics()
+        mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
+        mc.record_error(tool="superset_create_virtual_dataset", error_message=f"HTTP {e.response.status_code} creating virtual dataset", status_code=e.response.status_code)
+        log.error(f"HTTPStatusError creating virtual dataset for {server_id}: {e.response.status_code} - {e.response.text}")
+        return log.collect(DatasetError(
+            f"HTTP {e.response.status_code} creating virtual dataset",
+            status_code=e.response.status_code,
+            details=e.response.text,
+        ).to_json())
+    except Exception as e:
+        mc = get_metrics()
+        mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
+        mc.record_error(tool="superset_create_virtual_dataset", error_message=str(e))
+        log.error(f"Unexpected error creating virtual dataset for {server_id}: {e}")
+        return log.collect(DatasetError(f"Unexpected error creating virtual dataset: {e}", details=str(e)).to_json())
 
 
 async def create_dataset(
-     manager: ConnectionManager,
-     server_id: str,
-     table_name: str,
-     database_id: int,
-     schema: Optional[str] = None,
-     owners: Optional[List[int]] = None,
-     metrics_json: Optional[str] = None,
-     columns_json: Optional[str] = None,
-     sql_expression: Optional[str] = None
- ) -> str:
-     """
-     MCP Tool: superset_create_dataset - Create a dataset from a physical table.
+    manager: ConnectionManager,
+    server_id: str,
+    table_name: str,
+    database_id: int,
+    schema: Optional[str] = None,
+    owners: Optional[List[int]] = None,
+    metrics_json: Optional[str] = None,
+    columns_json: Optional[str] = None,
+    sql_expression: Optional[str] = None
+) -> str:
+    """
+    MCP Tool: superset_create_dataset - Create a dataset from a physical table.
 
-     Registers an existing database table as a dataset in Superset. This makes
-     the table available as a datasource for charts and dashboards. Optionally
-     defines custom metrics and column overrides at registration time.
+    Registers an existing database table as a dataset in Superset. This makes
+    the table available as a datasource for charts and dashboards. Optionally
+    defines custom metrics and column overrides at registration time.
 
-     Args:
-         manager: The ConnectionManager instance with Superset connection details.
-         server_id: The ID of the configured Superset server.
-         table_name: The name of the existing database table to register.
-         database_id: The numeric ID of the database containing the table.
-         schema: Optional schema name (e.g., 'public' for PostgreSQL, 'dbo' for MSSQL).
-         owners: Optional list of user IDs who own the dataset.
-         metrics_json: Optional JSON string of metric definitions for the table.
-         columns_json: Optional JSON string of column definitions to override
-             auto-detected columns.
-         sql_expression: Optional SQL expression that filters or transforms the table.
-             Useful for creating a subset of a large table without a separate view.
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server.
+        table_name: The name of the existing database table to register.
+        database_id: The numeric ID of the database containing the table.
+        schema: Optional schema name (e.g., 'public' for PostgreSQL, 'dbo' for MSSQL).
+        owners: Optional list of user IDs who own the dataset.
+        metrics_json: Optional JSON string of metric definitions for the table.
+        columns_json: Optional JSON string of column definitions to override
+            auto-detected columns.
+        sql_expression: Optional SQL expression that filters or transforms the table.
+            Useful for creating a subset of a large table without a separate view.
 
-     Returns:
-         JSON string containing the created dataset's details (ID, name, SQL expression,
-         database reference) on success, or DatasetError JSON on failure.
-     """
-     ctx = manager.get_context(server_id)
-     if not ctx:
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
-         mc.record_error(tool="superset_create_dataset", error_message=f"Server '{server_id}' not found.")
-         return log.collect(DatasetError(f"Server '{server_id}' not found.", status_code=404).to_json())
+    Returns:
+        JSON string containing the created dataset's details (ID, name, SQL expression,
+        database reference) on success, or DatasetError JSON on failure.
 
-     start_time = time.monotonic()
-     try:
-         # Build the dataset payload with required table_name and database fields
-         dataset_payload: Dict[str, Any] = {
-             "table_name": table_name,
-             "database": database_id,
-         }
-         # Attach optional fields — owners, custom metrics, columns, and SQL expression
-         if schema:
-             dataset_payload["schema"] = schema
-         if owners is not None:
-             dataset_payload["owners"] = owners
-         if metrics_json:
-             try:
-                 # Parse and validate metrics JSON before sending to API
-                 dataset_payload["metrics"] = json.loads(metrics_json)
-             except json.JSONDecodeError:
-                 mc = get_metrics()
-                 mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
-                 mc.record_error(tool="superset_create_dataset", error_message="Invalid JSON in metrics_json")
-                 return log.collect(DatasetError("'metrics_json' is not valid JSON.", details=metrics_json).to_json())
-         if columns_json:
-             try:
-                 # Parse and validate columns JSON before sending to API
-                 dataset_payload["columns"] = json.loads(columns_json)
-             except json.JSONDecodeError:
-                 mc = get_metrics()
-                 mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
-                 mc.record_error(tool="superset_create_dataset", error_message="Invalid JSON in columns_json")
-                 return log.collect(DatasetError("'columns_json' is not valid JSON.", details=columns_json).to_json())
-         if sql_expression:
-             dataset_payload["sql_expression"] = sql_expression
+    Example:
+        result = await create_dataset(
+            manager, server_id="main", table_name="sales",
+            database_id=1, schema="public",
+            sql_expression="SELECT * FROM public.sales WHERE amount > 100"
+        )
+    """
+    ctx = manager.get_context(server_id)
+    if not ctx:
+        mc = get_metrics()
+        mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
+        mc.record_error(tool="superset_create_dataset", error_message=f"Server '{server_id}' not found.")
+        return log.collect(DatasetError(f"Server '{server_id}' not found.", status_code=404).to_json())
 
-         # Verify the database exists before attempting dataset creation
-         db_check_result = await impl_get_resource(manager, server_id, "database", database_id)
-         if "Error" in db_check_result or "not found" in db_check_result.lower():
-             mc = get_metrics()
-             mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
-             mc.record_error(tool="superset_create_dataset", error_message=f"Database ID '{database_id}' not found")
-             return log.collect(DatasetError(f"Database ID '{database_id}' not found", details=db_check_result).to_json())
+    start_time = time.monotonic()
+    try:
+        # Build the dataset payload with required table_name and database fields
+        dataset_payload: Dict[str, Any] = {
+            "table_name": table_name,
+            "database": database_id,
+        }
+        # Attach optional fields — owners, custom metrics, columns, and SQL expression
+        if schema:
+            dataset_payload["schema"] = schema
+        if owners is not None:
+            dataset_payload["owners"] = owners
+        if metrics_json:
+            try:
+                # Parse and validate metrics JSON before sending to API
+                dataset_payload["metrics"] = json.loads(metrics_json)
+            except json.JSONDecodeError:
+                mc = get_metrics()
+                mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
+                mc.record_error(tool="superset_create_dataset", error_message="Invalid JSON in metrics_json")
+                return log.collect(DatasetError("'metrics_json' is not valid JSON.", details=metrics_json).to_json())
+        if columns_json:
+            try:
+                # Parse and validate columns JSON before sending to API
+                dataset_payload["columns"] = json.loads(columns_json)
+            except json.JSONDecodeError:
+                mc = get_metrics()
+                mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
+                mc.record_error(tool="superset_create_dataset", error_message="Invalid JSON in columns_json")
+                return log.collect(DatasetError("'columns_json' is not valid JSON.", details=columns_json).to_json())
+        if sql_expression:
+            dataset_payload["sql_expression"] = sql_expression
 
-         # Validate columns_json entries exist in the actual database table
-         if "columns" in dataset_payload:
-             specified_columns = dataset_payload["columns"]
-             schema_ref = schema or "public"
-             introspect_sql = f"SELECT * FROM {schema_ref}.{table_name} LIMIT 0"
-             try:
-                 exec_raw = await sqllab_execute_query(
-                     manager, server_id, database_id, introspect_sql, schema=schema_ref
-                 )
-                 exec_data = json.loads(exec_raw)
-                 client_id = exec_data.get("result", {}).get("query", {}).get("client_id")
-                 if client_id:
-                     await asyncio.sleep(1)
-                     results_raw = await sqllab_get_query_results(manager, server_id, client_id)
-                     results = json.loads(results_raw)
-                     actual_columns = [c.get("column_name", "") for c in results.get("columns", [])]
-                     if actual_columns:
-                         actual_set = {c.lower() for c in actual_columns}
-                         missing = []
-                         from difflib import get_close_matches
-                         for scol in specified_columns:
-                             if isinstance(scol, dict):
-                                 col_name = scol.get("column_name", "")
-                             else:
-                                 col_name = str(scol)
-                             if col_name.lower() not in actual_set:
-                                 suggestions = get_close_matches(col_name.lower(), list(actual_set), n=3, cutoff=0.6)
-                                 sug = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
-                                 missing.append(f"'{col_name}'{sug}")
-                         if missing:
-                             mc = get_metrics()
-                             mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
-                             mc.record_error(
-                                 tool="superset_create_dataset",
-                                 error_message=f"Column validation failed: {len(missing)} columns not found in table"
-                             )
-                             return log.collect(DatasetError(
-                                 f"Dataset creation blocked: some columns don't exist in table '{table_name}'",
-                                 details=(
-                                     f"The following columns specified in columns_json were not found "
-                                     f"in the actual database table '{table_name}':\n\n"
-                                     + "\n".join(f"  - {m}" for m in missing)
-                                     + f"\n\nAvailable columns: {', '.join(actual_columns)}"
-                                 ),
-                                 status_code=400,
-                             ).to_json())
-             except Exception as e:
-                 log.warning(f"Column introspection failed for table '{table_name}': {e}")
-                 # Proceed despite introspection failure — best-effort validation
+        # Verify the database exists before attempting dataset creation
+        db_check_result = await impl_get_resource(manager, server_id, "database", database_id)
+        if "Error" in db_check_result or "not found" in db_check_result.lower():
+            mc = get_metrics()
+            mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
+            mc.record_error(tool="superset_create_dataset", error_message=f"Database ID '{database_id}' not found")
+            return log.collect(DatasetError(f"Database ID '{database_id}' not found", details=db_check_result).to_json())
 
-         # POST the dataset to Superset's dataset API endpoint
-         endpoint = "/api/v1/dataset/"
-         resp = await execute_request(ctx, "POST", endpoint, json=dataset_payload)
-         resp.raise_for_status()
+        # Validate columns_json entries exist in the actual database table
+        if "columns" in dataset_payload:
+            specified_columns = dataset_payload["columns"]
+            schema_ref = schema or "public"
+            introspect_sql = f"SELECT * FROM {schema_ref}.{table_name} LIMIT 0"
+            try:
+                exec_raw = await sqllab_execute_query(
+                    manager, server_id, database_id, introspect_sql, schema=schema_ref
+                )
+                exec_data = json.loads(exec_raw)
+                client_id = exec_data.get("result", {}).get("query", {}).get("client_id")
+                if client_id:
+                    await asyncio.sleep(1)
+                    results_raw = await sqllab_get_query_results(manager, server_id, client_id)
+                    results = json.loads(results_raw)
+                    actual_columns = [c.get("column_name", "") for c in results.get("columns", [])]
+                    if actual_columns:
+                        actual_set = {c.lower() for c in actual_columns}
+                        missing = []
+                        from difflib import get_close_matches
+                        for scol in specified_columns:
+                            if isinstance(scol, dict):
+                                col_name = scol.get("column_name", "")
+                            else:
+                                col_name = str(scol)
+                            if col_name.lower() not in actual_set:
+                                suggestions = get_close_matches(col_name.lower(), list(actual_set), n=3, cutoff=0.6)
+                                sug = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+                                missing.append(f"'{col_name}'{sug}")
+                        if missing:
+                            mc = get_metrics()
+                            mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
+                            mc.record_error(
+                                tool="superset_create_dataset",
+                                error_message=f"Column validation failed: {len(missing)} columns not found in table"
+                            )
+                            return log.collect(DatasetError(
+                                f"Dataset creation blocked: some columns don't exist in table '{table_name}'",
+                                details=(
+                                    f"The following columns specified in columns_json were not found "
+                                    f"in the actual database table '{table_name}':\n\n"
+                                    + "\n".join(f"  - {m}" for m in missing)
+                                    + f"\n\nAvailable columns: {', '.join(actual_columns)}"
+                                ),
+                                status_code=400,
+                            ).to_json())
+            except Exception as e:
+                log.warning(f"Column introspection failed for table '{table_name}': {e}")
+                # Proceed despite introspection failure — best-effort validation
 
-         # Record success metrics and return the created dataset details
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="superset_create_dataset", status="success").inc()
-         mc.tool_duration.labels(tool="superset_create_dataset").observe(time.monotonic() - start_time)
-         mc.resources_created.labels(resource_type="dataset").inc()
-         return log.collect(json.dumps(resp.json(), indent=2))
-     except httpx.HTTPStatusError as e:
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
-         mc.record_error(tool="superset_create_dataset", error_message=f"HTTP {e.response.status_code} creating dataset", status_code=e.response.status_code)
-         log.error(f"HTTPStatusError creating dataset for {server_id}: {e.response.status_code} - {e.response.text}")
-         return log.collect(DatasetError(
-             f"HTTP {e.response.status_code} creating dataset",
-             status_code=e.response.status_code,
-             details=e.response.text,
-         ).to_json())
-     except Exception as e:
-         mc = get_metrics()
-         mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
-         mc.record_error(tool="superset_create_dataset", error_message=str(e))
-         log.error(f"Unexpected error creating dataset for {server_id}: {e}")
-         return log.collect(DatasetError(f"Unexpected error creating dataset: {e}", details=str(e)).to_json())
+        # POST the dataset to Superset's dataset API endpoint
+        endpoint = "/api/v1/dataset/"
+        resp = await execute_request(ctx, "POST", endpoint, json=dataset_payload)
+        resp.raise_for_status()
+
+        # Record success metrics and return the created dataset details
+        mc = get_metrics()
+        mc.tool_calls.labels(tool="superset_create_dataset", status="success").inc()
+        mc.tool_duration.labels(tool="superset_create_dataset").observe(time.monotonic() - start_time)
+        mc.resources_created.labels(resource_type="dataset").inc()
+        return log.collect(json.dumps(resp.json(), indent=2))
+    except httpx.HTTPStatusError as e:
+        mc = get_metrics()
+        mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
+        mc.record_error(tool="superset_create_dataset", error_message=f"HTTP {e.response.status_code} creating dataset", status_code=e.response.status_code)
+        log.error(f"HTTPStatusError creating dataset for {server_id}: {e.response.status_code} - {e.response.text}")
+        return log.collect(DatasetError(
+            f"HTTP {e.response.status_code} creating dataset",
+            status_code=e.response.status_code,
+            details=e.response.text,
+        ).to_json())
+    except Exception as e:
+        mc = get_metrics()
+        mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
+        mc.record_error(tool="superset_create_dataset", error_message=str(e))
+        log.error(f"Unexpected error creating dataset for {server_id}: {e}")
+        return log.collect(DatasetError(f"Unexpected error creating dataset: {e}", details=str(e)).to_json())
 
 async def get_database_schema(
     manager: ConnectionManager,
@@ -416,6 +438,10 @@ async def get_database_schema(
         array of tables, each with a table_name and columns array containing
         column_name, data_type, and is_nullable. Returns DatasetError JSON
         on failure.
+
+    Example:
+        result = await get_database_schema(manager, server_id="main", database_id=1, schema_name="public")
+        # Returns JSON with database engine, all tables, and per-table column definitions
     """
     ctx = manager.get_context(server_id)
     if not ctx:

@@ -54,6 +54,12 @@ def build_adhoc_metric(column_name: str, aggregate: str = "AVG") -> Dict[str, An
 
     Returns:
         Dict formatted as an AdHocMetricObject with keys: aggregate, column, expressionType, label.
+
+        Example:
+            >>> build_adhoc_metric("sales", "SUM")
+            {'aggregate': 'SUM', 'column': {'column_name': 'sales'}, 'expressionType': 'SIMPLE', 'label': 'SUM(sales)'}
+            >>> build_adhoc_metric("revenue", "COUNT_DISTINCT")
+            {'aggregate': 'COUNT_DISTINCT', 'column': {'column_name': 'revenue'}, 'expressionType': 'SIMPLE', 'label': 'COUNT_DISTINCT(revenue)'}
     """
     # Step 1: Build the metric object with required Superset fields:
     #   - aggregate: the aggregation function (SUM, AVG, etc.)
@@ -81,6 +87,10 @@ def build_adhoc_dimension(column_name: str) -> Dict[str, Any]:
 
     Returns:
         Dict formatted as an AdHocDimensionObject with keys: column, expressionType.
+
+        Example:
+            >>> build_adhoc_dimension("product_line")
+            {'column': {'column_name': 'product_line'}, 'expressionType': 'DIMENSION'}
     """
     # Step 1: Build the dimension object — similar to AdHocMetricObject but
     #   uses expressionType "DIMENSION" (not "SIMPLE") to signal it's a

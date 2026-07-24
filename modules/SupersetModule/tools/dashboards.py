@@ -44,12 +44,19 @@ async def generate_simple_dashboard_layout(
         manager: The ConnectionManager instance with Superset connection details.
         server_id: The ID of the configured Superset server.
         chart_ids: List of chart IDs to include in the layout.
-        layout_type: 'row_of_charts' (horizontal) or 'column_of_charts' (vertical).
+        layout_type: 'row_of_charts' (horizontal) or 'column_of_charts' (vertical). Defaults to "row_of_charts".
         chart_width: Width of each chart cell in grid units. Defaults to 6.
         chart_height: Height of each chart cell in pixels. Defaults to 50.
 
     Returns:
         JSON string of the position_json layout object.
+
+    Example:
+        result = await generate_simple_dashboard_layout(
+            manager, "default", chart_ids=[123, 456],
+            layout_type="row_of_charts", chart_width=6, chart_height=50
+        )
+        # Returns JSON position layout with ROOT -> GRID -> ROW -> CHART hierarchy.
     """
     # Step 1: Validate server context exists
     ctx = manager.get_context(server_id)
@@ -93,9 +100,9 @@ def _build_simple_layout(
 
     Args:
         chart_info: List of dicts with 'id' and 'name' keys for each chart.
-        layout_type: 'row_of_charts' or 'column_of_charts'.
-        chart_width: Width of each chart cell in grid units.
-        chart_height: Height of each chart cell in pixels.
+        layout_type: 'row_of_charts' or 'column_of_charts'. Defaults to "row_of_charts".
+        chart_width: Width of each chart cell in grid units. Defaults to 6.
+        chart_height: Height of each chart cell in pixels. Defaults to 50.
 
     Returns:
         Dict representing a valid Superset position_json dashboard layout.
@@ -179,6 +186,10 @@ async def get_dashboard_info(
         dashboard_id: The ID of the dashboard to retrieve.
     Returns:
         JSON string containing the dashboard details.
+
+    Example:
+        result = await get_dashboard_info(manager, "default", dashboard_id=789)
+        # Returns JSON with dashboard title, position_json, charts, and metadata.
     """
     return await impl_superset_api(
         manager, server_id, "GET", f"/api/v1/dashboard/{dashboard_id}"
@@ -213,12 +224,21 @@ async def create_dashboard(
          json_metadata: Optional JSON string of additional metadata.
          owners: Optional list of user IDs who own the dashboard.
          roles: Optional list of role IDs that have access to the dashboard.
-         published: Whether the dashboard is published (visible) or saved as draft.
+         published: Whether the dashboard is published (visible) or saved as draft. Defaults to False.
 
      Returns:
          JSON string containing the created dashboard's details on success,
-         or a DashboardError JSON with specific validation errors on failure.
-     """
+            or a DashboardError JSON with specific validation errors on failure.
+
+    Example:
+        result = await create_dashboard(
+            manager, "default",
+            dashboard_title="Sales Dashboard",
+            position_json='{"DASHBOARD_VERSION_KEY": "v2", "ROOT_ID": {"type": "ROOT", "id": "ROOT_ID", "children": ["GRID_ID"]}}',
+            published=True
+        )
+        # Returns JSON with created dashboard details, ID, and Mermaid graph.
+    """
      # Step 1: Validate server context exists
      ctx = manager.get_context(server_id)
      if not ctx:
@@ -363,6 +383,10 @@ async def get_dashboard_api_info(manager: ConnectionManager, server_id: str) -> 
 
     Returns:
         JSON string containing the dashboard API metadata from /api/v1/dashboard/_info.
+
+    Example:
+        result = await get_dashboard_api_info(manager, "default")
+        # Returns JSON with dashboard API metadata including supported features and filters.
     """
     # Delegate to the generic Superset API helper for the GET request
     return await impl_superset_api(manager, server_id, "GET", "/api/v1/dashboard/_info")
@@ -387,7 +411,14 @@ async def update_dashboard(
 
     Returns:
         JSON string containing the updated dashboard's details from the API response,
-        or an error JSON if the update fails.
+            or an error JSON if the update fails.
+
+    Example:
+        result = await update_dashboard(
+            manager, "default", dashboard_id=789,
+            json_body='{"dashboard_title": "Updated Dashboard"}'
+        )
+        # Returns JSON with updated dashboard details.
     """
     return await impl_superset_api(manager, server_id, "PUT", f"/api/v1/dashboard/{dashboard_id}", json_body=json_body)
 
@@ -412,7 +443,13 @@ async def bulk_link_charts(
 
     Returns:
         String with per-chart status messages. Prefixed with "WARNING:" if any
-        charts failed to link, otherwise a plain list of success messages.
+            charts failed to link, otherwise a plain list of success messages.
+
+    Example:
+        result = await bulk_link_charts(
+            manager, "default", dashboard_id=789, chart_ids=[123, 456]
+        )
+        # Returns string with per-chart link status messages.
     """
     results = []
     errors = []
@@ -450,6 +487,10 @@ async def generate_robust_layout(
 
     Returns:
         JSON string of the position_json layout, or DashboardError if server not found.
+
+    Example:
+        result = await generate_robust_layout(manager, "default", chart_ids=[123, 456])
+        # Returns JSON nested position layout with auto-sizing per viz_type.
     """
     chart_info = []
     for cid in chart_ids:
@@ -473,6 +514,10 @@ def get_dashboard_creation_rules() -> str:
 
     Returns:
         String containing the expert rules for dashboard creation.
+
+    Example:
+        result = get_dashboard_creation_rules()
+        # Returns string with expert guidelines for dashboard creation.
     """
     return rules.get_dashboard_creation_rules()
 
@@ -501,7 +546,14 @@ async def transfer_dashboard(
 
     Returns:
         JSON string with transfer results, including updated chart/dashboard IDs
-        on the target server. Returns NEED_INPUT if manual mappings are required.
+            on the target server. Returns NEED_INPUT if manual mappings are required.
+
+    Example:
+        result = await transfer_dashboard(
+            manager, source_server_id="source", target_server_id="target",
+            dashboard_id=789, db_mappings='{"1": 2}', table_mappings='{"old": "new"}'
+        )
+        # Returns JSON with transfer results including updated chart/dashboard IDs.
     """
     return await new_transfer_dashboard(manager, source_server_id, target_server_id, dashboard_id, db_mappings, table_mappings)
 
@@ -531,13 +583,23 @@ async def generate_dashboard(
          chart_ids: List of chart IDs to include in the dashboard.
          slug: Optional URL-friendly identifier for the dashboard.
          json_metadata: Optional JSON string of additional metadata.
-         published: Whether the dashboard is published or saved as draft.
-         layout_type: 'robust' (nested hierarchy) or 'simple' (flat row/column).
+         published: Whether the dashboard is published or saved as draft. Defaults to False.
+         layout_type: 'robust' (nested hierarchy) or 'simple' (flat row/column). Defaults to "robust".
 
      Returns:
          JSON string containing the created dashboard's details on success,
-         or a DashboardError JSON with validation errors on failure.
-     """
+            or a DashboardError JSON with validation errors on failure.
+
+    Example:
+        result = await generate_dashboard(
+            manager, "default",
+            dashboard_title="Sales Dashboard",
+            chart_ids=[123, 456],
+            layout_type="robust",
+            published=True
+        )
+        # Returns JSON with created dashboard details, ID, and Mermaid graph.
+    """
      # Step 1: Validate server context exists
      ctx = manager.get_context(server_id)
      if not ctx:
@@ -766,7 +828,13 @@ async def add_chart_to_existing_dashboard(
     Returns:
         JSON string with a success message, dashboard_id, chart_id, and the
         updated dashboard result. Returns DashboardError if the server/dashboard
-        is not found or the API request fails.
+            is not found or the API request fails.
+
+    Example:
+        result = await add_chart_to_existing_dashboard(
+            manager, "default", dashboard_id=789, chart_id=123
+        )
+        # Returns JSON with success message, dashboard_id, chart_id, and updated result.
     """
     # Step 1: Validate server context exists
     ctx = manager.get_context(server_id)

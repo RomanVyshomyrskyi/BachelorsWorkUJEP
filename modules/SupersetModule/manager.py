@@ -151,6 +151,13 @@ class ConnectionManager:
         Returns:
             SupersetContext if the server is configured and loaded,
             None if the server_id does not exist or no contexts are available.
+
+        Example:
+            >>> mgr = ConnectionManager("/path/to/config")
+            >>> ctx = mgr.get_context("superset_main")
+            >>> if ctx:
+            ...     print(ctx.config.base_url)
+            http://localhost:8088
         """
         # Lazy-load servers on first request if not already loaded
         if not self._contexts:
@@ -160,8 +167,14 @@ class ConnectionManager:
     async def close_all(self):
         """Close all active HTTP client connections for every loaded server.
 
-        Iterates over all cached contexts and calls aclose() on each httpx.AsyncClient
-        to properly release network resources. Should be called during application shutdown.
+        Iterates over all cached ``SupersetContext`` objects and calls
+        ``aclose()`` on each ``httpx.AsyncClient`` to properly release
+        network resources. Should be called during application shutdown
+        to prevent resource leaks.
+
+        Example:
+            >>> # During application shutdown:
+            >>> await connection_manager.close_all()
         """
         for ctx in self._contexts.values():
             await ctx.client.aclose()

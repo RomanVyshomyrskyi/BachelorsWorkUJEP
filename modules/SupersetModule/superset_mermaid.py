@@ -398,10 +398,21 @@ def chart_to_mermaid(
 
     Returns:
         Mermaid diagram string suitable for rendering in Markdown.
+
+        Example:
+            >>> print(chart_to_mermaid("pie", {"metric": "count", "groupby": ["product_line"]}, "Sales Pie"))
+            pie title "Sales Pie"
+                "product_line" : 30
+            >>> print(chart_to_mermaid("echarts_timeseries_line", {}, "Revenue Trend"))
+            xychart-beta
+                title "Revenue Trend"
+                x-axis "Category" [...]
+                y-axis "?" 0 --> 100
+                line [...]
+
+        Note:
+            Use in Markdown fenced code blocks with ```mermaid ... ``` to render.
     """
-    params = params or {}
-    # Step 1: Normalize viz_type to lowercase with underscores (safety net)
-    vt = viz_type.lower().replace(" ", "_")
     # Step 2: Extract metric name and groupby columns for diagram generation
     metric = _extract_metric_name(params)
     groupby = _extract_groupby(params)
@@ -429,9 +440,30 @@ def dashboard_to_mermaid(
 
     Returns:
         Mermaid 'flowchart TD' diagram string with dashboard → chart edges.
+
+        Example:
+            >>> print(dashboard_to_mermaid("Sales Overview", chart_ids=[1, 2, 3]))
+            flowchart TD
+                DASH["Dashboard: Sales Overview"]
+                C0["Chart 1"]
+                DASH --> C0
+                C1["Chart 2"]
+                DASH --> C1
+                C2["Chart 3"]
+                DASH --> C2
+            >>> print(dashboard_to_mermaid("KPIs", chart_info=[
+            ...     {"id": 10, "slice_name": "Revenue KPI"},
+            ...     {"id": 11, "slice_name": "Costs KPI"}]))
+            flowchart TD
+                DASH["Dashboard: KPIs"]
+                C0["Revenue KPI"]
+                DASH --> C0
+                C1["Costs KPI"]
+                DASH --> C1
+
+        Note:
+            Use in Markdown fenced code blocks with ```mermaid ... ``` to render.
     """
-    # Step 1: Build the root dashboard node
-    lines = ["flowchart TD", f'    DASH["Dashboard: {_sanitize(dashboard_title)}"]']
     chart_info = chart_info or []
     chart_ids = chart_ids or []
     # Step 2: If only IDs provided (no names), synthesize name dicts

@@ -188,6 +188,10 @@ async def get_chart_api_info(manager: ConnectionManager, server_id: str) -> str:
     Returns:
         JSON string containing the chart API metadata from /api/v1/chart/_info,
         including supported viz_types, form_data schemas, and feature flags.
+
+    Example:
+        result = await get_chart_api_info(manager, "default")
+        # Returns JSON with chart API metadata including available viz_types and filters.
     """
     # Delegate to the generic Superset API helper for the GET request
     return await impl_superset_api(manager, server_id, "GET", "/api/v1/chart/_info")
@@ -1101,6 +1105,17 @@ async def create_chart(
     Returns:
         JSON string containing the created chart's details (ID, name, URL, params) on success,
         or a ChartError JSON with detailed error message and fix suggestions on failure.
+
+    Example:
+        result = await create_chart(
+            manager, "default",
+            slice_name="Monthly Sales",
+            viz_type="bar",
+            datasource_id=42,
+            datasource_type="table",
+            params='{"metrics": ["SUM(sales)"], "groupby": ["region"]}'
+        )
+        # Returns JSON with created chart ID, name, URL, and params.
     """
     # Step 1: Retrieve the server context for API access
     ctx = manager.get_context(server_id)
@@ -1408,6 +1423,13 @@ async def update_chart(
     Returns:
         JSON string containing the updated chart's details from the API response,
         or an error JSON if the update fails.
+
+    Example:
+        result = await update_chart(
+            manager, "default", chart_id=123,
+            json_body='{"slice_name": "Updated Sales Chart"}'
+        )
+        # Returns JSON with updated chart details.
     """
     # Delegate to the generic Superset API helper for the PUT request
     return await impl_superset_api(manager, server_id, "PUT", f"/api/v1/chart/{chart_id}", json_body=json_body)
@@ -1433,7 +1455,11 @@ def get_standard_chart_params(viz_type: str, datasource_id: int, overrides_json:
 
     Returns:
         JSON string of the standard parameters for the given viz_type and datasource.
-        This can be used as the base for chart creation or exploration.
+            This can be used as the base for chart creation or exploration.
+
+    Example:
+        result = get_standard_chart_params("echarts_bar", datasource_id=42)
+        # Returns JSON with default params like metrics, groupby, and viz_type for the chart type.
     """
     # Step 1: Parse override JSON if provided, otherwise use empty dict
     overrides = json.loads(overrides_json) if overrides_json else {}
@@ -1452,7 +1478,11 @@ def get_chart_creation_rules() -> str:
 
     Returns:
         String containing the expert rules for chart creation, formatted as
-        readable text with guidelines organized by topic.
+            readable text with guidelines organized by topic.
+
+    Example:
+        result = get_chart_creation_rules()
+        # Returns string with expert guidelines for creating charts.
     """
     # Delegate to the rules module which contains the expert chart creation guide
     return rules.get_chart_creation_rules()
@@ -1473,6 +1503,10 @@ async def list_charts(manager: ConnectionManager, server_id: str) -> str:
     Returns:
         JSON string containing the paginated list of charts from GET /api/v1/chart/,
         including each chart's ID, name, viz_type, and datasource info.
+
+    Example:
+        result = await list_charts(manager, "default")
+        # Returns JSON paginated list of all charts with IDs, names, and viz_types.
     """
     # Delegate to the generic Superset API helper for the paginated GET request
     return await impl_superset_api(manager, server_id, "GET", "/api/v1/chart/")
@@ -1498,6 +1532,10 @@ async def get_chart_info(
         JSON string containing the full chart details from GET /api/v1/chart/{id},
         including slice_name, viz_type, params, datasource_id, datasource_type,
         and other metadata.
+
+    Example:
+        result = await get_chart_info(manager, "default", chart_id=123)
+        # Returns JSON with full chart details: slice_name, viz_type, params, datasource, etc.
     """
     # Delegate to the generic Superset API helper for the GET request
     return await impl_superset_api(
@@ -1532,7 +1570,15 @@ async def generate_chart(
 
     Returns:
         JSON string containing the created chart's details (chart_id, slice_name, url,
-        result) on success, or a ChartError JSON with detailed error messages on failure.
+            result) on success, or a ChartError JSON with detailed error messages on failure.
+
+    Example:
+        result = await generate_chart(
+            manager, "default", dataset_id=42,
+            config='{"viz_type": "bar", "metrics": ["SUM(sales)"], "groupby": ["region"]}',
+            slice_name="Monthly Sales"
+        )
+        # Returns JSON with chart_id, slice_name, url, and result on success.
     """
     # Step 1: Retrieve server context and validate it exists
     ctx = manager.get_context(server_id)
@@ -1825,6 +1871,10 @@ async def get_chart_preview(
           - chart_id: The chart ID
           - embed_url: URL suitable for embedding in external pages
         Returns ChartError JSON if the server is not found.
+
+    Example:
+        result = await get_chart_preview(manager, "default", chart_id=123)
+        # Returns JSON with preview_url and embed_url for chart viewing.
     """
     # Step 1: Retrieve server context
     ctx = manager.get_context(server_id)
@@ -1866,8 +1916,12 @@ async def get_chart_data(
 
     Returns:
         JSON string containing the chart's data from GET /api/v1/chart/{id}/data/,
-        including the data rows, SQL query, row count, and execution metadata.
+            including the data rows, SQL query, row count, and execution metadata.
         Returns ChartError JSON if the request fails.
+
+    Example:
+        result = await get_chart_data(manager, "default", chart_id=123)
+        # Returns JSON with chart query data rows, SQL, row count, and metadata.
     """
     # Step 1: Retrieve server context
     ctx = manager.get_context(server_id)
@@ -1912,7 +1966,11 @@ async def get_chart_type_schema(
     Returns:
         JSON string containing the chart type schema with the chart_type name and
         the raw schema object from the Superset API. Returns ChartError JSON if
-        the schema cannot be retrieved.
+            the schema cannot be retrieved.
+
+    Example:
+        result = await get_chart_type_schema(manager, "default", chart_type="echarts_bar")
+        # Returns JSON schema describing all valid params for the chart type.
     """
     # Step 1: Validate server context exists
     ctx = manager.get_context(server_id)
@@ -1953,7 +2011,11 @@ async def get_all_chart_schemas(manager: ConnectionManager, server_id: str) -> s
     Returns:
         A Markdown string containing the complete chart type reference with
         required fields, metric fields, groupby fields, and other fields
-        for every chart type available on the Superset instance.
+            for every chart type available on the Superset instance.
+
+    Example:
+        result = await get_all_chart_schemas(manager, "default")
+        # Returns Markdown reference with required/metric/groupby fields for all chart types.
     """
     import asyncio
 

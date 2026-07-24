@@ -64,6 +64,13 @@ async def impl_transfer_item(
 
     Returns:
         JSON string with a success message or a TransferError JSON on failure.
+
+    Example:
+        result = await impl_transfer_item(
+            manager, source_server_id="source", target_server_id="target",
+            resource_type="chart", item_id=123
+        )
+        # Returns JSON with success message or TransferError details.
     """
     source_ctx = manager.get_context(source_server_id)
     target_ctx = manager.get_context(target_server_id)
@@ -686,8 +693,15 @@ async def transfer_dashboard(
 
     Returns:
         JSON string with either a ``NEED_INPUT:`` message (if user input is
-        required for resolution) or a complete transfer summary including
-        datasource mapping, chart mapping, and a nested execution report.
+            required for resolution) or a complete transfer summary including
+            datasource mapping, chart mapping, and a nested execution report.
+
+    Example:
+        result = await transfer_dashboard(
+            manager, source_server_id="source", target_server_id="target",
+            dashboard_id=789, db_mappings='{"1": 2}', table_mappings='{"old": "new"}'
+        )
+        # Returns JSON with transfer results including datasource/chart mappings and dashboard ID.
     """
     source_ctx = manager.get_context(source_server_id)
     target_ctx = manager.get_context(target_server_id)

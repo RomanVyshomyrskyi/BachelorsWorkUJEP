@@ -47,6 +47,10 @@ async def profile_table(
         JSON string containing table profiling results: row count, per-column
         statistics (nulls, distinct count, min, max, avg, stddev, top values),
         and overall table metadata.
+
+    Example:
+        result = await profile_table(manager, server_id="main", database_id=1, schema="public", table="sales")
+        # Returns JSON with row count, per-column stats (nulls, min, max, top values), and table metadata
     """
     # Delegate to the semantic layer implementation for table profiling logic
     return await _profile_table(manager, server_id, database_id, schema, table)
@@ -76,6 +80,10 @@ async def suggest_metrics(
     Returns:
         JSON string containing suggested metrics for each numeric column,
         including recommended aggregation functions (SUM, AVG, COUNT, MIN, MAX).
+
+    Example:
+        result = await suggest_metrics(manager, server_id="main", database_id=1, schema="public", table="sales")
+        # Returns JSON with per-column metric suggestions (SUM for amount, AVG for price, COUNT for id)
     """
     # Delegate to the semantic layer implementation for metric suggestion logic
     return await _suggest_metrics(manager, server_id, database_id, schema, table)
@@ -105,6 +113,10 @@ async def suggest_dimensions(
     Returns:
         JSON string containing suggested dimension columns with their types
         (text, categorical, date, boolean) and suitability for grouping/filtering.
+
+    Example:
+        result = await suggest_dimensions(manager, server_id="main", database_id=1, schema="public", table="sales")
+        # Returns JSON with dimension suggestions (product_name as text, sale_date as date, region as categorical)
     """
     # Delegate to the semantic layer implementation for dimension suggestion logic
     return await _suggest_dimensions(manager, server_id, database_id, schema, table)
@@ -138,6 +150,13 @@ async def get_data_dictionary(
     Returns:
         JSON string containing the data dictionary with column names, types,
         recommended roles, and optionally statistics for each column.
+
+    Example:
+        result = await get_data_dictionary(
+            manager, server_id="main", database_id=1, schema="public",
+            table="sales", include_statistics=True
+        )
+        # Returns JSON with column names, types, chart roles, and column statistics
     """
     # Delegate to the semantic layer implementation for data dictionary generation
     return await _get_data_dictionary(

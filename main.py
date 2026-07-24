@@ -452,12 +452,36 @@ except Exception as e:
 # Old clients may still request /sse and /messages directly; redirect them to /mcp/*
 @app.get("/sse")
 async def handle_sse_redirect():
-    """Redirect legacy /sse requests to the new /mcp/sse endpoint."""
+    """Redirect legacy /sse requests to the new /mcp/sse endpoint.
+
+    Provides backwards compatibility for MCP clients that connect to the
+    legacy ``/sse`` path. The redirect sends a 307 Temporary Redirect to
+    ``/mcp/sse`` where the FastMCP SSE transport is actually mounted.
+
+    Returns:
+        A ``RedirectResponse`` object with status 307 pointing to
+        ``/mcp/sse``.
+
+    Example:
+        >>> # GET /sse → HTTP 307 → Location: /mcp/sse
+    """
     return RedirectResponse(url="/mcp/sse")
 
 @app.get("/messages")
 async def handle_messages_redirect():
-    """Redirect legacy /messages requests to the new /mcp/messages endpoint."""
+    """Redirect legacy /messages requests to the new /mcp/messages endpoint.
+
+    Provides backwards compatibility for MCP clients that post messages to
+    the legacy ``/messages`` path. The redirect sends a 307 Temporary Redirect
+    to ``/mcp/messages`` where the FastMCP SSE transport handles the message.
+
+    Returns:
+        A ``RedirectResponse`` object with status 307 pointing to
+        ``/mcp/messages``.
+
+    Example:
+        >>> # POST /messages → HTTP 307 → Location: /mcp/messages
+    """
     return RedirectResponse(url="/mcp/messages")
 
 # 4. Add observability endpoints
@@ -474,6 +498,12 @@ async def prometheus_metrics():
     Returns:
         A ``Response`` object with the Prometheus metrics body and the correct
         ``Content-Type`` header for Prometheus scraping.
+
+    Example:
+        >>> # GET /metrics returns Prometheus text format:
+        >>> # # HELP http_requests_total Total HTTP requests
+        >>> # # TYPE http_requests_total counter
+        >>> # http_requests_total{method="GET",status="200"} 1234
     """
     from modules.metrics import get_metrics
     # Get the singleton MetricsCollector to access all registered metrics
@@ -492,6 +522,18 @@ async def get_recent_errors():
     Returns:
         A JSON response containing a list of the most recent error entries, each
         with a timestamp, tool name, error message, status code, and duration.
+
+    Example:
+        >>> # GET /errors returns:
+        >>> # [
+        >>> #   {
+        >>> #     "timestamp": "2025-01-15T10:30:00",
+        >>> #     "tool": "execute_query",
+        >>> #     "error": "Connection timeout",
+        >>> #     "status": "error",
+        >>> #     "duration_ms": 30100
+        >>> #   }
+        >>> # ]
     """
     mc = get_metrics()
     # Retrieve the ring buffer contents (thread-safe via internal locking)

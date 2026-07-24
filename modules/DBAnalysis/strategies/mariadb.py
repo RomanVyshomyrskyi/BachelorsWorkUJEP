@@ -50,24 +50,17 @@ class MariaDBStrategy(DatabaseStrategy):
     """
 
     def connect(self):
-        """
-        Establish a connection to the MariaDB/MySQL database.
+        """Establish a connection to the MariaDB/MySQL database.
 
         Creates a mysql.connector connection using the credentials from
-        connection_details, configures statement-level timeout, and
-        stores the connection object for subsequent operations.
-
-        Description:
-            1. Extracts connection parameters from self.connection_details.
-            2. Attempts to establish a mysql.connector connection with the
-               given credentials, with raw=False for parameterized safety.
-            3. Sets a 30-second max_execution_time using cmd_set_system_variable().
-            4. Stores the connection in self.connection on success.
-            5. Raises ConnectionError with a user-friendly message on failure.
+        ``connection_details`` with ``raw=False`` for parameterized query
+        safety. Configures a 30-second statement-level timeout via
+        ``cmd_set_system_variable('max_execution_time', '30000')`` and stores
+        the connection object for subsequent operations.
 
         Raises:
             ConnectionError: If the connection fails (invalid credentials,
-                             unreachable host, wrong port, etc.).
+                unreachable host, wrong port, etc.).
         """
         # Extract connection parameters from the stored details dictionary
         db = self.connection_details
@@ -100,13 +93,10 @@ class MariaDBStrategy(DatabaseStrategy):
             raise ConnectionError("Failed to connect to database. Please verify your credentials and network.")
 
     def disconnect(self):
-        """
-        Close the MariaDB/MySQL database connection and release resources.
+        """Close the MariaDB/MySQL database connection and release resources.
 
-        Description:
-            1. Checks if a connection object exists.
-            2. Closes the connection if open.
-            3. Sets self.connection to None to prevent use-after-close errors.
+        Closes the underlying mysql.connector connection and sets the internal
+        reference to ``None`` to prevent use-after-close errors.
         """
         # Only attempt to close if a connection object exists
         if self.connection:
@@ -180,30 +170,23 @@ class MariaDBStrategy(DatabaseStrategy):
         return format_schema(db_name, "MariaDB", tables_and_columns, relationships)
 
     def execute_query(self, query: str, max_rows: int = MAX_ROWS) -> list[dict]:
-        """
-        Execute a read-only MariaDB/MySQL query with row limiting.
+        """Execute a read-only MariaDB/MySQL query with row limiting.
 
-        This method validates the query as read-only, executes it with a cursor,
-        and fetches results in batches.
+        Executes a read-only SQL query on the MariaDB/MySQL database. Results
+        are fetched in batches of 500 rows and returned as a list of
+        dictionaries.
 
         Args:
             query: The SQL SELECT query to execute (validated as read-only).
             max_rows: Maximum number of rows to return (default: 1000).
 
         Returns:
-            A list of dictionaries, each representing a row with column names as keys.
+            A list of dictionaries, each representing a row with column
+            names as keys.
 
         Raises:
             ConnectionError: If not currently connected to the database.
             RuntimeError: If a MariaDB/MySQL error occurs during execution.
-
-        Description:
-            1. Validates connection state.
-            2. Validates the query as read-only via inherited method.
-            3. Executes the query with a cursor.
-            4. Fetches results in batches of 500 rows using fetchmany().
-            5. Stops fetching once max_rows is reached.
-            6. Handles MySQL errors and converts them to RuntimeError.
         """
         # Verify that a connection is established before attempting query execution
         if not self.connection:

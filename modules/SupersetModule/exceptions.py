@@ -41,6 +41,17 @@ class SupersetToolError(Exception):
         Returns:
             JSON-formatted string containing error, message, status_code, tool,
             and details fields. Pretty-printed with 2-space indentation.
+
+        Example:
+            >>> err = SupersetToolError("Connection refused", status_code=503, tool="chart", details="Host: localhost:8088")
+            >>> print(err.to_json())
+            {
+              "error": true,
+              "message": "Connection refused",
+              "status_code": 503,
+              "tool": "chart",
+              "details": "Host: localhost:8088"
+            }
         """
         import json
         # Build the JSON structure with all error metadata fields

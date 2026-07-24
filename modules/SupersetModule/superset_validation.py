@@ -715,6 +715,14 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
         Fix 14a: Axis fields -> AdHocMetricObject
         Fix 16: Universal aggregate/expressionType/label completion
         Fix 18: Universal label for groupby/orderby/columns dict entries
+
+        Example:
+            >>> bad_params = {"groupby": "product_line", "metrics": ["SUM(sales)"], "metric": None}
+            >>> fixed = auto_fix_chart_params("echarts_timeseries_line", bad_params)
+            >>> fixed["groupby"]
+            ['product_line']
+            >>> fixed["metric"]
+            {'aggregate': 'AVG', 'column': {'column_name': 'count'}, 'expressionType': 'SIMPLE', 'label': 'AVG(count)'}
     """
     # Deep copy via JSON round-trip — ensures no shared references with the
     # original params dict, preventing unintended mutations.
@@ -1100,6 +1108,18 @@ def validate_datasource_compatibility(
         - sunburst/treemap need groupby or columns for hierarchy
         - time series charts prefer temporal x_axis
         - big_number trendline needs temporal x_axis
+
+        Example:
+            >>> cols = [{"column_name": "order_date", "type": "DATETIME"}]
+            >>> errors = validate_datasource_compatibility("echarts_timeseries_line",
+            ...     {"x_axis": "order_date", "granularity_sqla": "order_date"},
+            ...     dataset_columns=cols)
+            >>> errors  # x_axis is temporal — no errors
+            []
+            >>> errors = validate_datasource_compatibility("bubble_v2", {},
+            ...     dataset_columns=cols)
+            >>> errors  # bubble_v2 requires x, y, size fields
+            ["Chart 'bubble_v2' requires field 'x'. ..."]
     """
     errors: List[str] = []
     # Step 1: Look up datasource requirements for this viz_type from the
@@ -1225,6 +1245,15 @@ def format_error_summary(errors: List[str]) -> str:
 
     Returns:
         A human-readable summary string, or a success message if no errors.
+
+        Example:
+            >>> errors = ["Missing metric field", "Invalid groupby format"]
+            >>> print(format_error_summary(errors))
+            Found 2 error(s):
+              1. Missing metric field
+              2. Invalid groupby format
+            >>> format_error_summary([])
+            'No errors found. Parameters are valid.'
     """
     # Step 1: Handle the happy path — no errors means valid params.
     if not errors:

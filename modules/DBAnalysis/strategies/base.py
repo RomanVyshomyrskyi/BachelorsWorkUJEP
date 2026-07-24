@@ -77,6 +77,26 @@ class DatabaseStrategy(ABC):
         >>> with strategy as db:
         ...     results = db.execute_query("SELECT * FROM users")
         >>> # Connection is automatically closed after the with block
+
+        Example:
+            >>> strategy = get_db_strategy("postgres", {
+            ...     "host": "localhost", "user": "admin", "password": "secret",
+            ...     "dbname": "analytics", "port": 5432})
+            >>> with strategy as db:
+            ...     rows = db.execute_query("SELECT id, name FROM users LIMIT 5")
+            ...     for row in rows:
+            ...         print(row["name"])
+            ...     schema = db.get_schema_representation()
+            >>> # Connection closed automatically
+
+            >>> # Read-only enforcement example:
+            >>> DatabaseStrategy._validate_read_only_query("SELECT * FROM users")
+            'SELECT * FROM users'
+            >>> try:
+            ...     DatabaseStrategy._validate_read_only_query("DROP TABLE users")
+            ... except ValueError as e:
+            ...     print(e)
+            Security violation: Query contains forbidden keyword 'DROP'
     """
 
     def __init__(self, connection_details: dict):

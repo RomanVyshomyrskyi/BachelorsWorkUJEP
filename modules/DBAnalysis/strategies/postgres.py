@@ -83,23 +83,16 @@ class PostgresStrategy(DatabaseStrategy):
     """
 
     def connect(self):
-        """
-        Establish a connection to the PostgreSQL database.
+        """Establish a connection to the PostgreSQL database.
 
         Creates a psycopg2 connection using the credentials from
-        connection_details, configures statement-level timeout, and
-        stores the connection object for subsequent operations.
-
-        Description:
-            1. Extracts connection parameters from self.connection_details.
-            2. Attempts to establish a psycopg2 connection with the given credentials.
-            3. Sets a 30-second statement timeout using set_session().
-            4. Stores the connection in self.connection on success.
-            5. Raises ConnectionError with a user-friendly message on failure.
+        ``connection_details``, configures a 30-second statement-level
+        timeout via ``set_session()``, and stores the connection object
+        for subsequent operations.
 
         Raises:
             ConnectionError: If the connection fails (invalid credentials,
-                             unreachable host, wrong port, etc.).
+                unreachable host, wrong port, etc.).
         """
         # Extract connection parameters from the stored details dictionary
         db = self.connection_details
@@ -129,13 +122,10 @@ class PostgresStrategy(DatabaseStrategy):
             raise ConnectionError("Failed to connect to database. Please verify your credentials and network.")
 
     def disconnect(self):
-        """
-        Close the PostgreSQL database connection and release resources.
+        """Close the PostgreSQL database connection and release resources.
 
-        Description:
-            1. Checks if a connection object exists.
-            2. Closes the connection if open.
-            3. Sets self.connection to None to prevent use-after-close errors.
+        Closes the underlying psycopg2 connection and sets the internal
+        reference to ``None`` to prevent use-after-close errors.
         """
         # Only attempt to close if a connection object exists
         if self.connection:
@@ -212,33 +202,24 @@ class PostgresStrategy(DatabaseStrategy):
         return format_schema(self.connection_details['dbname'], "PostgreSQL", tables_and_columns, relationships)
 
     def execute_query(self, query: str, max_rows: int = MAX_ROWS) -> list[dict]:
-        """
-        Execute a read-only PostgreSQL query with timeout and row limiting.
+        """Execute a read-only PostgreSQL query with timeout and row limiting.
 
-        This method validates the query as read-only, sets up a signal-based
-        timeout, executes the query, and fetches results in batches.
+        Executes a read-only SQL query on the PostgreSQL database with a
+        30-second signal-based timeout. Results are fetched in batches of
+        500 rows and returned as a list of dictionaries.
 
         Args:
             query: The SQL SELECT query to execute (validated as read-only).
             max_rows: Maximum number of rows to return (default: 1000).
 
         Returns:
-            A list of dictionaries, each representing a row with column names as keys.
+            A list of dictionaries, each representing a row with column
+            names as keys.
 
         Raises:
             ConnectionError: If not currently connected to the database.
             TimeoutError: If the query exceeds the 30-second timeout limit.
             RuntimeError: If a PostgreSQL error occurs during execution.
-
-        Description:
-            1. Validates connection state.
-            2. Validates the query as read-only via inherited method.
-            3. Saves and sets up a SIGALRM timeout handler (30 seconds).
-            4. Executes the query with a cursor.
-            5. Fetches results in batches of 500 rows using fetchmany().
-            6. Stops fetching once max_rows is reached.
-            7. Cleans up the alarm and restores the original signal handler.
-            8. Handles PostgreSQL errors and converts them to RuntimeError.
         """
         # Verify that a connection is established before attempting query execution
         if not self.connection:

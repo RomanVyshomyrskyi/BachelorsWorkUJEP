@@ -17,6 +17,10 @@ async def list_servers(manager: ConnectionManager) -> str:
     Returns:
         A string listing all configured servers with their IDs, base URLs,
         and authentication methods. Returns debug info if no servers are found.
+
+    Example:
+        result = await list_servers(manager)
+        # Returns a formatted list of all configured Superset server connections
     """
     # Reload config if empty (hot-reload fix)
     if not manager._contexts:
@@ -63,6 +67,10 @@ async def reauthenticate(manager: ConnectionManager, server_id: str) -> str:
     Returns:
         A status string indicating success with the new token, or an error
         message if the server is not found or authentication fails.
+
+    Example:
+        result = await reauthenticate(manager, server_id="main")
+        # Returns success confirmation with new token details or error message
     """
     ctx = manager.get_context(server_id)
     if not ctx:
@@ -94,6 +102,10 @@ async def server_status(manager: ConnectionManager, server_id: str) -> str:
     Returns:
         A string indicating the server status (ONLINE with username, REACHABLE
         with HTTP error, or OFFLINE) along with relevant details.
+
+    Example:
+        result = await server_status(manager, server_id="main")
+        # Returns status like "Server 'main' is ONLINE. Authenticated as: admin"
     """
     ctx = manager.get_context(server_id)
     if not ctx:

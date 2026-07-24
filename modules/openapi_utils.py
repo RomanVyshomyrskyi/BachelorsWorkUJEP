@@ -82,6 +82,57 @@ def _is_required(param) -> bool:
     return param.default is inspect.Parameter.empty
 
 
+def _extract_default(param) -> object:
+    """Extract the default value from a function parameter for OpenAPI schema.
+
+    Description:
+        Converts Python default values (including ``None`` and sentinel objects)
+        to JSON-serializable forms. Returns ``None`` if the parameter has no default.
+        ``Optional`` parameters with ``None`` default get ``None``, not ``""``.
+
+    Args:
+        param: An ``inspect.Parameter`` object.
+
+    Returns:
+        The JSON-serializable default value, or ``None`` if no default.
+    """
+    if param.default is inspect.Parameter.empty:
+        return None
+    default = param.default
+    if default is None:
+        return None
+    if isinstance(default, (str, int, float, bool)):
+        return default
+    if isinstance(default, (list, tuple)):
+        return list(default)
+    # Unrepresentable defaults (e.g., mutable dicts) → skip
+    return None
+
+
+def _format_default_for_desc(param) -> str:
+    """Format a parameter's default value for inclusion in the description.
+
+    Args:
+        param: An ``inspect.Parameter`` object.
+
+    Returns:
+        String like `` Defaults to "robust".`` or `` Defaults to False.``
+        or empty string if the parameter has no default.
+    """
+    if param.default is inspect.Parameter.empty:
+        return ""
+    default = param.default
+    if default is None:
+        return " Defaults to None."
+    if isinstance(default, str):
+        return f' Defaults to "{default}".'
+    if isinstance(default, bool):
+        return f" Defaults to {default}."
+    if isinstance(default, (int, float)):
+        return f" Defaults to {default}."
+    return ""
+
+
 def _build_openapi_parameters(
     fn, doc_params: list, is_get: bool
 ) -> list:
@@ -119,6 +170,11 @@ def _build_openapi_parameters(
         required = _is_required(param)
         op_type = _py_type_to_openapi_type(param)
         desc = doc_desc_map.get(name, "")
+        default_val = _extract_default(param)
+        default_desc = _format_default_for_desc(param)
+
+        if default_desc and default_desc not in desc:
+            desc = (desc + default_desc).strip()
 
         op_param = {
             "name": name,
@@ -127,6 +183,8 @@ def _build_openapi_parameters(
             "description": desc,
             "schema": {"type": op_type},
         }
+        if default_val is not None:
+            op_param["schema"]["default"] = default_val
 
         # Handle Optional: if Union with None, mark nullable
         ann = param.annotation
@@ -176,11 +234,18 @@ def _build_request_body(
         op_type = _py_type_to_openapi_type(param)
         desc = doc_desc_map.get(name, "")
         is_req = _is_required(param)
+        default_val = _extract_default(param)
+        default_desc = _format_default_for_desc(param)
+
+        if default_desc and default_desc not in desc:
+            desc = (desc + default_desc).strip()
 
         prop = {
             "type": op_type,
             "description": desc,
         }
+        if default_val is not None:
+            prop["default"] = default_val
 
         # Handle Optional[T] → nullable
         ann = param.annotation

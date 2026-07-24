@@ -32,6 +32,25 @@ class DbManager:
     Attributes:
         _configs: Dictionary mapping database IDs to their connection config dicts.
         _config_dir: Path to the directory containing the databases.json config file.
+
+    Example:
+        >>> import tempfile, json, os
+        >>> os.environ["DB_PASS"] = "s3cret"
+        >>> # Create a test config file
+        >>> d = tempfile.mkdtemp()
+        >>> with open(f"{d}/databases.json", "w") as f:
+        ...     json.dump({"mydb": {"db_type": "postgres", "host": "db.example.com",
+        ...         "dbname": "analytics", "user": "admin",
+        ...         "password_env": "DB_PASS"}}, f)
+        >>> mgr = DbManager(d)
+        >>> mgr.load_databases()
+        >>> cfg = mgr.get_config("mydb")
+        >>> cfg["host"]
+        'db.example.com'
+        >>> cfg["password"]
+        's3cret'
+        >>> mgr.get_config("nonexistent") is None
+        True
     """
 
     def __init__(self, config_dir: str):

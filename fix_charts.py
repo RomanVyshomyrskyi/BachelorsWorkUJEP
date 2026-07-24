@@ -66,26 +66,24 @@ VIZ_TYPE_MAP = {
 async def fix_chart_viz_type(base_url: str, chart_id: int) -> dict:
     """Fix a single chart's viz_type by updating both the top-level field and the params JSON blob.
 
-    Description
-    -----------
     Retrieves the current chart configuration via the Superset REST API, checks
     whether its viz_type (or the viz_type nested inside the params JSON) matches
     a key in VIZ_TYPE_MAP, and if so patches both locations with the modern
     viz_type value.
 
-    Args
-    ----
-    base_url : str
-        The base URL of the Superset instance (e.g. ``http://host:8088``).
-    chart_id : int
-        The numeric ID of the chart to fix.
+    Args:
+        base_url: The base URL of the Superset instance (e.g. ``http://host:8088``).
+        chart_id: The numeric ID of the chart to fix.
 
-    Returns
-    -------
-    dict
-        A result dict with at least ``id`` and ``status`` keys.  On success
+    Returns:
+        A result dict with at least ``id`` and ``status`` keys. On success
         ``status`` is ``"fixed"`` or ``"ok"``; on failure it is ``"error"``
         with a ``message`` field describing what went wrong.
+
+    Example:
+        >>> result = await fix_chart_viz_type("http://host:8088", 160)
+        >>> print(result)
+        {'id': 160, 'status': 'fixed', 'old_viz': 'bar', 'new_viz': 'echarts_timeseries_bar'}
     """
     # Create an async HTTP client scoped to this single-chart operation
     async with httpx.AsyncClient() as client:
@@ -152,19 +150,27 @@ async def fix_chart_viz_type(base_url: str, chart_id: int) -> dict:
 async def main():
     """Scan all charts in a Superset instance and fix outdated viz_type values.
 
-    Description
-    -----------
     Orchestrates the full repair workflow:
-      1. Loads the Superset base URL and an auth token (from file or login).
-      2. Fetches the complete chart list from ``GET /api/v1/chart/``.
-      3. Filters to only those charts whose ``viz_type`` appears in
-         ``VIZ_TYPE_MAP``.
-      4. Fixes every flagged chart concurrently via ``asyncio.gather``.
-      5. Prints a summary (fixed / ok / errors) and details on any failures.
 
-    Returns
-    -------
-    None
+    1. Loads the Superset base URL and an auth token (from file or login).
+    2. Fetches the complete chart list from ``GET /api/v1/chart/``.
+    3. Filters to only those charts whose ``viz_type`` appears in
+       ``VIZ_TYPE_MAP``.
+    4. Fixes every flagged chart concurrently via ``asyncio.gather``.
+    5. Prints a summary (fixed / ok / errors) and details on any failures.
+
+    Returns:
+        None
+
+    Example:
+        >>> asyncio.run(main())
+        Loaded token from modules/SupersetModule/.tokens/.superset_token_superset_main
+        Found 42 charts
+        Charts needing viz_type fix: 5
+        Summary:
+          Fixed: 5
+          Errors: 0
+          Already OK: 37
     """
     import os
     # Get Superset credentials from environment or use defaults

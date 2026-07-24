@@ -35,7 +35,18 @@ def calculate_linear_regression(X: List[List[float]], y: List[float]) -> Dict[st
             - 'coefficients' (List[float]): The learned slope coefficients for each feature.
             - 'intercept' (float): The y-intercept (bias term) of the fitted model.
             - 'score_r2' (float): The R-squared coefficient of determination
-              (1.0 = perfect fit, 0.0 = baseline, negative = worse than baseline).
+                (1.0 = perfect fit, 0.0 = baseline, negative = worse than baseline).
+
+        Example:
+            >>> result = calculate_linear_regression(
+            ...     X=[[1.0], [2.0], [3.0], [4.0], [5.0]],
+            ...     y=[2.0, 4.0, 6.0, 8.0, 10.0])
+            >>> round(result["intercept"], 4)
+            0.0
+            >>> round(result["coefficients"][0], 4)
+            2.0
+            >>> round(result["score_r2"], 4)
+            1.0
     """
     import numpy as np
     from sklearn.linear_model import LinearRegression
@@ -87,6 +98,18 @@ def calculate_ridge_regression(X: List[List[float]], y: List[float], alpha: floa
             - 'coefficients' (List[float]): The L2-shrunk slope coefficients.
             - 'intercept' (float): The y-intercept of the fitted model.
             - 'score_r2' (float): R-squared coefficient of determination.
+
+        Example:
+            >>> result = calculate_ridge_regression(
+            ...     X=[[1.0, 2.0], [2.0, 4.0], [3.0, 6.0], [4.0, 8.0]],
+            ...     y=[1.0, 2.0, 3.0, 4.0],
+            ...     alpha=0.5)
+            >>> len(result["coefficients"])
+            2
+            >>> isinstance(result["intercept"], float)
+            True
+            >>> 0.0 <= result["score_r2"] <= 1.0
+            True
     """
     import numpy as np
     from sklearn.linear_model import Ridge
@@ -142,6 +165,19 @@ def calculate_lasso_regression(X: List[List[float]], y: List[float], alpha: floa
             - 'coefficients' (List[float]): The L1-shrunk coefficients (some may be exactly 0).
             - 'intercept' (float): The y-intercept of the fitted model.
             - 'score_r2' (float): R-squared coefficient of determination.
+
+        Example:
+            >>> result = calculate_lasso_regression(
+            ...     X=[[1.0, 0.0], [2.0, 0.1], [3.0, 0.0], [4.0, 0.1]],
+            ...     y=[1.0, 2.0, 3.0, 4.0],
+            ...     alpha=0.1)
+            >>> len(result["coefficients"])
+            2
+            >>> isinstance(result["intercept"], float)
+            True
+            >>> # some coefficients may be exactly zero (feature selection)
+            >>> any(c == 0.0 for c in result["coefficients"])
+            True
     """
     import numpy as np
     from sklearn.linear_model import Lasso

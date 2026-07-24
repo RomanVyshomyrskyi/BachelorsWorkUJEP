@@ -1,3 +1,21 @@
+"""
+Dashboard and chart transfer tools between Superset servers.
+
+This module implements a 3-phase transfer pipeline (datasets → charts → dashboard)
+for migrating dashboards and their dependencies between Superset instances.
+It supports both ``export_import`` (native Superset import/export) and
+``json_copy`` (manual GET/POST) transfer strategies, automatic database
+and table mapping resolution, chart recreation with datasource remapping,
+and incremental diff reporting against destination charts.
+
+Key Functions:
+    - ``transfer_dashboard()``: Full 3-phase dashboard transfer with reporting.
+    - ``impl_transfer_item()``: Low-level single resource transfer via strategy.
+    - ``_resolve_dataset()``: Resolve and recreate datasets on the target server.
+    - ``_recreate_chart()``: Clone a chart with remapped datasource references.
+    - ``_remap_chart_ids_in_position_json()``: Update position_json with new IDs.
+"""
+
 import json
 import asyncio
 import time
@@ -22,6 +40,31 @@ async def impl_transfer_item(
     resource_type: str,
     item_id: Union[int, str]
 ) -> str:
+    """Transfer a single resource item between Superset servers.
+
+    Selects the transfer strategy from ``TRANSFER_STRATEGY`` based on
+    resource type: ``export_import`` for charts/dashboards/databases/datasets,
+    ``json_copy`` for other types. Handles authentication, export, and import
+    phases for both strategies.
+
+    Description:
+        For ``export_import``: GETs the export ZIP from the source server
+        (with query param ``q=[item_id]``), then POSTs it as multipart/form-data
+        to the target server's import endpoint with ``overwrite=true``.
+        For ``json_copy``: GETs the item detail from the source, strips
+        read-only metadata fields (id, created_by, etc.), and POSTs the
+        sanitized payload to create a clone on the target.
+
+    Args:
+        manager: ConnectionManager with source and target server configs.
+        source_server_id: Source Superset server ID.
+        target_server_id: Target Superset server ID.
+        resource_type: Superset resource type (e.g. "chart", "dashboard").
+        item_id: Integer or string ID of the resource to transfer.
+
+    Returns:
+        JSON string with a success message or a TransferError JSON on failure.
+    """
     source_ctx = manager.get_context(source_server_id)
     target_ctx = manager.get_context(target_server_id)
 
@@ -107,6 +150,22 @@ async def impl_transfer_item(
 
 
 def _need_input(resource_type: str, source_id: Any, name: str, available: list) -> str:
+    """Build a ``NEED_INPUT`` prefix message requesting user intervention.
+
+    Used when automatic resolution fails (e.g., no matching database or table
+    found on the target server). The caller can parse the JSON payload after
+    the ``NEED_INPUT:`` prefix to present options to the user.
+
+    Args:
+        resource_type: Type of resource needing input (e.g. "database").
+        source_id: ID of the resource on the source server.
+        name: Human-readable name of the resource.
+        available: List of available options on the target server.
+
+    Returns:
+        String with ``NEED_INPUT:`` prefix followed by a JSON payload
+        containing type, source_id, name, and available options.
+    """
     payload = {
         "type": resource_type,
         "source_id": source_id,
@@ -117,6 +176,14 @@ def _need_input(resource_type: str, source_id: Any, name: str, available: list) 
 
 
 def _parse_json_result(result_str: str) -> Optional[Dict]:
+    """Parse a JSON string result safely, returning None on failure.
+
+    Args:
+        result_str: Raw JSON string to parse.
+
+    Returns:
+        Parsed dict on success, None if the string is not valid JSON.
+    """
     try:
         return json.loads(result_str)
     except (json.JSONDecodeError, TypeError):
@@ -130,6 +197,26 @@ async def _resolve_target_database(
     target_server_id: str,
     db_mappings: Dict[int, int]
 ) -> Tuple[Optional[int], Optional[str]]:
+    """Find or map a source database to its equivalent on the target server.
+
+    Checks the ``db_mappings`` dictionary first for a pre-configured mapping,
+    then falls back to listing all databases on the target and matching by
+    case-insensitive name. Returns a ``NEED_INPUT`` message with available
+    options if no match is found.
+
+    Args:
+        manager: ConnectionManager instance.
+        source_db_id: Database ID on the source Superset server.
+        source_db_name: Database name to match on the target.
+        target_server_id: Target Superset server ID.
+        db_mappings: Pre-configured source-to-target database ID mappings.
+
+    Returns:
+        Tuple of (target_database_id, error_message). On success,
+        target_database_id is an integer and error_message is None.
+        On failure, target_database_id is None and error_message contains
+        either a description or a ``NEED_INPUT:`` JSON payload.
+    """
     if source_db_id in db_mappings:
         return db_mappings[source_db_id], None
 
@@ -157,6 +244,22 @@ async def _check_table_exists(
     schema: Optional[str],
     table_name: str
 ) -> bool:
+    """Check if a table exists on the target database via SQL Lab query.
+
+    Uses engine-specific information_schema queries (PostgreSQL, MySQL, MSSQL)
+    to determine table existence. Falls back to a ``LIMIT 1`` probe query for
+    unknown database engines.
+
+    Args:
+        manager: ConnectionManager instance.
+        target_server_id: Target Superset server ID.
+        target_db_id: Database ID on the target server.
+        schema: Optional database schema name.
+        table_name: Table name to check for existence.
+
+    Returns:
+        True if the table exists on the target database, False otherwise.
+    """
     db_detail_str = await impl_get_resource(manager, target_server_id, "database", target_db_id)
     db_detail = _parse_json_result(db_detail_str)
     if not db_detail:
@@ -203,6 +306,32 @@ async def _resolve_dataset(
     db_mappings: Dict[int, int],
     table_mappings: Dict[str, str]
 ) -> Tuple[Optional[int], Optional[str], Optional[str]]:
+    """Resolve a source dataset to a new dataset on the target server.
+
+    Fetches the source dataset's details (table name, schema, database, SQL),
+    resolves the target database and table, checks table existence, then
+    creates a new dataset on the target via ``create_dataset()``.
+
+    Description:
+        This is the dataset phase of the 3-phase transfer pipeline. It handles
+        both physical tables and virtual datasets (SQL expressions). Virtual
+        datasets are re-created with their original SQL, while physical tables
+        must exist on the target database.
+
+    Args:
+        manager: ConnectionManager instance.
+        source_server_id: Source Superset server ID.
+        target_server_id: Target Superset server ID.
+        source_ds_id: Source dataset ID to resolve.
+        db_mappings: Pre-configured database ID mappings.
+        table_mappings: Pre-configured table name mappings.
+
+    Returns:
+        Tuple of (new_dataset_id, datasource_type, error_message).
+        On success: (int_id, "table"|"query", None).
+        On failure: (None, None, error_string) or
+        (None, None, NEED_INPUT_string) if user input required.
+    """
     ds_str = await impl_get_resource(manager, source_server_id, "dataset", source_ds_id)
     ds_data = _parse_json_result(ds_str)
     if not ds_data:
@@ -267,6 +396,30 @@ async def _recreate_chart(
     source_chart_id: int,
     ds_mapping: Dict[int, Tuple[int, str]]
 ) -> Tuple[Optional[int], Optional[str]]:
+    """Clone a source chart onto the target server with remapped datasources.
+
+    Fetches the source chart's full details (name, viz_type, params, description,
+    datasource), looks up the target datasource ID from ``ds_mapping``, and
+    calls ``create_chart()`` to recreate the chart on the target.
+
+    Description:
+        This is the chart phase of the 3-phase transfer pipeline. Each chart's
+        datasource reference is remapped from source datasource ID to target
+        datasource ID. Charts referencing untransferred datasources are skipped
+        with an error.
+
+    Args:
+        manager: ConnectionManager instance.
+        source_server_id: Source Superset server ID.
+        target_server_id: Target Superset server ID.
+        source_chart_id: Source chart ID to clone.
+        ds_mapping: Dict mapping source datasource IDs to
+            (target_datasource_id, datasource_type) tuples.
+
+    Returns:
+        Tuple of (new_chart_id, error_message). On success: (int_id, None).
+        On failure: (None, error_string).
+    """
     chart_str = await impl_get_resource(manager, source_server_id, "chart", source_chart_id)
     chart_data = _parse_json_result(chart_str)
     if not chart_data:
@@ -316,6 +469,17 @@ async def _recreate_chart(
 
 
 def _extract_sql_from_params(params_raw: Any) -> Optional[str]:
+    """Extract an SQL query string from chart params, if present.
+
+    Searches common keys where SQL might be embedded in chart parameters:
+    ``sql``, ``query``, ``sql_expression``, ``where``, ``having``, ``filters``.
+
+    Args:
+        params_raw: Chart params as a JSON string or dict.
+
+    Returns:
+        The first non-empty SQL string found, or None if no SQL is present.
+    """
     try:
         p = json.loads(params_raw) if isinstance(params_raw, str) else (params_raw or {})
     except (json.JSONDecodeError, TypeError):
@@ -328,6 +492,18 @@ def _extract_sql_from_params(params_raw: Any) -> Optional[str]:
 
 
 def _extract_fields_from_params(params_raw: Any) -> Dict[str, Any]:
+    """Extract key chart configuration fields from chart params for diff/comparison.
+
+    Parses the params JSON string or dict and returns a flattened dict of
+    relevant fields: metrics, groupby, timeseries_limit, row_limit, order_desc,
+    granularity, filters, where, having, x_axis, y_axis, entity.
+
+    Args:
+        params_raw: Chart params as a JSON string or dict.
+
+    Returns:
+        Dict of extracted field values. Missing fields are absent from the result.
+    """
     try:
         p = json.loads(params_raw) if isinstance(params_raw, str) else (params_raw or {})
     except (json.JSONDecodeError, TypeError):
@@ -349,6 +525,18 @@ def _extract_fields_from_params(params_raw: Any) -> Dict[str, Any]:
 
 
 def _compute_diff_str(left: Dict[str, Any], right: Dict[str, Any]) -> str:
+    """Compute a human-readable diff between two field dicts.
+
+    Compares all keys present in either dict and produces a diff string
+    showing which fields differ, with their source and destination values.
+
+    Args:
+        left: Source-side field dict to compare.
+        right: Destination-side field dict to compare.
+
+    Returns:
+        Multi-line diff string or ``"  (identical)"`` if no differences found.
+    """
     diff_lines = []
     all_keys = set(left.keys()) | set(right.keys())
     for k in sorted(all_keys):
@@ -366,6 +554,21 @@ def _compute_diff_str(left: Dict[str, Any], right: Dict[str, Any]) -> str:
 async def _fetch_chart_sql_from_datasource(
     manager, source_server_id: str, datasource_id: int
 ) -> Optional[str]:
+    """Retrieve the SQL definition of a chart's underlying datasource.
+
+    Fetches the dataset detail for the given datasource_id and returns the
+    ``sql`` field if it is a non-empty string (virtual datasets have SQL;
+    physical tables typically have ``None`` or empty ``sql``).
+
+    Args:
+        manager: ConnectionManager instance.
+        source_server_id: Source Superset server ID.
+        datasource_id: Dataset/datasource ID to fetch.
+
+    Returns:
+        SQL string if the datasource has one, or None if it doesn't or the
+        fetch fails.
+    """
     ds_str = await impl_get_resource(manager, source_server_id, "dataset", datasource_id)
     ds_data = _parse_json_result(ds_str)
     if not ds_data:
@@ -377,6 +580,20 @@ async def _fetch_chart_sql_from_datasource(
 async def _find_matching_charts_at_destination(
     manager, target_server_id: str, source_charts: List[Dict[str, Any]]
 ) -> Dict[int, Dict[str, Any]]:
+    """Find charts on the destination server that match source charts by name.
+
+    Lists all charts on the target server and matches them against the source
+    chart list using case-insensitive ``slice_name`` comparison. Used to
+    detect pre-existing charts that may have been transferred previously.
+
+    Args:
+        manager: ConnectionManager instance.
+        target_server_id: Target Superset server ID.
+        source_charts: List of source chart dicts with ``id`` and ``slice_name`` keys.
+
+    Returns:
+        Dict mapping source chart ID → destination chart detail dict.
+    """
     dlist_str = await impl_list_resources(manager, target_server_id, "chart")
     dlist_data = _parse_json_result(dlist_str)
     if not dlist_data:
@@ -405,6 +622,43 @@ async def transfer_dashboard(
     db_mappings: Optional[str] = None,
     table_mappings: Optional[str] = None
 ) -> str:
+    """Transfer a dashboard and all its charts between Superset servers (3-phase).
+
+    Implements the full dashboard transfer pipeline:
+
+    1. **Discovery**: Fetches the source dashboard metadata and all chart details
+       (including SQL, params, datasources, and viz_types).
+    2. **Datasets Phase**: Resolves and recreates all unique datasources on the
+       target server. Supports both physical tables (checked via information_schema)
+       and virtual datasets (recreated with original SQL). May return ``NEED_INPUT``
+       if database or table mappings are missing.
+    3. **Charts Phase**: Recreates each chart on the target server with remapped
+       datasource references. Skips charts whose datasources couldn't be resolved.
+    4. **Dashboard Phase**: Creates the target dashboard with remapped
+       ``position_json`` (chart IDs updated to target values), then bulk-links
+       all recreated charts.
+
+    Description:
+        Generates a comprehensive transfer report including source/destination
+        metadata, per-item execution status with timing, diffs against existing
+        destination charts, error details, and a percentage success rate.
+        Reports Prometheus metrics for monitoring.
+
+    Args:
+        manager: ConnectionManager instance.
+        source_server_id: Source Superset server ID.
+        target_server_id: Target Superset server ID.
+        dashboard_id: Dashboard ID to transfer from the source.
+        db_mappings: Optional JSON string of source→target database ID mappings
+            (e.g. ``'{"1": 2, "3": 4}'``).
+        table_mappings: Optional JSON string of source→target table name mappings
+            (e.g. ``'{"old_table": "new_table"}'``).
+
+    Returns:
+        JSON string with either a ``NEED_INPUT:`` message (if user input is
+        required for resolution) or a complete transfer summary including
+        datasource mapping, chart mapping, and a nested execution report.
+    """
     source_ctx = manager.get_context(source_server_id)
     target_ctx = manager.get_context(target_server_id)
 
@@ -704,6 +958,26 @@ async def transfer_dashboard(
 
 
 def _remap_chart_ids_in_position_json(position_json: Dict, chart_id_mapping: Dict[int, int]) -> Dict:
+    """Update position_json chart references with new target chart IDs.
+
+    Recursively walks the dashboard position_json structure and replaces
+    chart ID references in CHART-type components. Updates both the ``id``
+    field and ``meta.chartId``/``meta.id`` values.
+
+    Description:
+        After charts are recreated on the target server, they get new IDs.
+        The dashboard's position_json must reference the new IDs so the
+        dashboard renders the correct charts. This function performs a deep
+        recursive update of all CHART components in the layout tree.
+
+    Args:
+        position_json: Dashboard position_json dict with old chart IDs.
+        chart_id_mapping: Dict mapping old chart IDs to new chart IDs.
+
+    Returns:
+        A new position_json dict (deep copy) with all chart IDs remapped.
+        Non-dict inputs are returned unchanged.
+    """
     if not isinstance(position_json, dict):
         return position_json
 

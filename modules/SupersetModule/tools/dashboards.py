@@ -851,6 +851,11 @@ def _extract_chart_ids_from_position_json(position_json: Union[str, Dict]) -> Li
 
         # Step 2: Recursive walker traverses dicts/lists looking for chart IDs
         def walk(obj):
+            """Recursively traverse dicts/lists to find chartId and slice_id entries.
+
+            Args:
+                obj: A dict or list to traverse for chart IDs.
+            """
             if isinstance(obj, dict):
                 if "chartId" in obj and isinstance(obj["chartId"], int):
                     chart_ids.append(obj["chartId"])

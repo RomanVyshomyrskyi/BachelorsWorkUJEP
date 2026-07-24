@@ -264,6 +264,15 @@ def _validate_metric_string_format(params: Dict[str, Any]) -> List[str]:
 
     # Helper: validate a single metric string against the AGGREGATION(column_name) format
     def check_metric_string(ms: str, label: str) -> None:
+        """Validate a single metric string has the expected AGG(col) format.
+
+        Args:
+            ms: The metric string to validate (e.g. "SUM(sales)").
+            label: Context label for error messages (e.g. "'metric'").
+
+        Returns:
+            None — appends error descriptions to the outer ``errors`` list.
+        """
         s = ms.strip()
         if not s:
             errors.append(f"Empty metric string in {label}")
@@ -271,7 +280,6 @@ def _validate_metric_string_format(params: Dict[str, Any]) -> List[str]:
         s_lower = s.lower()
         if s_lower == "count":
             return  # built-in count is always valid — skip regex check
-        # Must match AGG(col) format — catch obviously malformed strings
         match = re.match(r"^(SUM|AVG|MIN|MAX|COUNT|COUNT_DISTINCT)\s*\(\s*.+?\s*\)$", s, re.IGNORECASE)
         if not match:
             errors.append(
@@ -377,7 +385,17 @@ def _validate_metrics_against_dataset(
                 column_map[col_name.lower()] = col
     
     def extract_metric_strings(p: Dict[str, Any]) -> List[str]:
-        """Extract all metric strings from params."""
+        """Extract all metric strings from chart params.
+
+        Examines both singular ``metric`` and plural ``metrics`` fields,
+        converting AdHocMetricObject dicts to ``AGG(col)`` format.
+
+        Args:
+            p: Chart params dict containing metric references.
+
+        Returns:
+            List of metric strings in ``AGG(col)`` or ``count`` format.
+        """
         metrics = []
         
         # Check 'metric' (singular)
@@ -405,7 +423,16 @@ def _validate_metrics_against_dataset(
         return metrics
     
     def parse_metric_string(metric_str: str) -> tuple:
-        """Parse 'SUM(sales)' into (aggregate, column_name). Both lowercase."""
+        """Decompose a metric string into (aggregate, column_name).
+
+        Args:
+            metric_str: Metric string like ``"SUM(sales)"`` or ``"count"``.
+
+        Returns:
+            Tuple of (aggregate, column_name) — both lowercase.
+            For ``"count"`` returns ``("count", "count")``.
+            For unrecognized patterns returns ``("", metric_str)``.
+        """
         s = metric_str.strip().lower()
         if s == "count":
             return ("count", "count")
@@ -415,14 +442,32 @@ def _validate_metrics_against_dataset(
         return ("", s)
     
     def normalize_metric(metric_str: str) -> str:
-        """Normalize metric string for comparison."""
+        """Lowercase and strip a metric string for case-insensitive comparison.
+
+        Args:
+            metric_str: Raw metric string.
+
+        Returns:
+            Normalized metric string (lowercase, stripped).
+        """
         metric_str = metric_str.strip()
         if metric_str.lower() == "count":
             return "count"
         return metric_str.lower()
     
     def metric_matches(metric_name: str, target: str) -> bool:
-        """Check if a dataset metric matches the target metric."""
+        """Check if a dataset-defined metric matches a target metric string.
+
+        Compares case-insensitively and also handles SQL-style format
+        like ``sum__revenue`` matching ``SUM(revenue)``.
+
+        Args:
+            metric_name: The metric name from the dataset definition.
+            target: The target metric string to match against.
+
+        Returns:
+            True if the metrics match, False otherwise.
+        """
         name_lower = metric_name.lower()
         target_lower = target.lower()
         
@@ -442,7 +487,16 @@ def _validate_metrics_against_dataset(
         return False
     
     def column_has_compatible_type(col_name: str, aggregate: str) -> Optional[str]:
-        """Check if column type is compatible with aggregate. Returns error string or None."""
+        """Verify a column's data type is compatible with an aggregate function.
+
+        Args:
+            col_name: The column name to check.
+            aggregate: The aggregation function (SUM, AVG, MIN, MAX).
+
+        Returns:
+            Error message string if the column type is incompatible
+            (e.g., SUM on a text column), or None if compatible.
+        """
         col_info = column_map.get(col_name.lower())
         if not col_info:
             return None  # column not in our map, can't check
@@ -596,7 +650,12 @@ def _extract_chart_ids_from_position_json(position_json: str) -> List[int]:
         else:
             pos = position_json
 
-        # Recursive walker: traverses dicts/lists looking for slice_id keys
+        def walk(obj):
+            """Recursively traverse dicts/lists to find slice_id entries.
+
+            Args:
+                obj: A dict or list to traverse.
+            """
             if isinstance(obj, dict):
                 if "slice_id" in obj and isinstance(obj["slice_id"], int):
                     chart_ids.append(obj["slice_id"])
@@ -1835,6 +1894,15 @@ async def get_all_chart_schemas(manager: ConnectionManager, server_id: str) -> s
     import asyncio
 
     async def _fetch_schema(chart_type: str) -> Optional[Dict[str, Any]]:
+        """Fetch the JSON schema for a single chart type from Superset API.
+
+        Args:
+            chart_type: The Superset viz_type string (e.g. "echarts_timeseries_line").
+
+        Returns:
+            Dict with ``"type"`` and ``"schema"`` keys on success,
+            or None if the API call fails.
+        """
         try:
             result = await impl_superset_api(
                 manager, server_id, "GET", f"/api/v1/chart/schemas/{chart_type}/"
@@ -1844,6 +1912,18 @@ async def get_all_chart_schemas(manager: ConnectionManager, server_id: str) -> s
             return None
 
     def _parse_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse a raw chart schema into categorized field lists.
+
+        Extracts properties from the schema and classifies each field as
+        metric, groupby/dimension, or other, plus a deduplicated required list.
+
+        Args:
+            schema: The raw JSON schema dict from the Superset API.
+
+        Returns:
+            Dict with keys: ``required``, ``metric_fields``, ``groupby_fields``,
+            ``other_fields``. Each value is a list of formatted field strings.
+        """
         properties = schema.get("properties", {})
         parsed_required = []
 
@@ -1898,6 +1978,19 @@ async def get_all_chart_schemas(manager: ConnectionManager, server_id: str) -> s
         }
 
     def _build_markdown(all_schemas: List[Dict[str, Any]], cache_key: str) -> str:
+        """Build a consolidated Markdown reference from parsed chart schemas.
+
+        Generates a quick-reference table followed by detailed per-chart-type
+        sections listing required, metric, groupby, and other fields.
+
+        Args:
+            all_schemas: List of dicts, each with ``type``, ``parsed``, and
+                ``raw_schema`` keys from the discovery and parse phases.
+            cache_key: Source identifier for the generated reference header.
+
+        Returns:
+            Complete Markdown string with the consolidated chart type reference.
+        """
         lines = [
             "# Superset Chart Types - Complete Reference",
             "",

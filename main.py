@@ -27,7 +27,7 @@ import uvicorn
 from modules.registry import ModuleRegistry, resolve_dependency_order
 from modules.metrics import get_metrics
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-from modules.openapi_utils import docstring_to_openapi
+from modules.openapi_utils import docstring_to_openapi, _resolve_wrapper_impl
 
 # --- Logging Setup ---
 # Configure the root logger so every module can emit structured log lines with timestamps
@@ -319,20 +319,28 @@ def custom_openapi():
 
     # Remove 422 validation errors which clutter the spec and confuse some parsers
     for path, methods in openapi_schema.get("paths", {}).items():
+        if not isinstance(methods, dict):
+            continue
         for method, details in methods.items():
-            if "responses" in details and "422" in details["responses"]:
+            if isinstance(details, dict) and "responses" in details and "422" in details.get("responses", {}):
                 del details["responses"]["422"]
 
     # ── Enrich schema with docstring metadata ────────────────────────────
     for path, methods in openapi_schema.get("paths", {}).items():
+        if not isinstance(methods, dict):
+            continue
         for method, op in methods.items():
+            if not isinstance(op, dict):
+                continue
             operation_id = op.get("operationId", "")
             meta = _tool_openapi_meta.get(operation_id)
             if not meta:
                 continue
 
             # Inject parameter descriptions from docstrings
-            for param in op.get("parameters", []):
+            for param in (op.get("parameters") or []):
+                if not isinstance(param, dict):
+                    continue
                 name = param.get("name", "")
                 if name in meta.get("param_descriptions", {}):
                     param["description"] = meta["param_descriptions"][name]
@@ -345,13 +353,15 @@ def custom_openapi():
 
             # Enrich response descriptions
             tool_responses = meta.get("responses", {})
-            if "responses" not in op:
+            op_responses = op.get("responses")
+            if not isinstance(op_responses, dict):
                 op["responses"] = {}
+                op_responses = op["responses"]
             for status_code, resp_info in tool_responses.items():
-                if status_code not in op["responses"]:
-                    op["responses"][status_code] = {}
+                if status_code not in op_responses:
+                    op_responses[status_code] = {}
                 if "description" in resp_info:
-                    op["responses"][status_code]["description"] = resp_info["description"]
+                    op_responses[status_code]["description"] = resp_info["description"]
 
     # Cache the modified schema on the app object for subsequent calls
     app.openapi_schema = openapi_schema
@@ -403,9 +413,10 @@ for tool_name, tool in mcp._tool_manager._tools.items():
         methods = ["GET"] if tool_name in READ_ONLY_TOOLS else ["POST"]
 
         # Parse the function's Google-style docstring into OpenAPI metadata
-        # This extracts the summary (short description) and builds a rich Markdown
-        # description from the Args/Returns sections for display in Swagger UI.
-        meta = docstring_to_openapi(endpoint)
+        # If the tool is a thin wrapper, auto-resolve the implementation function
+        # to inherit its richer docstring (Args, Returns sections)
+        impl_fn = _resolve_wrapper_impl(endpoint)
+        meta = docstring_to_openapi(endpoint, impl_fn=impl_fn)
 
         # Store metadata for later schema enrichment in custom_openapi()
         _tool_openapi_meta[tool_name] = meta

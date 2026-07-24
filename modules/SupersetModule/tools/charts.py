@@ -1934,7 +1934,26 @@ async def get_all_chart_schemas(manager: ConnectionManager, server_id: str) -> s
     """
     Dynamically discovers ALL chart types from Superset API,
     fetches each schema, and returns a consolidated Markdown reference.
-    Cached for 24 hours to avoid repeated API calls.
+
+    Description:
+        Calls the chart _info endpoint to discover all registered viz_types,
+        then fetches the full JSON schema for each type. Results are parsed
+        into categorized field lists (required, metric, groupby/dimension,
+        other) and formatted as a Markdown reference document including a
+        quick-reference table and detailed per-chart-type sections.
+
+        Results are cached on disk for 24 hours to avoid repeated API calls.
+        The cache is stored at ``.cache/chart_schemas.json`` in the module
+        directory.
+
+    Args:
+        manager: The ConnectionManager instance with Superset connection details.
+        server_id: The ID of the configured Superset server to query.
+
+    Returns:
+        A Markdown string containing the complete chart type reference with
+        required fields, metric fields, groupby fields, and other fields
+        for every chart type available on the Superset instance.
     """
     import asyncio
 

@@ -16,6 +16,7 @@ Output includes:
 """
 
 import inspect
+import dis
 import typing
 import docstring_parser
 
@@ -217,7 +218,48 @@ def _build_request_body(
     }
 
 
-def docstring_to_openapi(fn):
+def _resolve_wrapper_impl(fn):
+    """Resolve the implementation function called by a thin tool wrapper.
+
+    Description:
+        Tool wrappers in SupersetModule/main.py follow a consistent pattern:
+        ``return [await] MODULE_VAR.FUNC_NAME(manager, ...)``. This function
+        inspects the wrapper's bytecode to find the ``LOAD_GLOBAL`` +
+        ``LOAD_ATTR`` call pattern, then uses ``__globals__`` to retrieve
+        the actual implementation function.
+
+        The implementation function typically has a rich Google-style
+        docstring (Description, Args, Returns) that the wrapper lacks.
+
+    Args:
+        fn: The thin wrapper function to analyze.
+
+    Returns:
+        The resolved implementation callable if found, or None if the
+        wrapper doesn't follow the expected pattern.
+    """
+    try:
+        instructions = list(dis.get_instructions(fn))
+
+        for i, instr in enumerate(instructions):
+            if instr.opname == "LOAD_GLOBAL" and i + 1 < len(instructions):
+                next_instr = instructions[i + 1]
+                if next_instr.opname == "LOAD_ATTR":
+                    module_var = instr.argval
+                    func_name = next_instr.argval
+                    if module_var and func_name:
+                        mod = fn.__globals__.get(module_var)
+                        if mod and hasattr(mod, func_name):
+                            impl = getattr(mod, func_name)
+                            if callable(impl) and impl.__doc__:
+                                return impl
+    except (OSError, TypeError, AttributeError):
+        pass
+
+    return None
+
+
+def docstring_to_openapi(fn, impl_fn=None):
     """
     Parse a function's Google-style docstring and return OpenAPI-compatible metadata.
 
@@ -226,9 +268,19 @@ def docstring_to_openapi(fn):
     value documentation. Also builds OpenAPI-compatible ``parameters`` (for GET)
     or ``requestBody`` (for POST) and response descriptions from function signatures.
 
+    Description:
+        When ``impl_fn`` is provided and has a richer docstring (contains ``Args:``
+        while the wrapper doesn't), it is used for docstring content, parameter
+        descriptions, and return value documentation. Parameter signatures are
+        always taken from the wrapper (since the implementation may have extra
+        params like ``manager``).
+
     Args:
         fn: A callable whose ``__doc__`` follows the Google-style convention
             (sections: Description, Args, Returns).
+        impl_fn: Optional. The implementation function that the wrapper delegates to.
+            If provided and has a richer docstring (contains ``Args:``), it is
+            used as the source for description, parameter details, and responses.
 
     Returns:
         A dictionary with keys:
@@ -240,8 +292,16 @@ def docstring_to_openapi(fn):
         - ``requestBody``: OpenAPI request body schema (for POST endpoints, None for GET).
         - ``responses``: Dict with response descriptions.
     """
+    # Use impl_fn's docstring if it's richer than the wrapper's (has Args: section)
+    doc_fn = fn
+    if impl_fn and impl_fn.__doc__:
+        impl_doc = impl_fn.__doc__.strip()
+        fn_doc = (fn.__doc__ or "").strip()
+        if "Args:" in impl_doc and "Args:" not in fn_doc:
+            doc_fn = impl_fn
+
     # Step 1: Parse the full docstring into structured components
-    doc = docstring_parser.parse_from_object(fn)
+    doc = docstring_parser.parse_from_object(doc_fn)
 
     # Step 2: Collect all content sections in order for the Markdown description
     sections = []

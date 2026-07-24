@@ -283,12 +283,16 @@ from fastapi.openapi.utils import get_openapi
 
 def custom_openapi():
     """
-    Generate a custom OpenAPI schema with OpenAPI 3.0.0 and removed 422 responses.
+    Generate a custom OpenAPI schema with OpenAPI 3.0.0 and enriched documentation.
 
     FastAPI's default ``get_openapi`` generates an OpenAPI 3.1 schema which some
     MCP clients and third-party parsers do not handle well. This function intercepts
-    the schema generation, downgrades the version to 3.0.0, and removes all 422
-    (Unprocessable Entity) validation error responses to keep the spec clean.
+    the schema generation, downgrades the version to 3.0.0, removes 422 responses,
+    and enriches the schema with:
+
+    - Parameter descriptions from Google-style docstrings
+    - Request body schemas for POST endpoints (derived from function signatures)
+    - Response descriptions from docstring Returns sections
 
     Description:
         Caches the result after first generation to avoid redundant computation on
@@ -319,6 +323,36 @@ def custom_openapi():
             if "responses" in details and "422" in details["responses"]:
                 del details["responses"]["422"]
 
+    # ── Enrich schema with docstring metadata ────────────────────────────
+    for path, methods in openapi_schema.get("paths", {}).items():
+        for method, op in methods.items():
+            operation_id = op.get("operationId", "")
+            meta = _tool_openapi_meta.get(operation_id)
+            if not meta:
+                continue
+
+            # Inject parameter descriptions from docstrings
+            for param in op.get("parameters", []):
+                name = param.get("name", "")
+                if name in meta.get("param_descriptions", {}):
+                    param["description"] = meta["param_descriptions"][name]
+
+            # Inject requestBody for POST endpoints if missing
+            if method == "post" and "requestBody" not in op:
+                rb = meta.get("requestBody")
+                if rb:
+                    op["requestBody"] = rb
+
+            # Enrich response descriptions
+            tool_responses = meta.get("responses", {})
+            if "responses" not in op:
+                op["responses"] = {}
+            for status_code, resp_info in tool_responses.items():
+                if status_code not in op["responses"]:
+                    op["responses"][status_code] = {}
+                if "description" in resp_info:
+                    op["responses"][status_code]["description"] = resp_info["description"]
+
     # Cache the modified schema on the app object for subsequent calls
     app.openapi_schema = openapi_schema
     return app.openapi_schema
@@ -348,6 +382,9 @@ READ_ONLY_TOOLS = {
 # 1. Register all MCP tools as FastAPI endpoints to generate Swagger docs
 # This loop iterates over every tool registered in the MCP server and creates a
 # corresponding FastAPI route so that Swagger UI displays all tools.
+# Also stores metadata per operation_id for schema enrichment in custom_openapi().
+_tool_openapi_meta = {}  # operation_id → {param_descriptions, parameters, requestBody, responses}
+
 for tool_name, tool in mcp._tool_manager._tools.items():
     try:
         # Extract the original Python function from the tool wrapper
@@ -369,6 +406,9 @@ for tool_name, tool in mcp._tool_manager._tools.items():
         # This extracts the summary (short description) and builds a rich Markdown
         # description from the Args/Returns sections for display in Swagger UI.
         meta = docstring_to_openapi(endpoint)
+
+        # Store metadata for later schema enrichment in custom_openapi()
+        _tool_openapi_meta[tool_name] = meta
 
         # Register the route on the FastAPI app with the parsed docstring metadata
         app.add_api_route(

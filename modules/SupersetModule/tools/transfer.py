@@ -304,7 +304,8 @@ async def _resolve_dataset(
     target_server_id: str,
     source_ds_id: int,
     db_mappings: Dict[int, int],
-    table_mappings: Dict[str, str]
+    table_mappings: Dict[str, str],
+    expected_columns: Optional[List[str]] = None,
 ) -> Tuple[Optional[int], Optional[str], Optional[str]]:
     """Resolve a source dataset to a new dataset on the target server.
 
@@ -316,7 +317,9 @@ async def _resolve_dataset(
         This is the dataset phase of the 3-phase transfer pipeline. It handles
         both physical tables and virtual datasets (SQL expressions). Virtual
         datasets are re-created with their original SQL, while physical tables
-        must exist on the target database.
+        must exist on the target database. When ``expected_columns`` is provided,
+        validates that the target dataset has all the expected columns before
+        returning success.
 
     Args:
         manager: ConnectionManager instance.
@@ -325,6 +328,9 @@ async def _resolve_dataset(
         source_ds_id: Source dataset ID to resolve.
         db_mappings: Pre-configured database ID mappings.
         table_mappings: Pre-configured table name mappings.
+        expected_columns: Optional list of column names expected by charts
+            referencing this dataset. Validated against the target dataset
+            after creation.
 
     Returns:
         Tuple of (new_dataset_id, datasource_type, error_message).
@@ -385,6 +391,30 @@ async def _resolve_dataset(
     new_ds_id = dataset_result.get("id")
     if not new_ds_id:
         return None, None, f"Dataset created but no ID returned: {dataset_result_str}"
+
+    if expected_columns:
+        try:
+            ds_info_raw = await impl_get_resource(manager, target_server_id, "dataset", new_ds_id)
+            ds_info = _parse_json_result(ds_info_raw)
+            if ds_info:
+                target_columns = [
+                    c.get("column_name", "").lower()
+                    for c in ds_info.get("result", {}).get("columns", [])
+                ]
+                if target_columns:
+                    target_set = set(target_columns)
+                    missing = [
+                        col for col in expected_columns
+                        if col.lower() not in target_set
+                    ]
+                    if missing:
+                        return None, None, (
+                            f"Target dataset '{mapped_table}' is missing columns required "
+                            f"by source charts: {', '.join(missing)}.\n"
+                            f"Available columns: {', '.join(target_columns[:20])}"
+                        )
+        except Exception:
+            pass  # Best-effort validation, proceed on failure
 
     return new_ds_id, ds_result.get("datasource_type", "table"), None
 
@@ -801,13 +831,40 @@ async def transfer_dashboard(
             })
 
     log.info(f"Phase 1: Resolving {len(unique_ds_ids)} unique datasources (reverse hierarchy)...")
+
+    expected_columns_by_ds: Dict[int, List[str]] = {}
+    for cd in chart_details:
+        ds_id = cd["datasource_id"]
+        if ds_id:
+            if ds_id not in expected_columns_by_ds:
+                expected_columns_by_ds[ds_id] = []
+            params = cd.get("params", {})
+            for field in ["metrics", "groupby"]:
+                vals = params.get(field, [])
+                if isinstance(vals, list):
+                    for v in vals:
+                        if isinstance(v, str):
+                            import re
+                            m = re.match(r"^(?:SUM|AVG|MIN|MAX|COUNT|COUNT_DISTINCT)\s*\(\s*(.+?)\s*\)$", v, re.IGNORECASE)
+                            if m:
+                                expected_columns_by_ds[ds_id].append(m.group(1))
+                        elif isinstance(v, dict):
+                            col = v.get("column", {}).get("column_name", "")
+                            if col:
+                                expected_columns_by_ds[ds_id].append(col)
+            for field in ["x_axis", "entity", "series", "source", "target"]:
+                val = params.get(field)
+                if isinstance(val, str) and val.strip():
+                    expected_columns_by_ds[ds_id].append(val.strip())
+
     ds_mapping: Dict[int, Tuple[int, str]] = {}
     ds_errors = 0
     for old_ds_id, ds_type in unique_ds_ids.items():
         t0 = time.time()
         new_ds_id, resolved_ds_type, err = await _resolve_dataset(
             manager, source_server_id, target_server_id,
-            old_ds_id, parsed_db_mappings, parsed_table_mappings
+            old_ds_id, parsed_db_mappings, parsed_table_mappings,
+            expected_columns=expected_columns_by_ds.get(old_ds_id),
         )
         elapsed = int((time.time() - t0) * 1000)
         entry: Dict[str, Any] = {

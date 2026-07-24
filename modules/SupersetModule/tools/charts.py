@@ -1133,13 +1133,35 @@ async def create_chart(
         # Step 5: Fetch dataset schema for column and metric validation
         dataset_columns = []
         dataset_metrics = []
+        dataset_fetch_error = None
         try:
             dataset_response = await impl_superset_api(manager, server_id, "GET", f"/api/v1/dataset/{datasource_id}")
             dataset_data = json.loads(dataset_response)
             dataset_columns = dataset_data.get("result", {}).get("columns", [])
             dataset_metrics = dataset_data.get("result", {}).get("metrics", [])
-        except Exception:
-            pass
+        except Exception as e:
+            dataset_fetch_error = str(e)
+
+        # Step 5b: Block if dataset schema fetch failed (exception, not just empty data)
+        from modules.SupersetModule.superset_validation import NO_METRICS_TYPES
+        if dataset_fetch_error and actual_viz_type not in NO_METRICS_TYPES:
+            mc = get_metrics()
+            mc.tool_calls.labels(tool="superset_create_chart", status="error").inc()
+            mc.record_error(
+                tool="superset_create_chart",
+                error_message=f"Dataset schema fetch failed for datasource {datasource_id}"
+            )
+            return ChartError(
+                f"Chart creation blocked: cannot validate columns for datasource {datasource_id}",
+                details=(
+                    f"Failed to fetch dataset schema for datasource {datasource_id}. "
+                    f"Column validation is required before chart creation to prevent "
+                    f"broken charts.\n\n"
+                    f"Error: {dataset_fetch_error}\n\n"
+                    f"Verify that datasource {datasource_id} exists and has columns defined."
+                ),
+                status_code=400,
+            ).to_json()
 
         # Step 6: ── Metric validation (always runs, even when columns/metrics are empty) ──
         # When dataset_columns is empty, we can't check column existence, but we
@@ -1554,6 +1576,7 @@ async def generate_chart(
         # Step 6: Fetch dataset schema (columns + metrics) for validation
         dataset_columns = []
         dataset_metrics = []
+        dataset_fetch_error = None
         try:
             dataset_response = await impl_superset_api(manager, server_id, "GET", f"/api/v1/dataset/{dataset_id}")
             dataset_columns = _extract_columns_from_dataset_response(dataset_response)
@@ -1562,8 +1585,29 @@ async def generate_chart(
                 dataset_metrics = dataset_data.get("result", {}).get("metrics", [])
             except Exception:
                 pass
-        except Exception:
-            pass
+        except Exception as e:
+            dataset_fetch_error = str(e)
+
+        # Step 6b: Block if dataset schema fetch failed (exception, not just empty data)
+        from modules.SupersetModule.superset_validation import NO_METRICS_TYPES
+        if dataset_fetch_error and actual_viz_type not in NO_METRICS_TYPES:
+            mc = get_metrics()
+            mc.tool_calls.labels(tool="superset_generate_chart", status="error").inc()
+            mc.record_error(
+                tool="superset_generate_chart",
+                error_message=f"Dataset schema fetch failed for dataset {dataset_id}"
+            )
+            return ChartError(
+                f"Chart generation blocked: cannot validate columns for dataset {dataset_id}",
+                details=(
+                    f"Failed to fetch dataset schema for dataset {dataset_id}. "
+                    f"Column validation is required before chart generation to prevent "
+                    f"broken charts.\n\n"
+                    f"Error: {dataset_fetch_error}\n\n"
+                    f"Verify that dataset {dataset_id} exists and has columns defined."
+                ),
+                status_code=400,
+            ).to_json()
         
         # Step 7: ── Column-level validation (with dataset columns available) ──
         if dataset_columns:

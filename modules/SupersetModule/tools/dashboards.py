@@ -21,6 +21,7 @@ from modules.SupersetModule import rules
 from modules.SupersetModule.superset_mermaid import dashboard_to_mermaid
 from modules.log_utils import LogCollector
 from modules.metrics import get_metrics
+from modules.SupersetModule.tools.chart_validation import validate_chart_data_against_dataset, format_validation_error
 
 log = LogCollector(__name__)
 
@@ -571,6 +572,74 @@ async def generate_dashboard(
              status_code=400,
          ).to_json())
 
+     # Step 3b: Validate column references in all charts against their datasets
+     column_errors = []
+     for chart_id in chart_ids:
+         try:
+             chart_raw = await impl_get_resource(manager, server_id, "chart", chart_id)
+             chart_data = json.loads(chart_raw)
+             chart_result = chart_data.get("result", {})
+             chart_params = chart_result.get("params", {})
+             datasource_id = chart_result.get("datasource_id")
+             viz_type = chart_result.get("viz_type", "")
+             slice_name = chart_result.get("slice_name", f"Chart {chart_id}")
+
+             if not datasource_id:
+                 continue
+
+             if isinstance(chart_params, str):
+                 try:
+                     chart_params = json.loads(chart_params)
+                 except (json.JSONDecodeError, TypeError):
+                     chart_params = {}
+
+             ds_raw = await impl_superset_api(
+                 manager, server_id, "GET", f"/api/v1/dataset/{datasource_id}"
+             )
+             ds_data = json.loads(ds_raw)
+             dataset_columns = ds_data.get("result", {}).get("columns", [])
+
+             if not dataset_columns:
+                 column_errors.append(
+                     f"Chart {chart_id} ('{slice_name}'): dataset {datasource_id} has no columns defined"
+                 )
+                 continue
+
+             validation = validate_chart_data_against_dataset(
+                 chart_params, dataset_columns, viz_type
+             )
+             if not validation["is_valid"]:
+                 missing = validation.get("missing_columns", [])
+                 for mc_obj in missing:
+                     col = mc_obj.get("requested", "?")
+                     field = mc_obj.get("field", "?")
+                     suggestions = mc_obj.get("suggestions", [])
+                     sug = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+                     column_errors.append(
+                         f"Chart {chart_id} ('{slice_name}'): column '{col}' "
+                         f"({field}) not found in dataset.{sug}"
+                     )
+         except Exception as e:
+             column_errors.append(f"Chart {chart_id}: failed to validate columns ({e})")
+
+     if column_errors:
+         mc = get_metrics()
+         mc.tool_calls.labels(tool="superset_generate_dashboard", status="error").inc()
+         mc.record_error(
+             tool="superset_generate_dashboard",
+             error_message=f"Column validation failed for {len(column_errors)} chart(s)"
+         )
+         return log.collect(DashboardError(
+             "Dashboard generation blocked: Column validation failed",
+             details=(
+                 f"Dashboard '{dashboard_title}' cannot be created — "
+                 f"one or more charts reference columns that don't exist "
+                 f"in their datasets:\n\n"
+                 + "\n".join(f"  - {e}" for e in column_errors)
+             ),
+             status_code=400,
+         ).to_json())
+
      start_time = time.monotonic()
      try:
          # Step 4: Generate position JSON layout based on the chosen layout type
@@ -703,6 +772,46 @@ async def add_chart_to_existing_dashboard(
     ctx = manager.get_context(server_id)
     if not ctx:
         return log.collect(DashboardError(f"Server '{server_id}' not found.", status_code=404).to_json())
+
+    # Step 1b: Validate chart columns before adding to dashboard
+    try:
+        chart_raw = await impl_get_resource(manager, server_id, "chart", chart_id)
+        chart_data = json.loads(chart_raw)
+        chart_result = chart_data.get("result", {})
+        chart_params = chart_result.get("params", {})
+        datasource_id = chart_result.get("datasource_id")
+        viz_type = chart_result.get("viz_type", "")
+        slice_name = chart_result.get("slice_name", f"Chart {chart_id}")
+
+        if datasource_id:
+            if isinstance(chart_params, str):
+                try:
+                    chart_params = json.loads(chart_params)
+                except (json.JSONDecodeError, TypeError):
+                    chart_params = {}
+
+            ds_raw = await impl_superset_api(
+                manager, server_id, "GET", f"/api/v1/dataset/{datasource_id}"
+            )
+            ds_data = json.loads(ds_raw)
+            dataset_columns = ds_data.get("result", {}).get("columns", [])
+
+            if dataset_columns:
+                validation = validate_chart_data_against_dataset(
+                    chart_params, dataset_columns, viz_type
+                )
+                if not validation["is_valid"]:
+                    error_msg = format_validation_error(validation, slice_name, datasource_id)
+                    return log.collect(DashboardError(
+                        error_msg["title"],
+                        details=error_msg["body"],
+                        status_code=400,
+                    ).to_json())
+    except Exception as e:
+        return log.collect(DashboardError(
+            f"Failed to validate chart {chart_id} columns: {e}",
+            status_code=500,
+        ).to_json())
 
     try:
         # Step 2: Fetch the current dashboard configuration

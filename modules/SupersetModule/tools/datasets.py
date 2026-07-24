@@ -151,6 +151,54 @@ async def create_virtual_dataset(
                  mc.record_error(tool="superset_create_virtual_dataset", error_message="Invalid JSON in metrics_json")
                  return log.collect(DatasetError("'metrics_json' is not a valid JSON string.", details=metrics_json).to_json())
 
+         # Validate columns_json entries exist in the SQL query result
+         if "columns" in dataset_payload:
+             specified_columns = dataset_payload["columns"]
+             introspect_sql = f"SELECT * FROM ({sql}) AS _introspect LIMIT 0"
+             try:
+                 exec_raw = await sqllab_execute_query(
+                     manager, server_id, database_id, introspect_sql, schema=schema
+                 )
+                 exec_data = json.loads(exec_raw)
+                 client_id = exec_data.get("result", {}).get("query", {}).get("client_id")
+                 if client_id:
+                     await asyncio.sleep(1)
+                     results_raw = await sqllab_get_query_results(manager, server_id, client_id)
+                     results = json.loads(results_raw)
+                     actual_columns = [c.get("column_name", "") for c in results.get("columns", [])]
+                     if actual_columns:
+                         actual_set = {c.lower() for c in actual_columns}
+                         missing = []
+                         from difflib import get_close_matches
+                         for scol in specified_columns:
+                             if isinstance(scol, dict):
+                                 col_name = scol.get("column_name", "")
+                             else:
+                                 col_name = str(scol)
+                             if col_name.lower() not in actual_set:
+                                 suggestions = get_close_matches(col_name.lower(), list(actual_set), n=3, cutoff=0.6)
+                                 sug = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+                                 missing.append(f"'{col_name}'{sug}")
+                         if missing:
+                             mc = get_metrics()
+                             mc.tool_calls.labels(tool="superset_create_virtual_dataset", status="error").inc()
+                             mc.record_error(
+                                 tool="superset_create_virtual_dataset",
+                                 error_message=f"Column validation failed: {len(missing)} columns not found in SQL result"
+                             )
+                             return log.collect(DatasetError(
+                                 "Virtual dataset creation blocked: some columns don't exist in the SQL result",
+                                 details=(
+                                     f"The following columns specified in columns_json were not found "
+                                     f"in the SQL query result for '{dataset_name}':\n\n"
+                                     + "\n".join(f"  - {m}" for m in missing)
+                                     + f"\n\nColumns in SQL result: {', '.join(actual_columns)}"
+                                 ),
+                                 status_code=400,
+                             ).to_json())
+             except Exception as e:
+                 log.warning(f"Column introspection failed for virtual dataset '{dataset_name}': {e}")
+
          # POST the virtual dataset to Superset's dataset API endpoint
          endpoint = "/api/v1/dataset/"
          resp = await execute_request(ctx, "POST", endpoint, json=dataset_payload)
@@ -262,6 +310,56 @@ async def create_dataset(
              mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
              mc.record_error(tool="superset_create_dataset", error_message=f"Database ID '{database_id}' not found")
              return log.collect(DatasetError(f"Database ID '{database_id}' not found", details=db_check_result).to_json())
+
+         # Validate columns_json entries exist in the actual database table
+         if "columns" in dataset_payload:
+             specified_columns = dataset_payload["columns"]
+             schema_ref = schema or "public"
+             introspect_sql = f"SELECT * FROM {schema_ref}.{table_name} LIMIT 0"
+             try:
+                 exec_raw = await sqllab_execute_query(
+                     manager, server_id, database_id, introspect_sql, schema=schema_ref
+                 )
+                 exec_data = json.loads(exec_raw)
+                 client_id = exec_data.get("result", {}).get("query", {}).get("client_id")
+                 if client_id:
+                     await asyncio.sleep(1)
+                     results_raw = await sqllab_get_query_results(manager, server_id, client_id)
+                     results = json.loads(results_raw)
+                     actual_columns = [c.get("column_name", "") for c in results.get("columns", [])]
+                     if actual_columns:
+                         actual_set = {c.lower() for c in actual_columns}
+                         missing = []
+                         from difflib import get_close_matches
+                         for scol in specified_columns:
+                             if isinstance(scol, dict):
+                                 col_name = scol.get("column_name", "")
+                             else:
+                                 col_name = str(scol)
+                             if col_name.lower() not in actual_set:
+                                 suggestions = get_close_matches(col_name.lower(), list(actual_set), n=3, cutoff=0.6)
+                                 sug = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+                                 missing.append(f"'{col_name}'{sug}")
+                         if missing:
+                             mc = get_metrics()
+                             mc.tool_calls.labels(tool="superset_create_dataset", status="error").inc()
+                             mc.record_error(
+                                 tool="superset_create_dataset",
+                                 error_message=f"Column validation failed: {len(missing)} columns not found in table"
+                             )
+                             return log.collect(DatasetError(
+                                 f"Dataset creation blocked: some columns don't exist in table '{table_name}'",
+                                 details=(
+                                     f"The following columns specified in columns_json were not found "
+                                     f"in the actual database table '{table_name}':\n\n"
+                                     + "\n".join(f"  - {m}" for m in missing)
+                                     + f"\n\nAvailable columns: {', '.join(actual_columns)}"
+                                 ),
+                                 status_code=400,
+                             ).to_json())
+             except Exception as e:
+                 log.warning(f"Column introspection failed for table '{table_name}': {e}")
+                 # Proceed despite introspection failure — best-effort validation
 
          # POST the dataset to Superset's dataset API endpoint
          endpoint = "/api/v1/dataset/"

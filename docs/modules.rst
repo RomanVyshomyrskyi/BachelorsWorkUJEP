@@ -13,6 +13,9 @@ Core Modules
 .. automodule:: modules.log_utils
    :members:
 
+.. automodule:: modules.openapi_utils
+   :members:
+
 Superset Module — Tools
 ------------------------
 
@@ -94,6 +97,9 @@ Superset Module — Internals
 .. automodule:: modules.SupersetModule.models
    :members:
 
+.. automodule:: modules.SupersetModule.log_utils
+   :members:
+
 Superset Module — Schemas
 --------------------------
 
@@ -139,8 +145,29 @@ Database Analysis
 .. automodule:: modules.DBAnalysis.db_manager
    :members:
 
+.. automodule:: modules.DBAnalysis.models.connection
+   :members:
+
+.. automodule:: modules.DBAnalysis.tools.analysis
+   :members:
+
+.. automodule:: modules.DBAnalysis.tools.data
+   :members:
+
+.. automodule:: modules.DBAnalysis.tools.visualization
+   :members:
+
+.. automodule:: modules.DBAnalysis.utils.formatters
+   :members:
+
+.. automodule:: modules.DBAnalysis.utils.rules_loader
+   :members:
+
 Statistical Methods
 --------------------
+
+.. automodule:: modules.StatisticalMethods.main
+   :members:
 
 .. automodule:: modules.StatisticalMethods.regression.linear
    :members:

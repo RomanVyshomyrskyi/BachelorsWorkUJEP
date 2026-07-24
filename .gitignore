@@ -38,4 +38,4 @@ logs
 #dev context
 dev_context
 
-*databases.json
+*databases.jsondocs/_build/

@@ -21,7 +21,7 @@ import inspect
 import importlib.util
 import logging
 from fastmcp import FastMCP
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse, Response
 import uvicorn
 from modules.registry import ModuleRegistry, resolve_dependency_order
@@ -39,6 +39,12 @@ logger = logging.getLogger(__name__)
 mcp = FastMCP("FastMCP Server")
 # The ModuleRegistry tracks API interfaces exposed by each loaded module
 module_registry = ModuleRegistry()
+
+# --- Create MCP Transport Apps BEFORE FastAPI to get proper lifespan ---
+# The Streamable HTTP transport requires its StarletteWithLifespan's lifespan
+# to be passed to the parent FastAPI app for proper task group initialization
+mcp_streamable_app = mcp.http_app(transport="streamable-http", path="/")
+mcp_sse_app = mcp.http_app(transport="sse")
 
 # --- Dynamic Module Loading ---
 
@@ -256,10 +262,12 @@ def health_check() -> str:
 # --- FastAPI Integration for Documentation ---
 
 # Create a FastAPI app instance that wraps the MCP tools for Swagger/OpenAPI docs
+# Pass the Streamable HTTP app's lifespan to ensure proper task group initialization
 app = FastAPI(
     title="FastMCP Server",
     description="Auto-generated documentation for FastMCP tools",
-    version="1.1.0"
+    version="1.1.0",
+    lifespan=mcp_streamable_app.lifespan
 )
 
 # Enable CORS for trusted origins only
@@ -437,52 +445,32 @@ for tool_name, tool in mcp._tool_manager._tools.items():
         # If route registration fails (e.g., name collision), log and continue
         logging.error(f"Failed to register route for tool '{tool_name}': {e}")
 
-# 2. Mount the FastMCP app (Starlette) to handle the actual MCP protocol (SSE)
-# The FastMCP server handles the Server-Sent Events (SSE) transport for MCP clients
-try:
-    # Create the HTTP application from the MCP server with SSE transport
-    mcp_app = mcp.http_app(transport="sse")
-    # Mount it under /mcp so MCP clients connect to /mcp/sse and /mcp/messages
-    app.mount("/mcp", mcp_app)
-    logging.info("Mounted FastMCP SSE server at /mcp")
-except Exception as e:
-    logging.error(f"Failed to mount FastMCP app: {e}")
-
-# 3. Add redirects for the default paths to maintain backwards compatibility
-# Old clients may still request /sse and /messages directly; redirect them to /mcp/*
+# 3. Redirect /sse to /sse/sse for SSE stream, /messages to /sse/messages
+# These must be defined BEFORE the mount so they take priority
 @app.get("/sse")
-async def handle_sse_redirect():
-    """Redirect legacy /sse requests to the new /mcp/sse endpoint.
-
-    Provides backwards compatibility for MCP clients that connect to the
-    legacy ``/sse`` path. The redirect sends a 307 Temporary Redirect to
-    ``/mcp/sse`` where the FastMCP SSE transport is actually mounted.
-
-    Returns:
-        A ``RedirectResponse`` object with status 307 pointing to
-        ``/mcp/sse``.
-
-    Example:
-        >>> # GET /sse → HTTP 307 → Location: /mcp/sse
-    """
-    return RedirectResponse(url="/mcp/sse")
+async def sse_stream_redirect():
+    """Redirect /sse to /sse/sse (SSE stream endpoint)."""
+    return RedirectResponse(url="/sse/sse")
 
 @app.get("/messages")
-async def handle_messages_redirect():
-    """Redirect legacy /messages requests to the new /mcp/messages endpoint.
+@app.post("/messages")
+async def messages_redirect(request: Request):
+    """Redirect /messages to /sse/messages (SSE messages endpoint)."""
+    return RedirectResponse(url="/sse/messages")
 
-    Provides backwards compatibility for MCP clients that post messages to
-    the legacy ``/messages`` path. The redirect sends a 307 Temporary Redirect
-    to ``/mcp/messages`` where the FastMCP SSE transport handles the message.
+# 2. Mount both MCP transports (SSE + Streamable HTTP) to support multiple clients
+# Streamable HTTP transport for Open WebUI and modern MCP clients
+# SSE transport for legacy clients (e.g. MCP CLI, other SSE-based clients)
+try:
+    # Streamable HTTP at /mcp (internal route is /, so full path is /mcp)
+    app.mount("/mcp", mcp_streamable_app)
+    logging.info("Mounted FastMCP Streamable HTTP server at /mcp")
 
-    Returns:
-        A ``RedirectResponse`` object with status 307 pointing to
-        ``/mcp/messages``.
-
-    Example:
-        >>> # POST /messages → HTTP 307 → Location: /mcp/messages
-    """
-    return RedirectResponse(url="/mcp/messages")
+    # SSE transport mounted at /sse so its routes become /sse/sse and /sse/messages
+    app.mount("/sse", mcp_sse_app)
+    logging.info("Mounted FastMCP SSE server at /sse (stream: /sse/sse, messages: /sse/messages)")
+except Exception as e:
+    logging.error(f"Failed to mount FastMCP app: {e}")
 
 # 4. Add observability endpoints
 @app.get("/metrics")
@@ -544,7 +532,9 @@ if __name__ == "__main__":
     # Log startup information including where to find Swagger docs and MCP endpoints
     logging.info("Starting FastMCP Server with FastAPI integration...")
     logging.info("Documentation available at: http://localhost:8000/docs")
-    logging.info("MCP SSE Endpoint at: http://localhost:8000/mcp/sse")
+    logging.info("MCP Streamable HTTP Endpoint at: http://localhost:8000/mcp")
+    logging.info("MCP SSE Endpoint at: http://localhost:8000/sse/sse")
+    logging.info("MCP SSE Messages Endpoint at: http://localhost:8000/sse/messages")
 
     # Start the uvicorn ASGI server listening on all interfaces, port 8000
     uvicorn.run(app, host="0.0.0.0", port=8000)

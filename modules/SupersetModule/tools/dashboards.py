@@ -1086,22 +1086,22 @@ def _validate_position_json_structure(position_json: Union[str, Dict]) -> List[s
         errors.append("Missing ROOT_ID in position JSON")
         return errors
     root = pos["ROOT_ID"]
-    if root is None:
-        errors.append("ROOT_ID key exists but has a null/None value")
+    if not isinstance(root, dict):
+        errors.append(f"ROOT_ID must be a dict/object, got {type(root).__name__}: {root!r}")
     elif root.get("type") != "ROOT":
         errors.append("ROOT_ID must have type='ROOT'")
-    if root is not None and "GRID_ID" not in root.get("children", []):
+    if isinstance(root, dict) and "GRID_ID" not in root.get("children", []):
         errors.append("ROOT_ID.children must contain 'GRID_ID'")
     if "GRID_ID" not in pos:
         errors.append("Missing GRID_ID in position JSON")
         return errors
     grid = pos["GRID_ID"]
-    if grid is None:
-        errors.append("GRID_ID key exists but has a null/None value")
+    if not isinstance(grid, dict):
+        errors.append(f"GRID_ID must be a dict/object, got {type(grid).__name__}: {grid!r}")
     elif grid.get("type") != "GRID":
         errors.append("GRID_ID must have type='GRID'")
     
-    grid_children = grid.get("children", []) if grid else []
+    grid_children = grid.get("children", []) if isinstance(grid, dict) else []
     missing_types: List[str] = []
     unknown_types: List[str] = []
     invalid_chart_ids: List[str] = []

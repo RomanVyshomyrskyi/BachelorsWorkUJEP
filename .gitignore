@@ -43,3 +43,6 @@ dev_context
 
 # Docs build output
 docs/_build/
+
+
+.opencode

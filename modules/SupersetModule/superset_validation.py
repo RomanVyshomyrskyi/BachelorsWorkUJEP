@@ -120,7 +120,6 @@ MIXED_METRICS_TYPES: set = {
 
 # Category 6: Chart types that have NO metric/metrics field at all.
 NO_METRICS_TYPES: set = {
-    "table",
     "histogram_v2",
     "gantt_chart",
 }
@@ -321,9 +320,10 @@ def _build_adhoc_metric_from_string(metric_str: str) -> Dict[str, Any]:
     Description:
         Parses a string metric and constructs a properly nested AdHocMetricObject
         dict with aggregate, column, expressionType, and label fields.
+        Handles both 'SUM(sales)' and 'sum__SP_POP_TOTL' (Superset internal) formats.
 
     Args:
-        metric_str: String metric like 'SUM(sales)' or 'AVG(price)'.
+        metric_str: String metric like 'SUM(sales)', 'AVG(price)', or 'sum__sales'.
 
     Returns:
         Dict formatted as an AdHocMetricObject with all required fields.
@@ -332,6 +332,19 @@ def _build_adhoc_metric_from_string(metric_str: str) -> Dict[str, Any]:
         >>> _build_adhoc_metric_from_string("SUM(sales)")
         {'aggregate': 'SUM', 'column': {'column_name': 'sales'}, 'expressionType': 'SIMPLE', 'label': 'SUM(sales)'}
     """
+    # Step 0: Handle Superset internal format 'sum__column_name', 'avg__col', etc.
+    #   These are already aggregated metric names created by Superset's query engine.
+    #   The prefix is the aggregate function (lowercase), followed by '__', then column name.
+    internal_match = re.match(r'^(sum|avg|min|max|count|count_distinct)__(.+)$', metric_str.strip(), re.IGNORECASE)
+    if internal_match:
+        agg = internal_match.group(1).upper()
+        col_name = internal_match.group(2)
+        return {
+            "aggregate": agg,
+            "column": {"column_name": col_name},
+            "expressionType": "SIMPLE",
+            "label": f"{agg}({col_name})",
+        }
     # Step 1: Parse the metric string to extract aggregate function and column name
     #   "SUM(sales)" → agg="SUM", col_name="sales"
     #   "AVG(price)" → agg="AVG", col_name="price"
@@ -732,6 +745,19 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
     fixed = json.loads(json.dumps(params))
     actual_viz = viz_type
 
+    # ═══ Fix 0b: Flatten nested 'params' key (would cause double-nesting) ═══
+    #   If the user's config already has a 'params' key, extract its content
+    #   and merge into the top-level params. This prevents nested params like
+    #   {"params": {"params": {...}}} when the API is called.
+    if "params" in fixed:
+        nested = fixed["params"]
+        if isinstance(nested, dict):
+            # Merge inner params into outer, giving inner priority
+            for k, v in nested.items():
+                if k not in fixed or fixed[k] is None:
+                    fixed[k] = v
+            del fixed["params"]
+
     # ═══ Fix 0: Ensure datasource_id is always present and is an integer ═══
     #   Superset expects datasource_id as int, but sometimes it comes as str
     #   from JSON parsing or external API responses. The int conversion prevents
@@ -1013,11 +1039,39 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
         if not fixed.get("time_range"):
             fixed["time_range"] = "No filter"
 
+    # --- Fix 14b: Normalize query_context.query structure for Superset 5.x/6.x ---
+    # query_context uses 'name' for column names but frontend expects 'column_name'.
+    # Also add 'label' to all column/dimension dict entries to prevent 'can't access property' errors.
+    if "query_context" in fixed and "query" in fixed["query_context"]:
+        qc_query = fixed["query_context"]["query"]
+        for col_field in ["columns"]:
+            if col_field in qc_query and isinstance(qc_query[col_field], list):
+                for col_entry in qc_query[col_field]:
+                    if isinstance(col_entry, dict):
+                        col = col_entry.get("column", {})
+                        if isinstance(col, dict) and "name" in col and "column_name" not in col:
+                            col["column_name"] = col.pop("name")
+                        if isinstance(col, dict) and col.get("column_name") and not col.get("label"):
+                            col["label"] = col["column_name"]
+        for item in ["groupby", "metrics"]:
+            if item in qc_query and isinstance(qc_query[item], list):
+                for i, entry in enumerate(qc_query[item]):
+                    if isinstance(entry, dict) and "column" in entry:
+                        col = entry["column"]
+                        if isinstance(col, dict) and "name" in col and "column_name" not in col:
+                            col["column_name"] = col.pop("name")
+                        if isinstance(col, dict) and col.get("column_name") and not col.get("label"):
+                            col["label"] = col["column_name"]
+                    elif isinstance(entry, dict) and not entry.get("label"):
+                        entry["label"] = entry.get("column", {}).get("column_name", "unknown")
+
     # --- Fix 14: Superset 6.x — all remaining string metrics → AdHocMetricObject ---
     # ALL chart types in Superset 6.x require ad-hoc metric objects.
     # Plain strings like 'SUM(sales)' in 'metrics' array are not accepted.
     # Exception: bare 'count' is a built-in metric, not a column reference.
-    if actual_viz not in NO_METRICS_TYPES and "metrics" in fixed:
+    # SKIP if query_context already has metrics (Superset 5.x style — don't mix formats)
+    has_query_context_metrics = "query_context" in fixed and "query" in fixed.get("query_context", {}) and "metrics" in fixed.get("query_context", {}).get("query", {})
+    if actual_viz not in NO_METRICS_TYPES and "metrics" in fixed and not has_query_context_metrics:
         metrics_list = fixed["metrics"]
         if isinstance(metrics_list, list):
             for i, m in enumerate(metrics_list):
@@ -1030,6 +1084,13 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
             for i, m in enumerate(metrics_list):
                 if isinstance(m, str) and m.strip().lower() != "count":
                     fixed["metrics_b"][i] = _build_adhoc_metric_from_string(m)
+    # Also handle query_context.query.metrics (Superset 5.x/6.x query engine format)
+    if actual_viz not in NO_METRICS_TYPES and has_query_context_metrics:
+        qc_metrics = fixed["query_context"]["query"]["metrics"]
+        if isinstance(qc_metrics, list):
+            for i, m in enumerate(qc_metrics):
+                if isinstance(m, str) and m.strip().lower() != "count":
+                    qc_metrics[i] = _build_adhoc_metric_from_string(m)
 
     # --- Fix 14a: Axis fields → AdHocMetricObject ---
     # Scatter/bubble x, y, size, series values like 'MAX(SP.POP.TOTL)'

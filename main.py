@@ -336,6 +336,13 @@ class BodyToQueryMiddleware:
             (k, v) for k, v in headers
             if k.lower() not in (b"content-length",)
         ]
+        
+        # Clear the body bytes so FastAPI doesn't try to parse an already-consumed body
+        _cleared_body = b""
+        async def new_receive():
+            return {"type": "http.request", "body": _cleared_body, "more_body": False}
+        
+        await self.app(scope, new_receive, send)
         async def new_receive():
             return {"type": "http.request", "body": _body_bytes, "more_body": False}
         

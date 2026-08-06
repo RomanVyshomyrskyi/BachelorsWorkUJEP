@@ -31,6 +31,7 @@ from modules.SupersetModule.exceptions import TransferError
 from modules.log_utils import LogCollector
 from modules.metrics import get_metrics
 
+log = LogCollector(__name__)
 NEED_INPUT_PREFIX = "NEED_INPUT:"
 
 async def impl_transfer_item(
@@ -244,6 +245,56 @@ async def _resolve_target_database(
     return None, _need_input("database", source_db_id, source_db_name, available_dbs)
 
 
+async def _find_existing_dataset(
+    manager: ConnectionManager,
+    target_server_id: str,
+    target_db_id: int,
+    table_name: str,
+    schema: Optional[str] = None
+) -> Optional[int]:
+    """Find an existing dataset on the target server by table name.
+
+    Lists all datasets on the target server and finds one that matches
+    the given table name and schema. Returns the dataset ID if found,
+    None otherwise.
+
+    Args:
+        manager: ConnectionManager instance.
+        target_server_id: Target Superset server ID.
+        target_db_id: Database ID on the target server.
+        table_name: Table name to search for.
+        schema: Optional schema name to filter by.
+
+    Returns:
+        Dataset ID if found, None otherwise.
+    """
+    ds_list_str = await impl_list_resources(manager, target_server_id, "dataset")
+    ds_list_data = _parse_json_result(ds_list_str)
+    if not ds_list_data:
+        return None
+    datasets = ds_list_data.get("result", [])
+    if not isinstance(datasets, list):
+        return None
+    for ds in datasets:
+        ds_info_str = await impl_get_resource(manager, target_server_id, "dataset", ds.get("id", 0))
+        ds_info = _parse_json_result(ds_info_str)
+        if not ds_info:
+            continue
+        result = ds_info.get("result", {})
+        ds_table = result.get("table_name", "")
+        ds_schema = result.get("schema")
+        ds_db = result.get("database", {})
+        if isinstance(ds_db, dict):
+            ds_db_id = ds_db.get("id")
+        else:
+            ds_db_id = ds_db
+        if ds_table == table_name and ds_db_id == target_db_id:
+            if schema is None or ds_schema == schema or (not ds_schema and not schema):
+                log.info(f"Found existing dataset for '{table_name}': ID {ds.get('id')}")
+                return ds.get("id")
+    return None
+
+
 async def _check_table_exists(
     manager: ConnectionManager,
     target_server_id: str,
@@ -289,20 +340,26 @@ async def _check_table_exists(
     res = await sqllab_execute_query(manager, target_server_id, target_db_id, query, schema=schema)
     res_data = _parse_json_result(res)
     if not res_data:
+        log.info(f"Table check: failed to parse execute response for table '{table_name}'")
         return False
 
-    client_id = res_data.get("result", {}).get("query", {}).get("client_id")
-    if not client_id:
-        return False
+    # Try to get data directly from the execute response (modern Superset API)
+    data = res_data.get("data", [])
+    row_count = len(data) if data else 0
 
-    await asyncio.sleep(1)
-    results = await sqllab_get_query_results(manager, target_server_id, client_id)
-    results_data = _parse_json_result(results)
-    if not results_data:
-        return False
+    if row_count == 0:
+        # Fallback: try to get results via sqllab_get_query_results
+        client_id = res_data.get("result", {}).get("query", {}).get("client_id") or res_data.get("query", {}).get("id")
+        if client_id:
+            await asyncio.sleep(2)
+            results = await sqllab_get_query_results(manager, target_server_id, client_id)
+            results_data = _parse_json_result(results)
+            if results_data:
+                data = results_data.get("data", [])
+                row_count = len(data) if data else 0
 
-    data = results_data.get("data", [])
-    return len(data) > 0
+    log.info(f"Table check: table '{table_name}' -> found {row_count} rows, exists={row_count > 0}")
+    return row_count > 0
 
 
 async def _resolve_dataset(
@@ -379,6 +436,12 @@ async def _resolve_dataset(
     table_exists = await _check_table_exists(manager, target_server_id, target_db_id, schema, mapped_table)
     if not table_exists:
         return None, None, _need_input("table", table_name, mapped_table, [])
+
+    # Check if a dataset with this table already exists on the target
+    existing_ds_id = await _find_existing_dataset(manager, target_server_id, target_db_id, mapped_table, schema)
+    if existing_ds_id:
+        log.info(f"Using existing dataset ID {existing_ds_id} for '{mapped_table}'")
+        return existing_ds_id, "table", None
 
     dataset_result_str = await create_dataset(
         manager,
@@ -476,9 +539,16 @@ async def _recreate_chart(
     new_ds_id, new_ds_type = ds_mapping[old_ds_id]
 
     if isinstance(params_raw, dict):
-        params_json = json.dumps(params_raw)
+        params_parsed = dict(params_raw)
     else:
-        params_json = params_raw
+        params_parsed = json.loads(params_raw)
+
+    # Remove fields that should be passed separately to the API
+    for key in ["datasource_id", "datasource", "datasource_type", "viz_type", 
+                "time_grain_sqla", "granularity_sqla", "title"]:
+        params_parsed.pop(key, None)
+
+    params_json = json.dumps(params_parsed)
 
     result_str = await create_chart(
         manager,
@@ -488,7 +558,8 @@ async def _recreate_chart(
         datasource_id=new_ds_id,
         datasource_type=new_ds_type or datasource_type,
         params=params_json,
-        description=description
+        description=description,
+        skip_data_test=True
     )
 
     if "Error" in result_str:
@@ -765,11 +836,50 @@ async def transfer_dashboard(
     if not source_charts:
         return f"No charts found in dashboard {dashboard_id}"
 
+    # Extract chart IDs from position_json (reliable across Superset versions)
     source_chart_ids = []
-    for c in source_charts:
-        cid = c.get("id")
-        if cid:
-            source_chart_ids.append(cid)
+    position_json = dash_result.get("position_json")
+    if position_json:
+        try:
+            if isinstance(position_json, str):
+                pos_data = json.loads(position_json)
+            else:
+                pos_data = position_json
+            # Recursively find all chartId references
+            def find_chart_ids(obj, found=None):
+                if found is None:
+                    found = set()
+                if isinstance(obj, dict):
+                    cid = obj.get("chartId") or obj.get("slice_id")
+                    if cid is not None:
+                        try:
+                            found.add(int(cid))
+                        except (ValueError, TypeError):
+                            pass
+                    for v in obj.values():
+                        find_chart_ids(v, found)
+                elif isinstance(obj, list):
+                    for item in obj:
+                        find_chart_ids(item, found)
+                return found
+            source_chart_ids = sorted(find_chart_ids(pos_data))
+            log.info(f"Extracted {len(source_chart_ids)} chart IDs from position_json: {source_chart_ids}")
+        except Exception as e:
+            log.info(f"Failed to parse position_json for chart IDs: {e}")
+
+    # Fallback: try to extract IDs from source_charts list
+    if not source_chart_ids:
+        for c in source_charts:
+            if not c:
+                continue
+            if isinstance(c, dict):
+                cid = c.get("id")
+            elif isinstance(c, (int, str)):
+                cid = c
+            else:
+                continue
+            if cid:
+                source_chart_ids.append(int(cid) if isinstance(cid, str) else cid)
 
     report["dashboard"] = {
         "id": dashboard_id,
@@ -781,9 +891,7 @@ async def transfer_dashboard(
     log.info(f"Dashboard '{dashboard_title}' ({dashboard_id}) has {len(source_chart_ids)} charts")
 
     chart_details = []
-    for sc in source_charts:
-        cid = sc.get("id")
-        cname = sc.get("slice_name", f"Chart {cid}")
+    for cid in source_chart_ids:
         chart_str = await impl_get_resource(manager, source_server_id, "chart", cid)
         chart_data = _parse_json_result(chart_str)
         if not chart_data:
@@ -798,7 +906,7 @@ async def transfer_dashboard(
         fields = _extract_fields_from_params(params_raw)
         detail = {
             "id": cid,
-            "slice_name": cname,
+            "slice_name": cr.get("slice_name", f"Chart {cid}"),
             "viz_type": cr.get("viz_type", "?"),
             "datasource_id": ds_id,
             "datasource_type": cr.get("datasource_type", "table"),
@@ -821,7 +929,7 @@ async def transfer_dashboard(
 
     log.info(f"Dashboard requires {len(unique_ds_ids)} unique datasets")
 
-    dest_matches = await _find_matching_charts_at_destination(manager, target_server_id, source_charts)
+    dest_matches = await _find_matching_charts_at_destination(manager, target_server_id, chart_details)
     for cd in chart_details:
         cid = cd["id"]
         if cid in dest_matches:
@@ -972,7 +1080,8 @@ async def transfer_dashboard(
         position_json=position_json_updated,
         slug=slug,
         json_metadata=json_metadata_updated,
-        published=published
+        published=published,
+        skip_chart_validation=True
     )
 
     dash_elapsed = int((time.time() - t0) * 1000)

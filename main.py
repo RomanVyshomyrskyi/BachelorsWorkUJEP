@@ -286,6 +286,13 @@ class BodyToQueryMiddleware:
             await self.app(scope, receive, send)
             return
         
+        path = scope.get("path", "")
+        
+        # Skip MCP routes - they need body intact for JSON-RPC
+        if path.startswith("/sse") or path.startswith("/mcp"):
+            await self.app(scope, receive, send)
+            return
+        
         import json
         import urllib.parse
         

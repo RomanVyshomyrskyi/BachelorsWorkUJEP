@@ -745,14 +745,18 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
     fixed = json.loads(json.dumps(params))
     actual_viz = viz_type
 
-    # ═══ Fix 0b: Flatten nested 'params' key (would cause double-nesting) ═══
-    #   If the user's config already has a 'params' key, extract its content
-    #   and merge into the top-level params. This prevents nested params like
-    #   {"params": {"params": {...}}} when the API is called.
-    if "params" in fixed:
+    # ═══ Fix 0b: Remove nested 'params' key when query_context exists ═══
+    #   When query_context is present (Superset 5.x/6.x format), the nested
+    #   'params' key contains old-style chart params that conflict with it.
+    #   The frontend parses both and produces errors like "Found invalid orderby".
+    #   When query_context is NOT present, merge nested params into top-level.
+    if "params" in fixed and "query_context" in fixed:
+        # query_context takes priority — delete old-style nested params
+        del fixed["params"]
+    elif "params" in fixed:
+        # No query_context — merge nested params into top-level
         nested = fixed["params"]
         if isinstance(nested, dict):
-            # Merge inner params into outer, giving inner priority
             for k, v in nested.items():
                 if k not in fixed or fixed[k] is None:
                     fixed[k] = v

@@ -58,8 +58,11 @@ Categorization matches ACTUAL working chart formats from Superset's own examples
 """
 
 import json
+import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 # ── Viz type categories – matches ACTUAL working chart formats ────────────────
@@ -1040,22 +1043,35 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
             if agg != "AVG" or col_name != fixed[axis]:
                 fixed[axis] = _build_adhoc_metric_from_string(fixed[axis])
 
-    # --- Fix 15: Strip invalid fields from metric column objects ---
+   # --- Fix 15: Strip invalid fields from metric column objects ---
     # The 'type' field in column objects (e.g., "type": "DOUBLE PRECISION") causes
     # SQLAlchemy "Cannot compile Column object until its 'name' is assigned" errors.
     # Superset's chart API expects column objects to only have 'column_name', not
     # full column metadata. Also normalize expressionType to SIMPLE for column refs.
+    _CLEANED_METRICS = 0
     def _clean_metric_column(metric_obj):
+        nonlocal _CLEANED_METRICS
         if isinstance(metric_obj, dict) and "column" in metric_obj:
             col = metric_obj["column"]
             if isinstance(col, dict):
-                col.pop("type", None)
-                col.pop("data_type", None)
-                col.pop("verbose_name", None)
-                col.pop("is_dttm", None)
+                _removed = []
+                for key in ["type", "data_type", "verbose_name", "is_dttm", "id", "primary_key"]:
+                    if key in col:
+                        _removed.append(key)
+                        del col[key]
+                if _removed:
+                    _CLEANED_METRICS += 1
+                    logger.warning(f"Fix 15: Stripped invalid column fields {_removed} from metric: {metric_obj.get('label', '?')}")
+                    print(f"Fix 15: Stripped {_removed} from metric {metric_obj.get('label', '?')}", flush=True)
             if metric_obj.get("expressionType") == "SQL" and metric_obj.get("aggregate"):
-                metric_obj["expressionType"] = "SIMPLE"
-                metric_obj.pop("metricType", None)
+                if metric_obj["expressionType"] != "SIMPLE":
+                    metric_obj["expressionType"] = "SIMPLE"
+                    _CLEANED_METRICS += 1
+                    logger.warning(f"Fix 15: Normalized expressionType SQL->SIMPLE for metric: {metric_obj.get('label', '?')}")
+                    print(f"Fix 15: Normalized expressionType for {metric_obj.get('label', '?')}", flush=True)
+                if "metricType" in metric_obj:
+                    del metric_obj["metricType"]
+                    _CLEANED_METRICS += 1
     
     for field in ["metric", "timeseries_limit_metric"]:
         if field in fixed and isinstance(fixed[field], dict):
@@ -1065,6 +1081,10 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
             for m in fixed[metric_field]:
                 if isinstance(m, dict):
                     _clean_metric_column(m)
+    
+    if _CLEANED_METRICS > 0:
+        logger.info(f"Fix 15: cleaned {_CLEANED_METRICS} metric column issues")
+        print(f"Fix 15: Total cleaned {_CLEANED_METRICS} issues", flush=True)
 
     # --- Fix 16: Universal aggregate + expressionType + label for ALL metric dicts ---
     # Uses .get() instead of 'in' to catch None, "", 0 (all falsy).

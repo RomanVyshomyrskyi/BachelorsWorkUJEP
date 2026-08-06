@@ -46,3 +46,6 @@ docs/_build/
 
 
 .opencode
+
+# Cache files
+modules/SupersetModule/.cache/

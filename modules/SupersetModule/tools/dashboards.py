@@ -205,7 +205,8 @@ async def create_dashboard(
      json_metadata: Optional[str] = None,
      owners: Optional[List[int]] = None,
      roles: Optional[List[int]] = None,
-     published: Optional[bool] = False
+     published: Optional[bool] = False,
+     skip_chart_validation: bool = False
  ) -> str:
      """
      MCP Tool: superset_create_dashboard - Create a dashboard with custom position JSON.
@@ -225,6 +226,8 @@ async def create_dashboard(
          owners: Optional list of user IDs who own the dashboard.
          roles: Optional list of role IDs that have access to the dashboard.
          published: Whether the dashboard is published (visible) or saved as draft. Defaults to False.
+         skip_chart_validation: If True, skip the pre-flight chart data endpoint validation.
+             Useful when charts were already validated externally (e.g., during transfer). Defaults to False.
 
      Returns:
          JSON string containing the created dashboard's details on success,
@@ -291,31 +294,32 @@ async def create_dashboard(
              ).to_json())
 
          # Step 5: Pre-flight — test all charts' data endpoints
-         logger.info(f"Running pre-flight chart data validation for dashboard '{dashboard_title}'")
-         failed_charts = await _pre_validate_chart_data(manager, server_id, chart_ids)
-         
-         if failed_charts:
-             mc = get_metrics()
-             mc.tool_calls.labels(tool="superset_create_dashboard", status="error").inc()
-             mc.record_error(
-                 tool="superset_create_dashboard",
-                 error_message=f"Dashboard creation blocked: {len(failed_charts)} charts fail data endpoint"
-             )
+         if not skip_chart_validation:
+             logger.info(f"Running pre-flight chart data validation for dashboard '{dashboard_title}'")
+             failed_charts = await _pre_validate_chart_data(manager, server_id, chart_ids)
              
-             failed_details = "\n".join(
-                 f"  {i+1}. Chart {fc['chart_id']} ({fc['viz_type']}, '{fc['slice_name']}'): {fc['error']}"
-                 for i, fc in enumerate(failed_charts)
-             )
-             return log.collect(DashboardError(
-                 "Dashboard creation blocked: Chart data validation failed",
-                 details=(
-                     f"Dashboard '{dashboard_title}' cannot be created — one or more charts "
-                     f"fail to render:\n\n"
-                     + failed_details
-                     + "\n\n"
-                     + "Fix the failing charts before creating the dashboard."
-                 ),
-                 status_code=400,
+             if failed_charts:
+                 mc = get_metrics()
+                 mc.tool_calls.labels(tool="superset_create_dashboard", status="error").inc()
+                 mc.record_error(
+                     tool="superset_create_dashboard",
+                     error_message=f"Dashboard creation blocked: {len(failed_charts)} charts fail data endpoint"
+                 )
+                 
+                 failed_details = "\n".join(
+                     f"  {i+1}. Chart {fc['chart_id']} ({fc['viz_type']}, '{fc['slice_name']}'): {fc['error']}"
+                     for i, fc in enumerate(failed_charts)
+                 )
+                 return log.collect(DashboardError(
+                     "Dashboard creation blocked: Chart data validation failed",
+                     details=(
+                         f"Dashboard '{dashboard_title}' cannot be created — one or more charts "
+                         f"fail to render:\n\n"
+                         + failed_details
+                         + "\n\n"
+                         + "Fix the failing charts before creating the dashboard."
+                     ),
+                     status_code=400,
              ).to_json())
      elif not chart_ids:
          logger.warning(

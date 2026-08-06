@@ -49,3 +49,5 @@ docs/_build/
 
 # Cache files
 modules/SupersetModule/.cache/
+.cache/*
+logs/*

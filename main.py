@@ -329,12 +329,12 @@ class BodyToQueryMiddleware:
             except (json.JSONDecodeError, Exception):
                 pass
         
-        # Reconstruct receive to return the (potentially empty) original body
-        # Don't clear Content-Length - let FastAPI handle the body normally
-        _body_bytes = body_bytes
+        # Clear Content-Length and body so FastAPI reads from query string
+        headers = list(scope.get("headers", []))
+        scope["headers"] = [(k, v) for k, v in headers if k.lower() != b"content-length"]
+        cleared_body = b""
         async def new_receive():
-            return {"type": "http.request", "body": _body_bytes, "more_body": False}
-        
+            return {"type": "http.request", "body": cleared_body, "more_body": False}
         await self.app(scope, new_receive, send)
 
 

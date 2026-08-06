@@ -812,3 +812,6 @@
 {"ts": "2026-08-06T11:07:36.111911+00:00", "tool": "superset_create_dataset", "error_message": "name 'logger' is not defined", "status_code": 0, "duration_ms": 0}
 {"ts": "2026-08-06T11:08:08.109451+00:00", "tool": "superset_create_dataset", "error_message": "HTTP 422 creating dataset", "status_code": 422, "duration_ms": 0}
 {"ts": "2026-08-06T11:08:22.158835+00:00", "tool": "superset_create_dataset", "error_message": "HTTP 422 creating dataset", "status_code": 422, "duration_ms": 0}
+{"ts": "2026-08-06T11:26:16.533119+00:00", "tool": "superset_create_dataset", "error_message": "HTTP 422 creating dataset", "status_code": 422, "duration_ms": 0}
+{"ts": "2026-08-06T11:26:27.621312+00:00", "tool": "superset_create_dataset", "error_message": "HTTP 422 creating dataset", "status_code": 422, "duration_ms": 0}
+{"ts": "2026-08-06T11:26:33.763056+00:00", "tool": "superset_create_dataset", "error_message": "HTTP 422 creating dataset", "status_code": 422, "duration_ms": 0}

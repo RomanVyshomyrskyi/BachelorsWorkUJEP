@@ -326,11 +326,18 @@ class BodyToQueryMiddleware:
                             new_params.append(f"{key}={urllib.parse.quote(val, safe='')}")
                     
                     scope["query_string"] = "&".join(new_params).encode()
+                    
+                    # Also clear Content-Length and Content-Type headers
+                    # so FastAPI doesn't try to parse the cleared body
+                    headers = list(scope.get("headers", []))
+                    scope["headers"] = [
+                        (k, v) for k, v in headers
+                        if k.lower() not in (b"content-length", b"content-type")
+                    ]
             except (json.JSONDecodeError, Exception):
                 pass
         
-        # Always clear the body so FastAPI doesn't try to parse it as a Pydantic model
-        # (causes 422 "Input should be a valid list" when body is a dict)
+        # Clear the body so FastAPI doesn't try to parse it
         body_bytes = b""
         async def new_receive():
             return {"type": "http.request", "body": _body_bytes, "more_body": False}

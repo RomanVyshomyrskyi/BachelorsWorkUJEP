@@ -329,8 +329,9 @@ class BodyToQueryMiddleware:
             except (json.JSONDecodeError, Exception):
                 pass
         
-        # Reconstruct receive to return the body
-        _body_bytes = body_bytes
+        # Always clear the body so FastAPI doesn't try to parse it as a Pydantic model
+        # (causes 422 "Input should be a valid list" when body is a dict)
+        body_bytes = b""
         async def new_receive():
             return {"type": "http.request", "body": _body_bytes, "more_body": False}
         

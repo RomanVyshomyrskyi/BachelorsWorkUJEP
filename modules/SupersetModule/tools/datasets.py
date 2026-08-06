@@ -385,6 +385,7 @@ async def create_dataset(
 
         # POST the dataset to Superset's dataset API endpoint
         endpoint = "/api/v1/dataset/"
+        logger.info(f"CREATE_DATASET payload: {json.dumps(dataset_payload, indent=2)}")
         resp = await execute_request(ctx, "POST", endpoint, json=dataset_payload)
         resp.raise_for_status()
 

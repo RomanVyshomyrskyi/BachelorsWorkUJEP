@@ -46,10 +46,10 @@ Architecture Overview:
           Fix 13b: Universal orderby cleanup (drop null entries)
           Fix 13c: Columns/all_columns null entry cleanup
           Fix 14: String metrics → AdHocMetricObject in arrays
-          Fix 14a: Axis fields → AdHocMetricObject
-          Fix 16: Universal aggregate/expressionType/label completion
-          Fix 17: Time series granularity/time_range defaults
-          Fix 18: Universal label for groupby/orderby/columns dict entries
+        Fix 14a: Axis fields → AdHocMetricObject
+         Fix 15: Strip invalid fields (type, data_type) from metric column objects
+         Fix 16: Universal aggregate/expressionType/label completion
+         Fix 18: Universal label for groupby/orderby/columns dict entries
 
     The auto-fixer is iterative and covers multiple metric fields (metric, metrics,
     metrics_b, timeseries_limit_metric) plus axis fields (x, y, size, series).
@@ -1039,6 +1039,32 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
             agg, col_name = _parse_string_metric(fixed[axis])
             if agg != "AVG" or col_name != fixed[axis]:
                 fixed[axis] = _build_adhoc_metric_from_string(fixed[axis])
+
+    # --- Fix 15: Strip invalid fields from metric column objects ---
+    # The 'type' field in column objects (e.g., "type": "DOUBLE PRECISION") causes
+    # SQLAlchemy "Cannot compile Column object until its 'name' is assigned" errors.
+    # Superset's chart API expects column objects to only have 'column_name', not
+    # full column metadata. Also normalize expressionType to SIMPLE for column refs.
+    def _clean_metric_column(metric_obj):
+        if isinstance(metric_obj, dict) and "column" in metric_obj:
+            col = metric_obj["column"]
+            if isinstance(col, dict):
+                col.pop("type", None)
+                col.pop("data_type", None)
+                col.pop("verbose_name", None)
+                col.pop("is_dttm", None)
+            if metric_obj.get("expressionType") == "SQL" and metric_obj.get("aggregate"):
+                metric_obj["expressionType"] = "SIMPLE"
+                metric_obj.pop("metricType", None)
+    
+    for field in ["metric", "timeseries_limit_metric"]:
+        if field in fixed and isinstance(fixed[field], dict):
+            _clean_metric_column(fixed[field])
+    for metric_field in ["metrics", "metrics_b"]:
+        if metric_field in fixed and isinstance(fixed[metric_field], list):
+            for m in fixed[metric_field]:
+                if isinstance(m, dict):
+                    _clean_metric_column(m)
 
     # --- Fix 16: Universal aggregate + expressionType + label for ALL metric dicts ---
     # Uses .get() instead of 'in' to catch None, "", 0 (all falsy).

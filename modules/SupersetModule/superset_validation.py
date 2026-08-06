@@ -1092,6 +1092,25 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
                 if isinstance(m, str) and m.strip().lower() != "count":
                     qc_metrics[i] = _build_adhoc_metric_from_string(m)
 
+    # --- Fix 14c: Normalize query_context.query.orderby ---
+    # query_context.orderby must be list of tuples (col, ascending) for Superset 5.x/6.x.
+    # Simple string arrays ['col1', 'col2'] are invalid and cause "Found invalid orderby options".
+    # Also normalize string orderby to descending by default (order_desc=True).
+    if "query_context" in fixed and "query" in fixed["query_context"]:
+        qc_orderby = fixed["query_context"]["query"].get("orderby")
+        if qc_orderby:
+            if isinstance(qc_orderby, list):
+                normalized = []
+                for entry in qc_orderby:
+                    if isinstance(entry, (tuple, list)) and len(entry) >= 1:
+                        normalized.append(entry)
+                    elif isinstance(entry, str):
+                        # Simple string -> tuple (col, False=descending)
+                        normalized.append((entry.strip(), False))
+                fixed["query_context"]["query"]["orderby"] = normalized
+            elif isinstance(qc_orderby, str):
+                fixed["query_context"]["query"]["orderby"] = [(qc_orderby.strip(), False)]
+
     # --- Fix 14a: Axis fields → AdHocMetricObject ---
     # Scatter/bubble x, y, size, series values like 'MAX(SP.POP.TOTL)'
     # must be ad-hoc metric objects in Superset 6.x, not plain strings.

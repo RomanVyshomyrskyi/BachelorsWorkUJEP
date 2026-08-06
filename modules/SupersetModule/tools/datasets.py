@@ -17,7 +17,10 @@ import json
 import asyncio
 import httpx
 import time
+import logging
 from typing import List, Optional, Dict, Any, Union
+
+logger = logging.getLogger(__name__)
 from modules.SupersetModule.manager import ConnectionManager
 from modules.SupersetModule.api_client import execute_request
 from modules.SupersetModule.tools.resources import impl_get_resource

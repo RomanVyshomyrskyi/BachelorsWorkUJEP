@@ -329,20 +329,9 @@ class BodyToQueryMiddleware:
             except (json.JSONDecodeError, Exception):
                 pass
         
-        # Clear the body and Content-Length from request headers
-        # so FastAPI knows there's no body to parse
-        headers = list(scope.get("headers", []))
-        scope["headers"] = [
-            (k, v) for k, v in headers
-            if k.lower() not in (b"content-length",)
-        ]
-        
-        # Clear the body bytes so FastAPI doesn't try to parse an already-consumed body
-        _cleared_body = b""
-        async def new_receive():
-            return {"type": "http.request", "body": _cleared_body, "more_body": False}
-        
-        await self.app(scope, new_receive, send)
+        # Reconstruct receive to return the (potentially empty) original body
+        # Don't clear Content-Length - let FastAPI handle the body normally
+        _body_bytes = body_bytes
         async def new_receive():
             return {"type": "http.request", "body": _body_bytes, "more_body": False}
         

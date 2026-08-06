@@ -16,6 +16,7 @@ import os
 import sys
 import logging
 from typing import Optional, List, Union
+from fastapi import Query
 from fastmcp import FastMCP
 from modules.registry import ModuleRegistry
 
@@ -321,8 +322,18 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     # --- Dashboard Creation Tools ---
 
     @mcp.tool(name="generate_dashboard")
-    async def tool_generate_dashboard(server_id: str, dashboard_title: str, chart_ids: List[int] = None, slug: Optional[str] = None, json_metadata: Optional[str] = None, published: bool = False, layout_type: str = "robust", body: Optional[dict] = None) -> str:
+    async def tool_generate_dashboard(
+        server_id: str,
+        dashboard_title: str,
+        chart_ids: Optional[List[int]] = Query(None),
+        slug: Optional[str] = None,
+        json_metadata: Optional[str] = None,
+        published: bool = False,
+        layout_type: str = "robust",
+        body: Optional[dict] = None
+    ) -> str:
         """Create a new dashboard from chart IDs with auto-generated layout."""
+        # Handle body fallback if query param didn't parse
         if chart_ids is None and body:
             val = body.get("chart_ids")
             if val:

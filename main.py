@@ -326,14 +326,28 @@ class BodyToQueryMiddleware:
                     # Add body params only if not already in query string
                     for key, val in body.items():
                         if val is not None and key not in existing_keys:
-                            if isinstance(val, (dict, list)):
-                                val = json.dumps(val)
+                            if isinstance(val, list):
+                                # Send list items as repeated params for FastAPI to parse
+                                for item in val:
+                                    if isinstance(item, (dict, list)):
+                                        new_params.append(f"{key}={urllib.parse.quote(json.dumps(item), safe='')}")
+                                    elif not isinstance(item, str):
+                                        new_params.append(f"{key}={urllib.parse.quote(str(item), safe='')}")
+                                    else:
+                                        new_params.append(f"{key}={urllib.parse.quote(item, safe='')}")
+                            elif isinstance(val, dict):
+                                new_params.append(f"{key}={urllib.parse.quote(json.dumps(val), safe='')}")
                             elif not isinstance(val, str):
-                                val = str(val)
-                            new_params.append(f"{key}={urllib.parse.quote(val, safe='')}")
+                                new_params.append(f"{key}={urllib.parse.quote(str(val), safe='')}")
+                            else:
+                                new_params.append(f"{key}={urllib.parse.quote(val, safe='')}")
                     
                     scope["query_string"] = "&".join(new_params).encode()
-            except (json.JSONDecodeError, Exception):
+                    import logging
+                    logging.getLogger(__name__).info(f"BodyToQuery: query_string={scope["query_string"].decode()[:200]}")
+            except (json.JSONDecodeError, Exception) as e:
+                import logging
+                logging.getLogger(__name__).error(f"BodyToQuery error: {e}")
                 pass
         
         # Clear Content-Length and body so FastAPI reads from query string

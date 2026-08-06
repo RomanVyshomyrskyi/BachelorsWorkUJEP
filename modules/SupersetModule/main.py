@@ -139,8 +139,17 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     #     return await charts.create_chart(manager, server_id, slice_name, viz_type, datasource_id, datasource_type, params, description)
 
     @mcp.tool(name="superset_generate_simple_dashboard_layout")
-    async def tool_generate_simple_dashboard_layout(server_id: str, chart_ids: List[int], layout_type: str = "row_of_charts", chart_width: int = 6, chart_height: int = 50) -> str:
+    async def tool_generate_simple_dashboard_layout(server_id: str, chart_ids: List[int] = None, layout_type: str = "row_of_charts", chart_width: int = 6, chart_height: int = 50, body: Optional[dict] = None) -> str:
         """Generates a valid position_json arranging charts in a simple row/column layout."""
+        if chart_ids is None and body:
+            val = body.get("chart_ids")
+            if val:
+                chart_ids = val if isinstance(val, list) else []
+        if chart_ids is None:
+            from modules.SupersetModule.exceptions import DashboardError
+            from modules.log_utils import LogCollector
+            log = LogCollector(__name__)
+            return log.collect(DashboardError("chart_ids is required.").to_json())
         return await dashboards.generate_simple_dashboard_layout(manager, server_id, chart_ids, layout_type, chart_width, chart_height)
 
     @mcp.tool(name="superset_create_dashboard")
@@ -195,13 +204,31 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         return await dashboards.update_dashboard(manager, server_id, dashboard_id, json_body)
 
     @mcp.tool(name="superset_bulk_link_charts_to_dashboard")
-    async def tool_bulk_link_charts(server_id: str, dashboard_id: int, chart_ids: List[int]) -> str:
+    async def tool_bulk_link_charts(server_id: str, dashboard_id: int, chart_ids: List[int] = None, body: Optional[dict] = None) -> str:
         """Links multiple charts to a dashboard in bulk."""
+        if chart_ids is None and body:
+            val = body.get("chart_ids")
+            if val:
+                chart_ids = val if isinstance(val, list) else []
+        if chart_ids is None:
+            from modules.SupersetModule.exceptions import DashboardError
+            from modules.log_utils import LogCollector
+            log = LogCollector(__name__)
+            return log.collect(DashboardError("chart_ids is required.").to_json())
         return await dashboards.bulk_link_charts(manager, server_id, dashboard_id, chart_ids)
 
     @mcp.tool(name="superset_generate_robust_dashboard_layout")
-    async def tool_generate_robust_layout(server_id: str, chart_ids: List[int]) -> str:
+    async def tool_generate_robust_layout(server_id: str, chart_ids: List[int] = None, body: Optional[dict] = None) -> str:
         """Generates a nested position_json with ROOT→GRID→ROW→CHART hierarchy."""
+        if chart_ids is None and body:
+            val = body.get("chart_ids")
+            if val:
+                chart_ids = val if isinstance(val, list) else []
+        if chart_ids is None:
+            from modules.SupersetModule.exceptions import DashboardError
+            from modules.log_utils import LogCollector
+            log = LogCollector(__name__)
+            return log.collect(DashboardError("chart_ids is required.").to_json())
         return await dashboards.generate_robust_layout(manager, server_id, chart_ids)
 
     # --- Chart Configuration Tools ---
@@ -294,8 +321,17 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     # --- Dashboard Creation Tools ---
 
     @mcp.tool(name="generate_dashboard")
-    async def tool_generate_dashboard(server_id: str, dashboard_title: str, chart_ids: List[int], slug: Optional[str] = None, json_metadata: Optional[str] = None, published: bool = False, layout_type: str = "robust") -> str:
+    async def tool_generate_dashboard(server_id: str, dashboard_title: str, chart_ids: List[int] = None, slug: Optional[str] = None, json_metadata: Optional[str] = None, published: bool = False, layout_type: str = "robust", body: Optional[dict] = None) -> str:
         """Create a new dashboard from chart IDs with auto-generated layout."""
+        if chart_ids is None and body:
+            val = body.get("chart_ids")
+            if val:
+                chart_ids = val if isinstance(val, list) else []
+        if chart_ids is None:
+            from modules.SupersetModule.exceptions import DashboardError
+            from modules.log_utils import LogCollector
+            log = LogCollector(__name__)
+            return log.collect(DashboardError("chart_ids is required.").to_json())
         return await dashboards.generate_dashboard(manager, server_id, dashboard_title, chart_ids, slug, json_metadata, published, layout_type)
 
     @mcp.tool(name="add_chart_to_existing_dashboard")

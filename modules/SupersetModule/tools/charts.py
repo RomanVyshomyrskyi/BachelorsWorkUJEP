@@ -1075,7 +1075,8 @@ async def create_chart(
     datasource_id: int,
     datasource_type: str,
     params: str,
-    description: Optional[str] = None
+    description: Optional[str] = None,
+    skip_data_test: bool = False
  ) -> str:
     """
     MCP Tool: superset_create_chart - Create a new Superset chart with full validation.
@@ -1344,31 +1345,30 @@ async def create_chart(
             ).to_json()
         
         # Step 14: Post-creation — test chart data endpoint to verify it renders
-        data_test = await _test_chart_data_endpoint(manager, server_id, chart_id)
-
-        if not data_test["is_valid"]:
-            # Chart created but fails data endpoint — delete it and return error
-            deleted = await _delete_chart(manager, server_id, chart_id)
-            error_detail = data_test["error"]
-            mc = get_metrics()
-            mc.tool_calls.labels(tool="superset_create_chart", status="error").inc()
-            mc.record_error(
-                tool="superset_create_chart",
-                error_message=f"Chart created but data endpoint failed: {error_detail[:100]}"
-            )
-            return ChartError(
-                f"Chart created but fails to render: {actual_viz_type}",
-                details=(
-                    f"Chart '{slice_name}' was created (ID: {chart_id}) but the data endpoint failed.\n"
-                    f"Chart was deleted to avoid leaving broken charts.\n\n"
-                    f"Error: {error_detail}\n\n"
-                    f"Check that:\n"
-                    f"  1. datasource_id {datasource_id} has the right columns\n"
-                    f"  2. metrics referenced in params exist in the dataset\n"
-                    f"  3. viz_type '{actual_viz_type}' is compatible with the datasource"
-                ),
-                status_code=500,
-            ).to_json()
+        if not skip_data_test:
+            data_test = await _test_chart_data_endpoint(manager, server_id, chart_id)
+            if not data_test["is_valid"]:
+                deleted = await _delete_chart(manager, server_id, chart_id)
+                error_detail = data_test["error"]
+                mc = get_metrics()
+                mc.tool_calls.labels(tool="superset_create_chart", status="error").inc()
+                mc.record_error(
+                    tool="superset_create_chart",
+                    error_message=f"Chart created but data endpoint failed: {error_detail[:100]}"
+                )
+                return ChartError(
+                    f"Chart created but fails to render: {actual_viz_type}",
+                    details=(
+                        f"Chart '{slice_name}' was created (ID: {chart_id}) but the data endpoint failed.\n"
+                        f"Chart was deleted to avoid leaving broken charts.\n\n"
+                        f"Error: {error_detail}\n\n"
+                        f"Check that:\n"
+                        f"  1. datasource_id {datasource_id} has the right columns\n"
+                        f"  2. metrics referenced in params exist in the dataset\n"
+                        f"  3. viz_type '{actual_viz_type}' is compatible with the datasource"
+                    ),
+                    status_code=500,
+                ).to_json()
 
         if warning:
             result["_validation_warning"] = warning

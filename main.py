@@ -274,6 +274,71 @@ app = FastAPI(
 from fastapi.middleware.cors import CORSMiddleware
 import os
 
+
+class BodyToQueryMiddleware:
+    """ASGI middleware that merges JSON body parameters into query string for POST endpoints."""
+    
+    def __init__(self, app):
+        self.app = app
+    
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"] != "POST":
+            await self.app(scope, receive, send)
+            return
+        
+        import json
+        import urllib.parse
+        
+        # Read the body
+        body_parts = []
+        while True:
+            message = await receive()
+            body_parts.append(message.get("body", b""))
+            if not message.get("more_body", False):
+                break
+        
+        body_bytes = b"".join(body_parts)
+        
+        if body_bytes:
+            try:
+                body = json.loads(body_bytes)
+                if isinstance(body, dict) and body:
+                    existing_query = scope.get("query_string", b"").decode()
+                    
+                    # Extract param names already in query string
+                    existing_keys = set()
+                    new_params = []
+                    for param in existing_query.split("&"):
+                        if "=" in param:
+                            key = param.split("=")[0]
+                            existing_keys.add(key)
+                            new_params.append(param)
+                        elif param:
+                            new_params.append(param)
+                    
+                    # Add body params only if not already in query string
+                    for key, val in body.items():
+                        if val is not None and key not in existing_keys:
+                            if isinstance(val, (dict, list)):
+                                val = json.dumps(val)
+                            elif not isinstance(val, str):
+                                val = str(val)
+                            new_params.append(f"{key}={urllib.parse.quote(val, safe='')}")
+                    
+                    scope["query_string"] = "&".join(new_params).encode()
+            except (json.JSONDecodeError, Exception):
+                pass
+        
+        # Reconstruct receive to return the body
+        _body_bytes = body_bytes
+        async def new_receive():
+            return {"type": "http.request", "body": _body_bytes, "more_body": False}
+        
+        await self.app(scope, new_receive, send)
+
+
+app.add_middleware(BodyToQueryMiddleware)
+
 # Read allowed origins from environment variable, with a sensible localhost default
 allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000").split(",")
 
@@ -370,6 +435,88 @@ def custom_openapi():
                     op_responses[status_code] = {}
                 if "description" in resp_info:
                     op_responses[status_code]["description"] = resp_info["description"]
+
+    # Inject requestBody for endpoints that accept JSON body with large params
+    body_schemas = {
+        "/generate_dashboard": {
+            "schema": {
+                "type": "object",
+                "required": ["server_id", "dashboard_title", "chart_ids"],
+                "properties": {
+                    "server_id": {"type": "string", "description": "Superset server identifier"},
+                    "dashboard_title": {"type": "string", "description": "Title of the dashboard"},
+                    "chart_ids": {"type": "array", "items": {"type": "integer"}, "description": "List of chart IDs"},
+                    "layout_type": {"type": "string", "default": "robust"},
+                    "published": {"type": "boolean", "default": False},
+                    "slug": {"type": "string", "nullable": True},
+                    "json_metadata": {"type": "string", "nullable": True},
+                },
+            },
+            "example": {
+                "server_id": "superset_dev",
+                "dashboard_title": "Sales Overview",
+                "chart_ids": [195, 196, 197],
+            },
+        },
+        "/superset_generate_simple_dashboard_layout": {
+            "schema": {
+                "type": "object",
+                "required": ["server_id", "chart_ids"],
+                "properties": {
+                    "server_id": {"type": "string", "description": "Superset server identifier"},
+                    "chart_ids": {"type": "array", "items": {"type": "integer"}, "description": "List of chart IDs"},
+                    "layout_type": {"type": "string", "default": "row_of_charts"},
+                    "chart_width": {"type": "integer", "default": 6},
+                    "chart_height": {"type": "integer", "default": 50},
+                },
+            },
+            "example": {
+                "server_id": "superset_dev",
+                "chart_ids": [195, 196],
+            },
+        },
+        "/superset_generate_robust_dashboard_layout": {
+            "schema": {
+                "type": "object",
+                "required": ["server_id", "chart_ids"],
+                "properties": {
+                    "server_id": {"type": "string", "description": "Superset server identifier"},
+                    "chart_ids": {"type": "array", "items": {"type": "integer"}, "description": "List of chart IDs"},
+                },
+            },
+            "example": {
+                "server_id": "superset_dev",
+                "chart_ids": [195, 196, 197],
+            },
+        },
+        "/superset_bulk_link_charts_to_dashboard": {
+            "schema": {
+                "type": "object",
+                "required": ["server_id", "dashboard_id", "chart_ids"],
+                "properties": {
+                    "server_id": {"type": "string", "description": "Superset server identifier"},
+                    "dashboard_id": {"type": "integer", "description": "Target dashboard ID"},
+                    "chart_ids": {"type": "array", "items": {"type": "integer"}, "description": "List of chart IDs to link"},
+                },
+            },
+            "example": {
+                "server_id": "superset_dev",
+                "dashboard_id": 13,
+                "chart_ids": [195, 196],
+            },
+        },
+    }
+
+    for path, body_config in body_schemas.items():
+        if path in openapi_schema.get("paths", {}):
+            openapi_schema["paths"][path]["post"]["requestBody"] = {
+                "content": {
+                    "application/json": {
+                        "schema": body_config["schema"],
+                        "example": body_config["example"],
+                    }
+                }
+            }
 
     # Cache the modified schema on the app object for subsequent calls
     app.openapi_schema = openapi_schema

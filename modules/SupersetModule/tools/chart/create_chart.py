@@ -263,6 +263,20 @@ async def create_chart(
         if "datasource_type" not in fixed_params:
             fixed_params["datasource_type"] = datasource_type
 
+        # Final safeguard: bubble_v2 size MUST be SIMPLE metric (not DIMENSION)
+        if actual_viz_type == "bubble_v2" and "size" in fixed_params and isinstance(fixed_params["size"], dict):
+            size_val = fixed_params["size"]
+            if size_val.get("expressionType") == "DIMENSION" or "expressionType" not in size_val:
+                col = size_val.get("column", {}).get("column_name", size_val.get("column_name", "count"))
+                if isinstance(col, dict):
+                    col = col.get("column_name", "count")
+                fixed_params["size"] = {
+                    "aggregate": "AVG",
+                    "column": {"column_name": col},
+                    "expressionType": "SIMPLE",
+                    "label": f"AVG({col})",
+                }
+
         chart_payload = {
             "slice_name": slice_name,
             "description": description,

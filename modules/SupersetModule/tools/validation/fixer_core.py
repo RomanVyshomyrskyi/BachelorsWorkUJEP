@@ -138,32 +138,39 @@ def apply_early_fixes(viz_type: str, params: Dict[str, Any]) -> Dict[str, Any]:
                     val["column"] = {"column_name": column_name}
                     val["expressionType"] = expr_type
         # Fix 5b: Bubble — size field must be AdHocMetricObject (SIMPLE), not DIMENSION
-        if actual_viz == "bubble_v2" and "size" in fixed and isinstance(fixed["size"], dict):
+        if actual_viz == "bubble_v2" and "size" in fixed:
             size_val = fixed["size"]
-            if size_val.get("expressionType") == "DIMENSION":
-                col = size_val.get("column", {}).get("column_name", "count")
+            # If already a valid SIMPLE metric, preserve it
+            if isinstance(size_val, dict) and size_val.get("expressionType") == "SIMPLE" and "aggregate" in size_val:
+                pass  # Already correct
+            elif isinstance(size_val, str):
+                col = size_val.strip()
                 fixed["size"] = {
                     "aggregate": "AVG",
                     "column": {"column_name": col},
                     "expressionType": "SIMPLE",
                     "label": f"AVG({col})",
                 }
-            elif "column_name" in size_val and "column" not in size_val:
-                column_name = size_val.pop("column_name")
-                expr_type = size_val.pop("expressionType", "DIMENSION")
+            elif isinstance(size_val, dict):
+                # Extract column name from any format
+                if "column_name" in size_val and "column" not in size_val:
+                    col = size_val["column_name"]
+                elif "column" in size_val:
+                    col_obj = size_val["column"]
+                    if isinstance(col_obj, str):
+                        col = col_obj
+                    elif isinstance(col_obj, dict):
+                        col = col_obj.get("column_name", "count")
+                    else:
+                        col = "count"
+                else:
+                    col = "count"
+                agg = size_val.get("aggregate", "AVG") if isinstance(size_val.get("aggregate"), str) else "AVG"
                 fixed["size"] = {
-                    "aggregate": "AVG",
-                    "column": {"column_name": column_name},
+                    "aggregate": agg,
+                    "column": {"column_name": col},
                     "expressionType": "SIMPLE",
-                    "label": f"AVG({column_name})",
-                }
-            elif isinstance(size_val.get("column"), str):
-                column_name = size_val.pop("column")
-                fixed["size"] = {
-                    "aggregate": "AVG",
-                    "column": {"column_name": column_name},
-                    "expressionType": "SIMPLE",
-                    "label": f"AVG({column_name})",
+                    "label": f"{agg}({col})",
                 }
 
     # Fix 6: String array types — fix malformed objects only, keep strings

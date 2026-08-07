@@ -10,6 +10,7 @@ import logging
 import time
 import httpx
 from modules.SupersetModule.config import SupersetContext
+from modules.SupersetModule.tools.client.auth import ensure_auth
 from modules.metrics import get_metrics
 
 logger = logging.getLogger(__name__)

@@ -84,9 +84,10 @@ class BubbleChartStrategy(ChartParamsStrategy):
     DEFAULTS = {
         "series": "product_line",
         "entity": "deal_size",
-        "x": "SUM(quantity_ordered)",
-        "y": "COUNT_DISTINCT(country)",
-        "size": "count",
+        "x": {"column": {"column_name": "price_each"}, "expressionType": "DIMENSION"},
+        "y": {"column": {"column_name": "quantity_ordered"}, "expressionType": "DIMENSION"},
+        "size": {"column": {"column_name": "count"}, "expressionType": "DIMENSION"},
+        "metrics": ["count"],
         "order_desc": True,
         "color_scheme": "supersetColors",
         "show_legend": True,
@@ -100,6 +101,13 @@ class BubbleChartStrategy(ChartParamsStrategy):
         "y_axis_title_margin": 30,
         "y_axis_format": "SMART_NUMBER",
     }
+
+    def _resolve_axis(self, val: Any, default_column: str) -> Dict[str, Any]:
+        if isinstance(val, dict):
+            return val
+        if isinstance(val, str) and val:
+            return {"column": {"column_name": val}, "expressionType": "DIMENSION"}
+        return {"column": {"column_name": default_column}, "expressionType": "DIMENSION"}
 
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
@@ -120,9 +128,10 @@ class BubbleChartStrategy(ChartParamsStrategy):
         d["viz_type"] = self.VIZ_TYPE
         d["series"] = kwargs.get("series", d["series"])
         d["entity"] = kwargs.get("entity", d["entity"])
-        d["x"] = kwargs.get("x", d["x"])
-        d["y"] = kwargs.get("y", d["y"])
-        d["size"] = kwargs.get("size", d["size"])
+        d["x"] = self._resolve_axis(kwargs.get("x"), "price_each")
+        d["y"] = self._resolve_axis(kwargs.get("y"), "quantity_ordered")
+        d["size"] = self._resolve_axis(kwargs.get("size"), "count")
+        d["metrics"] = kwargs.get("metrics", d["metrics"])
         base = self._base(datasource_id)
         base.update(d)
         return base

@@ -219,7 +219,7 @@ class HistogramStrategy(ChartParamsStrategy):
     """
     VIZ_TYPE = "histogram_v2"
     DEFAULTS = {
-        "x_axis": "quantity_ordered",
+        "column": "quantity_ordered",
         "groupby": [],
         "bins": 10,
         "normalize": False,
@@ -230,7 +230,7 @@ class HistogramStrategy(ChartParamsStrategy):
 
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
-        Build histogram chart params with x_axis, groupby, and bin count.
+        Build histogram chart params with column, groupby, and bin count.
 
         Description:
             Merges DEFAULTS with kwargs overrides. The histogram visualizes the
@@ -239,14 +239,15 @@ class HistogramStrategy(ChartParamsStrategy):
 
         Args:
             datasource_id: Superset datasource/table ID.
-            **kwargs: Optional overrides: x_axis, groupby, bins.
+            **kwargs: Optional overrides: column, groupby, bins.
 
         Returns:
             Complete params dict for histogram_v2 chart.
         """
         d = dict(self.DEFAULTS)
         d["viz_type"] = self.VIZ_TYPE
-        d["x_axis"] = kwargs.get("x_axis", kwargs.get("column", d["x_axis"]))
+        col = kwargs.get("x_axis", kwargs.get("column", d["column"]))
+        d["column"] = col
         d["groupby"] = self._normalize_groupby(kwargs.get("groupby", d["groupby"]))
         d["bins"] = kwargs.get("bins", d["bins"])
         base = self._base(datasource_id)

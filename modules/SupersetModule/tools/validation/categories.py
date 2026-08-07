@@ -131,9 +131,9 @@ DATASOURCE_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
         "description": "box_plot needs groupby for categories",
     },
     "histogram_v2": {
-        "required": ["x_axis"],
+        "required": ["column"],
         "optional": [],
-        "description": "histogram_v2 needs x_axis for the value to bin",
+        "description": "histogram_v2 needs column for the value to bin",
     },
     "waterfall": {
         "required": ["groupby"],

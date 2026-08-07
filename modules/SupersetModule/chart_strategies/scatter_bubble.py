@@ -86,7 +86,7 @@ class BubbleChartStrategy(ChartParamsStrategy):
         "entity": "deal_size",
         "x": {"column": {"column_name": "price_each"}, "expressionType": "DIMENSION"},
         "y": {"column": {"column_name": "quantity_ordered"}, "expressionType": "DIMENSION"},
-        "size": {"column": {"column_name": "count"}, "expressionType": "DIMENSION"},
+        "size": {"column": {"column_name": "price_each"}, "expressionType": "DIMENSION"},
         "metrics": ["count"],
         "order_desc": True,
         "color_scheme": "supersetColors",
@@ -128,9 +128,10 @@ class BubbleChartStrategy(ChartParamsStrategy):
         d["viz_type"] = self.VIZ_TYPE
         d["series"] = kwargs.get("series", d["series"])
         d["entity"] = kwargs.get("entity", d["entity"])
-        d["x"] = self._resolve_axis(kwargs.get("x"), "price_each")
-        d["y"] = self._resolve_axis(kwargs.get("y"), "quantity_ordered")
-        d["size"] = self._resolve_axis(kwargs.get("size"), "count")
+        if "x" in kwargs:
+            d["x"] = self._resolve_axis(kwargs["x"], d["x"]["column"]["column_name"])
+        d["y"] = kwargs.get("y") or self._resolve_axis(None, d["y"]["column"]["column_name"])
+        d["size"] = kwargs.get("size") or self._resolve_axis(None, d["size"]["column"]["column_name"])
         d["metrics"] = kwargs.get("metrics", d["metrics"])
         base = self._base(datasource_id)
         base.update(d)
@@ -186,10 +187,10 @@ class MixedTimeseriesStrategy(ChartParamsStrategy):
         """
         d = dict(self.DEFAULTS)
         d["viz_type"] = self.VIZ_TYPE
-        d["metrics"] = kwargs.get("metrics", d["metrics"])
+        d["metrics"] = kwargs.get("metrics") or d["metrics"]
         d["groupby"] = self._normalize_groupby(kwargs.get("groupby", d["groupby"]))
-        d["metrics_b"] = kwargs.get("metrics_b", d["metrics_b"])
-        d["groupby_b"] = kwargs.get("groupby_b", d["groupby_b"])
+        d["metrics_b"] = kwargs.get("metrics_b") or d["metrics_b"]
+        d["groupby_b"] = kwargs.get("groupby_b") or d["groupby_b"]
         d["seriesType"] = kwargs.get("seriesType", d["seriesType"])
         d["seriesTypeB"] = kwargs.get("seriesTypeB", d["seriesTypeB"])
         d["x_axis"] = kwargs.get("x_axis", d["x_axis"])

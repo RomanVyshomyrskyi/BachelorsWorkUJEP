@@ -71,7 +71,7 @@ def validate_chart_params(viz_type: str, params: Dict[str, Any]) -> List[str]:
     # Phase 2: Metric format validation per viz type category
     _validate_metric_format(actual_viz, params, errors)
 
-    # Phase 3: Duplicate label detection
+    # Phase 3: Duplicate label detection (metrics vs metrics, groupby vs metrics)
     _validate_duplicate_labels(actual_viz, params, errors)
 
     # Phase 4: Scatter/bubble axis nesting validation
@@ -367,37 +367,82 @@ def _validate_metrics_array(viz_type: str, metrics_list: Any, errors: List[str])
 
 def _validate_duplicate_labels(viz_type: str, params: Dict[str, Any], errors: List[str]) -> None:
     """
-    Detect duplicate metric labels.
+    Detect duplicate labels across groupby columns AND metric labels.
 
-    Only flag TRUE duplicates - same metric used multiple times with same label.
-    Groupby columns can legitimately share names with metrics
-    (e.g., COUNT(year) grouped by year).
+    Superset generates internal labels for both groupby columns and metrics.
+    When a groupby column name matches a metric's column reference
+    (e.g., groupby=['year'] with metric='SUM(year'), Superset sees both as
+    label 'year' and rejects with:
+    'Duplicate column/metric labels: "year"'
+
+    We must detect and prevent this before sending to Superset API.
     """
-    metric_labels_seen: set = set()
-    if "metric" in params:
-        m = params["metric"]
-        if isinstance(m, str):
-            metric_labels_seen.add(m.strip().lower())
-        elif isinstance(m, dict):
-            label = m.get("label", "") or f"{m.get('aggregate', '')}({m.get('column', {}).get('column_name', '')})"
-            if label:
-                metric_labels_seen.add(label.lower())
+    # Collect all groupby column names (these become labels in Superset)
+    groupby_columns: set = set()
+    if "groupby" in params and params["groupby"]:
+        gb = params["groupby"]
+        if isinstance(gb, list):
+            for col in gb:
+                if isinstance(col, str) and col.strip():
+                    groupby_columns.add(col.strip().lower())
+                elif isinstance(col, dict):
+                    # Handle both {'column': {'column_name': 'x'}} and {'column_name': 'x'}
+                    col_val = col.get("column", {})
+                    if isinstance(col_val, dict):
+                        name = col_val.get("column_name", "")
+                    elif isinstance(col_val, str):
+                        name = col_val
+                    else:
+                        name = col.get("column_name", "")
+                    if isinstance(name, str) and name.strip():
+                        groupby_columns.add(name.strip().lower())
+        elif isinstance(gb, str) and gb.strip():
+            groupby_columns.add(gb.strip().lower())
 
+    # Collect all metric column references
+    metric_columns: list = []
+
+    def extract_metric_column(m: Any) -> str | None:
+        """Extract column name from a metric string or object."""
+        if isinstance(m, str):
+            import re
+            match = re.match(r"^(SUM|AVG|MIN|MAX|COUNT|COUNT_DISTINCT)\s*\(\s*(.+?)\s*\)$", m.strip(), re.IGNORECASE)
+            if match:
+                return match.group(2).strip().lower()
+            if m.strip().lower() == "count":
+                return None  # count is a row count, not a column
+            return m.strip().lower()
+        elif isinstance(m, dict):
+            label = m.get("label", "")
+            if label:
+                return label.strip().lower()
+            col_name = m.get("column", {}).get("column_name", "")
+            if col_name:
+                return col_name.strip().lower()
+        return None
+
+    # Single metric
+    if "metric" in params and params["metric"]:
+        col = extract_metric_column(params["metric"])
+        if col:
+            metric_columns.append(col)
+
+    # Metrics array
     if "metrics" in params and isinstance(params["metrics"], list):
-        for i, m in enumerate(params["metrics"]):
-            label = None
-            if isinstance(m, str):
-                label = m.strip().lower()
-            elif isinstance(m, dict):
-                label = (m.get("label") or f"{m.get('aggregate', '')}({m.get('column', {}).get('column_name', '')})").lower()
-            if label and label in metric_labels_seen:
+        for m in params["metrics"]:
+            col = extract_metric_column(m)
+            if col:
+                metric_columns.append(col)
+
+    # Check: groupby column names vs metric column references (Superset conflict)
+    for gb_col in groupby_columns:
+        for metric_col in metric_columns:
+            if gb_col == metric_col:
                 errors.append(
-                    f"Duplicate metric label '{label}' in metrics[{i}]. "
-                    f"All metrics must have unique labels. "
-                    f"Use different column names or set explicit 'label' fields."
+                    f"Groupby column '{gb_col}' conflicts with metric referencing '{metric_col}'. "
+                    f"Superset sees both as label '{gb_col}' and rejects the chart. "
+                    f"Fix: rename the groupby column, use a different metric column, or set an explicit 'label' on the metric."
                 )
-            elif label:
-                metric_labels_seen.add(label)
 
 
 def _validate_axis_structure(viz_type: str, params: Dict[str, Any], errors: List[str]) -> None:

@@ -325,7 +325,7 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     async def tool_generate_dashboard(
         server_id: str,
         dashboard_title: str,
-        chart_ids: Optional[List[int]] = Query(None),
+        chart_ids: Optional[str] = None,
         slug: Optional[str] = None,
         json_metadata: Optional[str] = None,
         published: bool = False,
@@ -333,17 +333,42 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         body: Optional[dict] = None
     ) -> str:
         """Create a new dashboard from chart IDs with auto-generated layout."""
-        # Handle body fallback if query param didn't parse
-        if chart_ids is None and body:
-            val = body.get("chart_ids")
-            if val:
-                chart_ids = val if isinstance(val, list) else []
-        if chart_ids is None:
+        import json
+        parsed_ids = []
+        if chart_ids:
+            stripped = chart_ids.strip()
+            if stripped.startswith("["):
+                try:
+                    parsed_ids = json.loads(stripped)
+                    if not isinstance(parsed_ids, list):
+                        parsed_ids = []
+                    else:
+                        parsed_ids = [int(x) for x in parsed_ids]
+                except (json.JSONDecodeError, ValueError, TypeError):
+                    parsed_ids = []
+            elif "," in stripped:
+                try:
+                    parsed_ids = [int(x.strip()) for x in stripped.split(",") if x.strip()]
+                except ValueError:
+                    parsed_ids = []
+            else:
+                try:
+                    parsed_ids = [int(stripped)]
+                except ValueError:
+                    parsed_ids = []
+
+        if not parsed_ids:
+            if body:
+                val = body.get("chart_ids")
+                if val:
+                    parsed_ids = val if isinstance(val, list) else []
+
+        if not parsed_ids:
             from modules.SupersetModule.exceptions import DashboardError
             from modules.log_utils import LogCollector
             log = LogCollector(__name__)
             return log.collect(DashboardError("chart_ids is required.").to_json())
-        return await dashboards.generate_dashboard(manager, server_id, dashboard_title, chart_ids, slug, json_metadata, published, layout_type)
+        return await dashboards.generate_dashboard(manager, server_id, dashboard_title, parsed_ids, slug, json_metadata, published, layout_type)
 
     @mcp.tool(name="add_chart_to_existing_dashboard")
     async def tool_add_chart_to_existing_dashboard(server_id: str, dashboard_id: int, chart_id: int) -> str:

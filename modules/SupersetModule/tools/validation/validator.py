@@ -556,6 +556,23 @@ def _validate_axis_structure(viz_type: str, params: Dict[str, Any], errors: List
                             f"Wrap it: '{axis}: {{'column': {{'column_name': '...'}}, "
                             f"'expressionType': 'DIMENSION'}}'."
                         )
+    # Validate bubble_v2 size field is a metric (SIMPLE), not dimension (DIMENSION)
+    if viz_type == "bubble_v2" and "size" in params:
+        size_val = params["size"]
+        if isinstance(size_val, dict) and size_val.get("expressionType") == "DIMENSION":
+            col = size_val.get("column", {}).get("column_name", "???")
+            errors.append(
+                f"Chart 'bubble_v2' 'size' field is a dimension (DIMENSION), but must be a metric (SIMPLE). "
+                f"Fix: 'size': {{'aggregate': 'AVG', 'column': {{'column_name': '{col}'}}, "
+                f"'expressionType': 'SIMPLE', 'label': 'AVG({col})'}}."
+            )
+        elif isinstance(size_val, dict) and "expressionType" not in size_val:
+            col = size_val.get("column_name", size_val.get("column", {}).get("column_name", "???"))
+            errors.append(
+                f"Chart 'bubble_v2' 'size' field missing 'expressionType'. "
+                f"Fix: 'size': {{'aggregate': 'AVG', 'column': {{'column_name': '{col}'}}, "
+                f"'expressionType': 'SIMPLE', 'label': 'AVG({col})'}}."
+            )
 
 
 def _validate_adhoc_metric_fields(viz_type: str, params: Dict[str, Any], errors: List[str]) -> None:

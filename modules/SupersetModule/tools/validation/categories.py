@@ -98,7 +98,7 @@ DATASOURCE_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
         "required": ["x", "y", "size", "entity"],
         "optional": ["series"],
         "metric_field": "metrics",
-        "description": "bubble_v2 requires x, y, size (AdHocDimensionObject dicts) and entity (label column)",
+        "description": "bubble_v2 requires x, y (AdHocDimensionObject), size (AdHocMetricObject/SIMPLE), entity (label column), metrics (array of strings)",
     },
     "heatmap_v2": {
         "required": ["x_axis", "groupby"],

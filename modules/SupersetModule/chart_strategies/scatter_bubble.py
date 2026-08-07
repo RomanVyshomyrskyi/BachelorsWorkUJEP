@@ -86,7 +86,7 @@ class BubbleChartStrategy(ChartParamsStrategy):
         "entity": "deal_size",
         "x": {"column": {"column_name": "price_each"}, "expressionType": "DIMENSION"},
         "y": {"column": {"column_name": "quantity_ordered"}, "expressionType": "DIMENSION"},
-        "size": {"column": {"column_name": "price_each"}, "expressionType": "DIMENSION"},
+        "size": {"aggregate": "AVG", "column": {"column_name": "price_each"}, "expressionType": "SIMPLE", "label": "AVG(price_each)"},
         "metrics": ["count"],
         "order_desc": True,
         "color_scheme": "supersetColors",
@@ -103,23 +103,31 @@ class BubbleChartStrategy(ChartParamsStrategy):
     }
 
     def _resolve_axis(self, val: Any, default_column: str) -> Dict[str, Any]:
-        if isinstance(val, dict):
+        if isinstance(val, dict) and val.get("expressionType") == "DIMENSION":
             return val
         if isinstance(val, str) and val:
             return {"column": {"column_name": val}, "expressionType": "DIMENSION"}
         return {"column": {"column_name": default_column}, "expressionType": "DIMENSION"}
+
+    def _resolve_metric(self, val: Any, default_column: str) -> Dict[str, Any]:
+        if isinstance(val, dict) and val.get("expressionType") == "SIMPLE":
+            return val
+        if isinstance(val, str) and val:
+            from modules.SupersetModule.tools.resolver.helpers import parse_metric_string
+            agg, col = parse_metric_string(val)
+            return {"aggregate": agg, "column": {"column_name": col}, "expressionType": "SIMPLE", "label": f"{agg}({col})"}
+        return {"aggregate": "AVG", "column": {"column_name": default_column}, "expressionType": "SIMPLE", "label": f"AVG({default_column})"}
 
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build bubble chart params with user overrides applied to defaults.
 
         Description:
-            Sets x, y, size axis fields and series for color grouping.
-            These are bubble-specific fields not present in other chart types.
+            Sets x, y (dimensions), size (metric for bubble radius), and series for color grouping.
 
         Args:
             datasource_id: Superset datasource/table ID.
-            **kwargs: Optional overrides: series, entity, x, y, size.
+            **kwargs: Optional overrides: series, entity, x, y, size, metrics.
 
         Returns:
             Complete params dict for bubble_v2 chart.
@@ -128,10 +136,9 @@ class BubbleChartStrategy(ChartParamsStrategy):
         d["viz_type"] = self.VIZ_TYPE
         d["series"] = kwargs.get("series", d["series"])
         d["entity"] = kwargs.get("entity", d["entity"])
-        if "x" in kwargs:
-            d["x"] = self._resolve_axis(kwargs["x"], d["x"]["column"]["column_name"])
-        d["y"] = kwargs.get("y") or self._resolve_axis(None, d["y"]["column"]["column_name"])
-        d["size"] = kwargs.get("size") or self._resolve_axis(None, d["size"]["column"]["column_name"])
+        d["x"] = self._resolve_axis(kwargs.get("x"), d["x"]["column"]["column_name"])
+        d["y"] = self._resolve_axis(kwargs.get("y"), d["y"]["column"]["column_name"])
+        d["size"] = self._resolve_metric(kwargs.get("size"), d["size"]["column"]["column_name"])
         d["metrics"] = kwargs.get("metrics", d["metrics"])
         base = self._base(datasource_id)
         base.update(d)

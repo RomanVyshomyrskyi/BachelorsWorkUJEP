@@ -137,6 +137,34 @@ def apply_early_fixes(viz_type: str, params: Dict[str, Any]) -> Dict[str, Any]:
                     del val["column"]
                     val["column"] = {"column_name": column_name}
                     val["expressionType"] = expr_type
+        # Fix 5b: Bubble — size field must be AdHocMetricObject (SIMPLE), not DIMENSION
+        if actual_viz == "bubble_v2" and "size" in fixed and isinstance(fixed["size"], dict):
+            size_val = fixed["size"]
+            if size_val.get("expressionType") == "DIMENSION":
+                col = size_val.get("column", {}).get("column_name", "count")
+                fixed["size"] = {
+                    "aggregate": "AVG",
+                    "column": {"column_name": col},
+                    "expressionType": "SIMPLE",
+                    "label": f"AVG({col})",
+                }
+            elif "column_name" in size_val and "column" not in size_val:
+                column_name = size_val.pop("column_name")
+                expr_type = size_val.pop("expressionType", "DIMENSION")
+                fixed["size"] = {
+                    "aggregate": "AVG",
+                    "column": {"column_name": column_name},
+                    "expressionType": "SIMPLE",
+                    "label": f"AVG({column_name})",
+                }
+            elif isinstance(size_val.get("column"), str):
+                column_name = size_val.pop("column")
+                fixed["size"] = {
+                    "aggregate": "AVG",
+                    "column": {"column_name": column_name},
+                    "expressionType": "SIMPLE",
+                    "label": f"AVG({column_name})",
+                }
 
     # Fix 6: String array types — fix malformed objects only, keep strings
     if actual_viz in STRING_METRICS_ARRAY_TYPES and "metrics" in fixed:

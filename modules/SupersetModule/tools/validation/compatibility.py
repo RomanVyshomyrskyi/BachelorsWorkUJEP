@@ -97,59 +97,37 @@ def validate_datasource_compatibility(
             if isinstance(val, str) and not val.strip():
                 errors.append(f"Chart '{viz_type}' field '{field}' is empty.")
 
-    if reqs.get("x_axis_temporal") and params.get("x_axis"):
+    if params.get("x_axis"):
         if dataset_columns:
             x_axis_lower = params["x_axis"].lower()
-            temporal_found = False
-            for col in dataset_columns:
-                col_name = col.get("column_name", "").lower()
-                col_type = str(col.get("type", "")).lower()
-                if col_name == x_axis_lower:
-                    is_temporal = any(
-                        k in col_type for k in ["date", "time", "datetime", "timestamp", "temporal"]
-                    )
-                    if is_temporal:
-                        temporal_found = True
-                    else:
-                        errors.append(
-                            f"Chart '{viz_type}' uses x_axis='{params['x_axis']}' but it's not a date/time column. "
-                            f"Found columns: {[c.get('column_name') for c in dataset_columns]}"
-                        )
-                    break
-            if not temporal_found and x_axis_lower not in [c.get("column_name", "").lower() for c in dataset_columns]:
+            col_exists = x_axis_lower in [c.get("column_name", "").lower() for c in dataset_columns]
+            if not col_exists:
                 errors.append(
                     f"Chart '{viz_type}' uses x_axis='{params['x_axis']}' which doesn't exist in dataset. "
                     f"Available columns: {[c.get('column_name') for c in dataset_columns]}"
                 )
-
-    if viz_type == "big_number" and params.get("show_trend_line", False):
-        if not params.get("x_axis"):
-            errors.append(
-                "Chart 'big_number' with trendline enabled requires x_axis field. "
-                "Add: 'x_axis': '<temporal_column_name>'"
-            )
-        elif dataset_columns:
-            x_axis_lower = params["x_axis"].lower()
-            temporal_found = False
-            for col in dataset_columns:
-                col_name = col.get("column_name", "").lower()
-                col_type = str(col.get("type", "")).lower()
-                if col_name == x_axis_lower:
-                    is_temporal = any(
-                        k in col_type for k in ["date", "time", "datetime", "timestamp", "temporal"]
-                    )
-                    if is_temporal:
-                        temporal_found = True
-                    else:
+            elif reqs.get("x_axis_temporal"):
+                x_axis_col = next((c for c in dataset_columns if c.get("column_name", "").lower() == x_axis_lower), None)
+                if x_axis_col:
+                    col_type = str(x_axis_col.get("type", "")).lower()
+                    is_temporal = any(k in col_type for k in ["date", "time", "datetime", "timestamp", "temporal"])
+                    if not is_temporal:
                         errors.append(
-                            f"Chart 'big_number' with trendline uses x_axis='{params['x_axis']}' but it's not a date/time column. "
-                            f"Add a temporal column like 'order_date' or 'created_at'."
+                            f"Chart '{viz_type}' uses x_axis='{params['x_axis']}' but it's not a date/time column. "
+                            f"Found columns: {[c.get('column_name') for c in dataset_columns]}"
                         )
-                    break
-            if not temporal_found:
-                errors.append(
-                    f"Chart 'big_number' with trendline uses x_axis='{params['x_axis']}' which doesn't exist in dataset. "
-                    f"Available columns: {[c.get('column_name') for c in dataset_columns]}"
-                )
+
+    if viz_type == "big_number" and params.get("x_axis") and dataset_columns:
+        x_axis_lower = params["x_axis"].lower()
+        if params.get("show_trend_line", False):
+            x_axis_col = next((c for c in dataset_columns if c.get("column_name", "").lower() == x_axis_lower), None)
+            if x_axis_col:
+                col_type = str(x_axis_col.get("type", "")).lower()
+                is_temporal = any(k in col_type for k in ["date", "time", "datetime", "timestamp", "temporal"])
+                if not is_temporal:
+                    errors.append(
+                        f"Chart 'big_number' with trendline uses x_axis='{params['x_axis']}' but it's not a date/time column. "
+                        f"Add a temporal column like 'order_date' or 'created_at'."
+                    )
 
     return errors

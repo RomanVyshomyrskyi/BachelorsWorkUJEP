@@ -95,10 +95,10 @@ DATASOURCE_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
         "description": "world_map needs entity field (geographic identifier like country_code, zipcode)",
     },
     "bubble_v2": {
-        "required": ["x", "y", "size"],
-        "optional": ["series", "entity"],
+        "required": ["x", "y", "size", "entity"],
+        "optional": ["series"],
         "metric_field": "metrics",
-        "description": "bubble_v2 needs x, y, and size as AdHocDimensionObject dicts with column.column_name",
+        "description": "bubble_v2 requires x, y, size (AdHocDimensionObject dicts) and entity (label column)",
     },
     "heatmap_v2": {
         "required": ["x_axis", "groupby"],

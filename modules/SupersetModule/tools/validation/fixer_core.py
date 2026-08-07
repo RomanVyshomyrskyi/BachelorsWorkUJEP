@@ -55,10 +55,13 @@ def apply_early_fixes(viz_type: str, params: Dict[str, Any]) -> Dict[str, Any]:
         except (ValueError, TypeError):
             pass
 
-    # Fix 1: Entity field for map types
-    if actual_viz in ENTITY_REQUIRED_TYPES:
+    # Fix 1: Entity field for map types and bubble
+    if actual_viz in ENTITY_REQUIRED_TYPES or actual_viz == "bubble_v2":
         if not fixed.get("entity"):
-            fixed["entity"] = "country_code"
+            if actual_viz == "bubble_v2":
+                fixed["entity"] = "country_code"
+            else:
+                fixed["entity"] = "country_code"
 
     # Fix 1.5: Sankey charts — add cycle-breaking SQL hint
     if actual_viz in SANKEY_TYPES:

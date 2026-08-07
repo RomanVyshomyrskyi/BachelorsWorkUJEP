@@ -4,8 +4,7 @@ Validation formatter for generating LLM-friendly error messages.
 Contains functions for formatting validation results into readable
 error messages suitable for LLM consumption.
 
-Functions:
-    format_validation_error: Format results into LLM-friendly error messages
+Includes time_grain_sqla error formatting for time series charts.
 """
 
 import logging
@@ -38,8 +37,11 @@ def format_validation_error(
     # Build the error title based on the type of validation failure
     missing_count = len(validation_result.get("missing_columns", []))
     temporal_error = validation_result.get("temporal_column_error")
+    time_grain_error = validation_result.get("time_grain_error")
 
-    if temporal_error:
+    if time_grain_error:
+        title_parts.append("Chart creation blocked: Invalid time_grain_sqla")
+    elif temporal_error:
         title_parts.append("Chart creation blocked: Temporal column validation failed")
     elif missing_count > 0:
         title_parts.append("Chart creation blocked: Missing required columns")
@@ -51,6 +53,19 @@ def format_validation_error(
     body_lines.append(f"")
     body_lines.append(f"Chart '{slice_name}' cannot be created - validation found issues:")
     body_lines.append(f"")
+
+    # Build the time_grain error section
+    if time_grain_error:
+        body_lines.append(f"Time grain error:")
+        body_lines.append(f"  {time_grain_error}")
+        body_lines.append(f"  -> Valid time grains: P1D (day), P1M (month), P1Y (year), P3M (quarterly), P1H (hour)")
+        body_lines.append(f"")
+
+    # Build the temporal column error section
+    if temporal_error:
+        body_lines.append(f"Temporal column error:")
+        body_lines.append(f"  {temporal_error}")
+        body_lines.append(f"")
 
     # Build the missing columns section with suggestions
     missing_columns = validation_result.get("missing_columns", [])
@@ -73,13 +88,6 @@ def format_validation_error(
 
             body_lines.append(f"")
 
-    # Build the temporal column error section
-    temporal_error = validation_result.get("temporal_column_error")
-    if temporal_error:
-        body_lines.append(f"Temporal column error:")
-        body_lines.append(f"  {temporal_error}")
-        body_lines.append(f"")
-
     # Build the available columns section (grouped by temporal/non-temporal)
     available_columns = validation_result.get("available_columns", [])
     if available_columns:
@@ -91,7 +99,7 @@ def format_validation_error(
         non_temporal_cols = [c for c in available_columns if not c.get("is_temporal")]
 
         if temporal_cols:
-            body_lines.append(f"  Temporal columns:")
+            body_lines.append(f"  Temporal columns (date/time):")
             for col in temporal_cols[:10]:
                 body_lines.append(f"    - {col['name']} ({col['type']})")
             if len(temporal_cols) > 10:
@@ -120,6 +128,8 @@ def format_validation_error(
         body_lines.append(f"  Update your chart params to use the correct column names shown above.")
     if temporal_error:
         body_lines.append(f"  Use a temporal (date/time) column for x_axis.")
+    if time_grain_error:
+        body_lines.append(f"  Use a valid ISO 8601 duration for time_grain_sqla (e.g., P1M, P1Y, P3M).")
     body_lines.append(f"  Then retry chart creation.")
 
     body = "\n".join(body_lines)

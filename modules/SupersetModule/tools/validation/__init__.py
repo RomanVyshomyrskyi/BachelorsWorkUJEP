@@ -24,6 +24,7 @@ from .categories import (
     SINGULAR_STRING_METRIC_TYPES,
     STRING_METRICS_ARRAY_TYPES,
     TIME_BASED_TYPES,
+    VALID_TIME_GRAINS,
 )
 from .compatibility import validate_datasource_compatibility
 from .fixer import auto_fix_chart_params
@@ -59,6 +60,7 @@ __all__ = [
     "SANKEY_TYPES",
     "DATASOURCE_REQUIREMENTS",
     "TIME_BASED_TYPES",
+    "VALID_TIME_GRAINS",
     # Helpers
     "INVALID_METRIC_STRINGS",
     "_is_adhoc_metric_object",

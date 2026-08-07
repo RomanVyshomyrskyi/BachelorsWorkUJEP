@@ -8,6 +8,7 @@ from modules.SupersetModule.tools.validation import (
     format_error_summary,
     format_validation_error,
     validate_datasource_compatibility,
+    VALID_TIME_GRAINS,
 )
 from modules.SupersetModule.tools.validation.categories import (
     SINGULAR_STRING_METRIC_TYPES,
@@ -28,6 +29,7 @@ __all__ = [
     'format_error_summary',
     'format_validation_error',
     'validate_datasource_compatibility',
+    'VALID_TIME_GRAINS',
     'SINGULAR_STRING_METRIC_TYPES',
     'SINGULAR_ADHOC_METRIC_TYPES',
     'STRING_METRICS_ARRAY_TYPES',

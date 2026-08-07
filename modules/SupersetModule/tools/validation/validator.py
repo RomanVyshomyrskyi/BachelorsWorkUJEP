@@ -367,81 +367,164 @@ def _validate_metrics_array(viz_type: str, metrics_list: Any, errors: List[str])
 
 def _validate_duplicate_labels(viz_type: str, params: Dict[str, Any], errors: List[str]) -> None:
     """
-    Detect duplicate labels across groupby columns AND metric labels.
+    Detect ALL duplicate label conflicts that cause Superset errors.
 
-    Superset generates internal labels for both groupby columns and metrics.
-    When a groupby column name matches a metric's column reference
-    (e.g., groupby=['year'] with metric='SUM(year'), Superset sees both as
-    label 'year' and rejects with:
+    Superset generates labels from multiple fields:
+    - groupby columns → column labels
+    - metrics → metric labels
+    - x_axis (for some chart types) → column label
+    - series (for word_cloud) → column label
+    - columns (for sunburst/treemap) → column labels
+    - orderby → column labels
+    - all_columns (for table) → column labels
+
+    When two or more of these reference the same column name, Superset
+    sees duplicate labels and rejects:
     'Duplicate column/metric labels: "year"'
 
-    We must detect and prevent this before sending to Superset API.
+    We check ALL column-referencing fields for duplicates.
     """
-    # Collect all groupby column names (these become labels in Superset)
-    groupby_columns: set = set()
-    if "groupby" in params and params["groupby"]:
-        gb = params["groupby"]
-        if isinstance(gb, list):
-            for col in gb:
-                if isinstance(col, str) and col.strip():
-                    groupby_columns.add(col.strip().lower())
-                elif isinstance(col, dict):
-                    # Handle both {'column': {'column_name': 'x'}} and {'column_name': 'x'}
-                    col_val = col.get("column", {})
-                    if isinstance(col_val, dict):
-                        name = col_val.get("column_name", "")
-                    elif isinstance(col_val, str):
-                        name = col_val
-                    else:
-                        name = col.get("column_name", "")
-                    if isinstance(name, str) and name.strip():
-                        groupby_columns.add(name.strip().lower())
-        elif isinstance(gb, str) and gb.strip():
-            groupby_columns.add(gb.strip().lower())
+    import re
 
-    # Collect all metric column references
-    metric_columns: list = []
-
-    def extract_metric_column(m: Any) -> str | None:
-        """Extract column name from a metric string or object."""
-        if isinstance(m, str):
-            import re
-            match = re.match(r"^(SUM|AVG|MIN|MAX|COUNT|COUNT_DISTINCT)\s*\(\s*(.+?)\s*\)$", m.strip(), re.IGNORECASE)
+    def extract_column_name(val: Any) -> str | None:
+        """Extract a column name from various value types."""
+        if val is None:
+            return None
+        if isinstance(val, str):
+            stripped = val.strip()
+            if not stripped:
+                return None
+            # Parse AGG(col) pattern
+            match = re.match(
+                r"^(SUM|AVG|MIN|MAX|COUNT|COUNT_DISTINCT)\s*\(\s*(.+?)\s*\)$",
+                stripped, re.IGNORECASE
+            )
             if match:
                 return match.group(2).strip().lower()
-            if m.strip().lower() == "count":
-                return None  # count is a row count, not a column
-            return m.strip().lower()
-        elif isinstance(m, dict):
-            label = m.get("label", "")
-            if label:
-                return label.strip().lower()
-            col_name = m.get("column", {}).get("column_name", "")
-            if col_name:
-                return col_name.strip().lower()
+            if stripped.lower() == "count":
+                return None  # bare count has no column
+            return stripped.lower()
+        elif isinstance(val, dict):
+            # Handle AdHocMetricObject: {"column": {"column_name": "x"}, ...}
+            col_val = val.get("column")
+            if isinstance(col_val, dict):
+                name = col_val.get("column_name", "")
+                if isinstance(name, str) and name.strip():
+                    return name.strip().lower()
+            # Handle flat: {"column_name": "x"}
+            name = val.get("column_name", "")
+            if isinstance(name, str) and name.strip():
+                return name.strip().lower()
         return None
 
-    # Single metric
-    if "metric" in params and params["metric"]:
-        col = extract_metric_column(params["metric"])
-        if col:
-            metric_columns.append(col)
-
-    # Metrics array
-    if "metrics" in params and isinstance(params["metrics"], list):
-        for m in params["metrics"]:
-            col = extract_metric_column(m)
+    def extract_columns_from_list(val: Any) -> list[str]:
+        """Extract column names from a list (groupby, columns, etc.)."""
+        if not isinstance(val, list):
+            return []
+        cols = []
+        for item in val:
+            col = extract_column_name(item)
             if col:
-                metric_columns.append(col)
+                cols.append(col)
+        return cols
 
-    # Check: groupby column names vs metric column references (Superset conflict)
-    for gb_col in groupby_columns:
-        for metric_col in metric_columns:
-            if gb_col == metric_col:
+    def extract_columns_from_field(field_name: str, value: Any) -> list[str]:
+        """Extract column names from a specific field."""
+        if value is None:
+            return []
+
+        if field_name in ("groupby", "columns", "all_columns"):
+            # These are lists of column references
+            return extract_columns_from_list(value)
+        elif field_name in ("metric", "metrics"):
+            if field_name == "metric":
+                col = extract_column_name(value)
+                return [col] if col else []
+            elif isinstance(value, list):
+                cols = []
+                for m in value:
+                    col = extract_column_name(m)
+                    if col:
+                        cols.append(col)
+                return cols
+            return []
+        elif field_name == "x_axis":
+            # x_axis can be a string column name or AdHocDimensionObject
+            return [extract_column_name(value)] if extract_column_name(value) else []
+        elif field_name == "series":
+            # series is a string column name
+            col = extract_column_name(value)
+            return [col] if col else []
+        elif field_name == "orderby":
+            # orderby is a list of [column, direction] or dict objects
+            if isinstance(value, list):
+                for item in value:
+                    if isinstance(item, list) and len(item) >= 1:
+                        col = extract_column_name(item[0])
+                        if col:
+                            return [col]
+                    elif isinstance(item, dict):
+                        col_val = item.get("column", {})
+                        if isinstance(col_val, dict):
+                            col_name = col_val.get("column_name", "")
+                        elif isinstance(col_val, str):
+                            col_name = col_val
+                        else:
+                            col_name = item.get("column_name", "")
+                        if isinstance(col_name, str) and col_name.strip():
+                            return [col_name.strip().lower()]
+            return []
+
+        return []
+
+    # Collect all column names from ALL fields that create labels
+    field_labels: Dict[str, list[str]] = {}
+
+    # Fields that definitely create labels in Superset
+    label_fields = [
+        "groupby", "metric", "metrics", "x_axis",
+        "series", "columns", "all_columns", "orderby",
+    ]
+
+    for field_name in label_fields:
+        if field_name in params:
+            cols = extract_columns_from_field(field_name, params[field_name])
+            if cols:
+                field_labels[field_name] = cols
+
+    # Check for duplicates across all fields
+    # Build a map: column_name -> [fields that use it]
+    col_to_fields: Dict[str, list[str]] = {}
+    for field_name, cols in field_labels.items():
+        for col in cols:
+            if col not in col_to_fields:
+                col_to_fields[col] = []
+            col_to_fields[col].append(field_name)
+
+    # Report any column used by multiple fields (Superset creates duplicate labels)
+    for col, fields in col_to_fields.items():
+        unique_fields = list(dict.fromkeys(fields))  # preserve order, dedupe
+        if len(unique_fields) > 1:
+            errors.append(
+                f"Column '{col}' is used in multiple chart fields: {', '.join(unique_fields)}. "
+                f"Superset sees this as duplicate labels and rejects the chart. "
+                f"Fix: use different columns, or set explicit 'label' on metrics."
+            )
+
+    # Check for duplicates within the same field (e.g., groupby=['year', 'year'])
+    for field_name, cols in field_labels.items():
+        seen: set = set()
+        dupes: set = set()
+        for col in cols:
+            if col in seen and col not in dupes:
+                dupes.add(col)
+            seen.add(col)
+        if dupes:
+            for d in dupes:
                 errors.append(
-                    f"Groupby column '{gb_col}' conflicts with metric referencing '{metric_col}'. "
-                    f"Superset sees both as label '{gb_col}' and rejects the chart. "
-                    f"Fix: rename the groupby column, use a different metric column, or set an explicit 'label' on the metric."
+                    f"Column '{d}' appears multiple times in '{field_name}'. "
+                    f"This creates duplicate labels in Superset. "
+                    f"Fix: remove duplicate entries from {field_name}."
                 )
 
 

@@ -51,3 +51,4 @@ docs/_build/
 modules/SupersetModule/.cache/
 .cache/*
 logs/*
+cookies.txt

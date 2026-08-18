@@ -815,3 +815,101 @@
 {"ts": "2026-08-06T11:26:16.533119+00:00", "tool": "superset_create_dataset", "error_message": "HTTP 422 creating dataset", "status_code": 422, "duration_ms": 0}
 {"ts": "2026-08-06T11:26:27.621312+00:00", "tool": "superset_create_dataset", "error_message": "HTTP 422 creating dataset", "status_code": 422, "duration_ms": 0}
 {"ts": "2026-08-06T11:26:33.763056+00:00", "tool": "superset_create_dataset", "error_message": "HTTP 422 creating dataset", "status_code": 422, "duration_ms": 0}
+{"ts": "2026-08-06T11:32:04.924143+00:00", "tool": "superset_create_virtual_dataset", "error_message": "HTTP 400 creating virtual dataset", "status_code": 400, "duration_ms": 0}
+{"ts": "2026-08-06T11:32:12.048116+00:00", "tool": "superset_create_virtual_dataset", "error_message": "HTTP 422 creating virtual dataset", "status_code": 422, "duration_ms": 0}
+{"ts": "2026-08-06T11:35:41.361298+00:00", "tool": "superset_create_virtual_dataset", "error_message": "HTTP 500 creating virtual dataset", "status_code": 500, "duration_ms": 0}
+{"ts": "2026-08-06T11:39:58.566264+00:00", "tool": "superset_generate_chart", "error_message": "Unknown chart type 'echarts_bar'", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-06T11:40:37.455099+00:00", "tool": "superset_generate_chart", "error_message": "Missing columns in dataset: 0 columns not found", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-06T12:18:57.292888+00:00", "tool": "superset_create_dataset", "error_message": "HTTP 422 creating dataset", "status_code": 422, "duration_ms": 0}
+{"ts": "2026-08-06T12:24:16.817459+00:00", "tool": "superset_generate_dashboard", "error_message": "Dashboard generation blocked: 2 charts not found", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-06T12:29:33.337434+00:00", "tool": "superset_create_virtual_dataset", "error_message": "HTTP 500 creating virtual dataset", "status_code": 500, "duration_ms": 0}
+{"ts": "2026-08-06T12:30:15.908835+00:00", "tool": "superset_generate_chart", "error_message": "Missing columns in dataset: 0 columns not found", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-06T12:30:28.676506+00:00", "tool": "superset_generate_chart", "error_message": "Missing columns in dataset: 0 columns not found", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-06T12:30:32.964965+00:00", "tool": "superset_generate_chart", "error_message": "Missing columns in dataset: 0 columns not found", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-06T12:30:50.743257+00:00", "tool": "superset_generate_chart", "error_message": "Datasource compatibility: 3 issues", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-06T12:30:54.925100+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-06T12:31:02.824644+00:00", "tool": "superset_generate_chart", "error_message": "Datasource compatibility: 3 issues", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-06T12:31:06.654359+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-06T12:31:38.092236+00:00", "tool": "superset_generate_dashboard", "error_message": "HTTP 400 generating dashboard", "status_code": 400, "duration_ms": 0}
+{"ts": "2026-08-06T12:54:44.324289+00:00", "tool": "superset_generate_chart", "error_message": "Unknown chart type 'echarts_table'", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-06T13:00:40.148013+00:00", "tool": "superset_create_dashboard", "error_message": "Dashboard creation blocked: 4 charts fail data endpoint", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-06T13:01:38.534785+00:00", "tool": "superset_create_dashboard", "error_message": "Dashboard creation blocked: 4 charts fail data endpoint", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-06T13:28:48.854641+00:00", "tool": "superset_generate_dashboard", "error_message": "HTTP 400 generating dashboard", "status_code": 400, "duration_ms": 0}
+{"ts": "2026-08-06T13:41:44.186969+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-06T13:42:44.252094+00:00", "tool": "superset_generate_dashboard", "error_message": "HTTP 400 generating dashboard", "status_code": 400, "duration_ms": 0}
+{"ts": "2026-08-07T07:42:44.219411+00:00", "tool": "superset_generate_chart", "error_message": "Missing columns in dataset: 0 columns not found", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T07:43:00.860531+00:00", "tool": "superset_generate_chart", "error_message": "Unknown chart type 'echarts_bar'", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T07:43:17.415073+00:00", "tool": "superset_generate_chart", "error_message": "Missing columns in dataset: 0 columns not found", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T07:44:32.880037+00:00", "tool": "superset_create_dashboard", "error_message": "Dashboard creation blocked: 2 structure errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T07:44:48.383645+00:00", "tool": "superset_create_dashboard", "error_message": "Dashboard creation blocked: 2 structure errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T07:46:01.280938+00:00", "tool": "superset_create_dashboard", "error_message": "Dashboard creation blocked: 1 structure errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T07:57:23.674782+00:00", "tool": "superset_generate_dashboard", "error_message": "Dashboard generation blocked: 7 charts not found", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T11:15:27.171058+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T11:15:44.027793+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T11:15:58.671254+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T11:17:32.646581+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:25:37.471463+00:00", "tool": "superset_generate_chart", "error_message": "Unknown chart type 'echarts_bar'", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:25:43.977182+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:26:00.956323+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:40:49.718174+00:00", "tool": "superset_generate_chart", "error_message": "Unknown chart type 'echarts_bar'", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:40:59.530454+00:00", "tool": "superset_generate_chart", "error_message": "Unknown chart type 'echarts_bar'", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:41:06.066937+00:00", "tool": "superset_generate_chart", "error_message": "Datasource compatibility: 2 issues", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:47:55.685687+00:00", "tool": "superset_generate_chart", "error_message": "Datasource compatibility: 3 issues", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:48:18.090798+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:48:53.172498+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:49:03.386429+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:49:13.067340+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:49:23.317194+00:00", "tool": "superset_generate_chart", "error_message": "Datasource compatibility: 1 issues", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:49:33.352146+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 2 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:49:42.619380+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 2 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:49:52.346257+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 2 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:50:00.409221+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:50:19.457181+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:50:38.949141+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 6 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:50:47.265032+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 2 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T12:50:55.409192+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:06:25.559454+00:00", "tool": "superset_generate_chart", "error_message": "Unknown chart type 'echarts_bar'", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:07:37.457216+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:07:45.204615+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:08:15.511422+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:08:29.970659+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:08:39.256312+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:10:56.750686+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:11:21.284361+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:11:28.242596+00:00", "tool": "superset_generate_chart", "error_message": "Datasource compatibility: 1 issues", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:11:45.840923+00:00", "tool": "superset_generate_chart", "error_message": "Datasource compatibility: 1 issues", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:12:17.269953+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:12:39.256087+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:12:48.980383+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:13:05.519591+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:13:44.655837+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:40:04.033623+00:00", "tool": "superset_generate_chart", "error_message": "Unknown chart type 'echarts_bar'", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:40:10.146579+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:40:47.312366+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 2 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:53:48.166362+00:00", "tool": "superset_create_virtual_dataset", "error_message": "HTTP 500 creating virtual dataset", "status_code": 500, "duration_ms": 0}
+{"ts": "2026-08-07T13:53:59.956866+00:00", "tool": "superset_sqllab_execute", "error_message": "HTTP 500 executing SQL", "status_code": 500, "duration_ms": 0}
+{"ts": "2026-08-07T13:54:31.239659+00:00", "tool": "superset_create_virtual_dataset", "error_message": "HTTP 400 creating virtual dataset", "status_code": 400, "duration_ms": 0}
+{"ts": "2026-08-07T13:55:14.245447+00:00", "tool": "superset_generate_chart", "error_message": "Unknown chart type 'echarts_bar'", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:55:23.043317+00:00", "tool": "superset_sqllab_execute", "error_message": "HTTP 500 executing SQL", "status_code": 500, "duration_ms": 0}
+{"ts": "2026-08-07T13:57:25.755865+00:00", "tool": "superset_generate_chart", "error_message": "'list' object has no attribute 'lower'", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:59:29.355054+00:00", "tool": "superset_generate_chart", "error_message": "Missing columns in dataset: 0 columns not found", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T13:59:52.037432+00:00", "tool": "superset_generate_chart", "error_message": "Missing columns in dataset: 1 columns not found", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:00:06.133861+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:00:16.411755+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:00:41.712253+00:00", "tool": "superset_generate_chart", "error_message": "Datasource compatibility: 2 issues", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:02:47.310826+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 4 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:02:54.020680+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:03:00.619071+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:03:21.813025+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:03:32.678101+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:03:38.811170+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:04:24.950969+00:00", "tool": "superset_generate_chart", "error_message": "Datasource compatibility: 2 issues", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:04:37.314570+00:00", "tool": "superset_generate_chart", "error_message": "Datasource compatibility: 2 issues", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:04:50.054434+00:00", "tool": "superset_generate_chart", "error_message": "Datasource compatibility: 2 issues", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:05:01.053060+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:05:13.484647+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:05:31.670418+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:05:44.268435+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:24:26.352650+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:24:34.309978+00:00", "tool": "superset_generate_chart", "error_message": "Structural validation failed: 1 errors", "status_code": 0, "duration_ms": 0}
+{"ts": "2026-08-07T14:24:56.842115+00:00", "tool": "superset_generate_chart", "error_message": "'NoneType' object has no attribute 'get'", "status_code": 0, "duration_ms": 0}

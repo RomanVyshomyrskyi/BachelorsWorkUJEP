@@ -90,6 +90,11 @@ latex_elements = {
 \setlist[itemize,7]{label=\textbullet}
 \setlist[itemize,8]{label=\textbullet}
 \setlist[itemize,9]{label=\textbullet}
+\usepackage{makeidx}
+\makeindex
+\renewcommand{\indexname}{Index}
+\usepackage{idxlayout}
+\idxlayout{columns=1}
 """,
 }
 latex_documents = [

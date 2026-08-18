@@ -84,9 +84,11 @@ def collect_expected_columns(
                             if m:
                                 expected_columns_by_ds[ds_id].append(m.group(1))
                         elif isinstance(v, dict):
-                            col = v.get("column", {}).get("column_name", "")
-                            if col:
-                                expected_columns_by_ds[ds_id].append(col)
+                            column = v.get("column")
+                            if column:
+                                col = column.get("column_name", "")
+                                if col:
+                                    expected_columns_by_ds[ds_id].append(col)
             for field in ["x_axis", "entity", "series", "source", "target"]:
                 val = params.get(field)
                 if isinstance(val, str) and val.strip():

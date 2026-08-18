@@ -31,14 +31,12 @@ class ErrorRingBuffer:
     fixed capacity. When the buffer is full, appending a new entry automatically
     evicts the oldest entry. This makes it ideal for maintaining a sliding window
     of the last N errors for the ``/errors`` endpoint.
-
-    Description:
         All public methods are protected by a ``threading.Lock`` to ensure
         thread-safe access. This is important because errors can be recorded
         from multiple concurrent request handlers while the ``/errors`` endpoint
         reads from a separate HTTP handler thread.
 
-    Example:
+    Examples:
         >>> buffer = ErrorRingBuffer(capacity=5)
         >>> buffer.add("chart", "Connection failed")
         >>> len(buffer.get_all())  # Returns list of error dicts
@@ -66,8 +64,6 @@ class ErrorRingBuffer:
         A new entry dictionary is constructed with the current UTC timestamp,
         tool name, error message, status code, and duration. Any additional
         keyword arguments are merged into the entry for extensibility.
-
-        Description:
             The entry is constructed first, then written under lock to minimise
             the critical section. This avoids holding the lock while building
             the entry dict.
@@ -122,15 +118,13 @@ class JsonLogFile:
     (JSONL / newline-delimited JSON format). Each line is a serialisable dictionary
     converted via ``json.dumps()`` with ``default=str`` to handle non-serialisable
     types gracefully.
-
-    Description:
         The directory containing the log file is created automatically if it doesn't
         exist. This allows the caller to specify any valid file path without
         pre-creating parent directories. The file is opened and closed on each
         ``write()`` call, which is less efficient than keeping the file open but
         is safer for crash recovery (each line is fully flushed to disk).
 
-    Example:
+    Examples:
         >>> writer = JsonLogFile("logs/metrics.jsonl")
         >>> writer.write({"tool": "create_chart", "status": "success"})
     """
@@ -138,8 +132,6 @@ class JsonLogFile:
     def __init__(self, path: str) -> None:
         """
         Initialise the JSON log file writer.
-
-        Description:
             The parent directory is created using ``os.makedirs(..., exist_ok=True)``
             so that the writer can be given a nested path without error.
 
@@ -232,13 +224,11 @@ class MetricsCollector:
     - The ``tool_wrapper()`` async decorator for async functions.
     - Direct counter increment helpers.
     - Error recording for the ring buffer and log file.
-
-    Description:
         This class is designed as a singleton (accessed via ``get_metrics()``). Only
         one instance exists per process to avoid duplicate metric registration with
         Prometheus, which would raise an ``AlreadyRegisteredError``.
 
-    Example:
+    Examples:
         >>> mc = MetricsCollector()
         >>> with mc.tool_timing("superset_create_chart", status="success"):
         ...     create_chart()
@@ -314,14 +304,12 @@ class MetricsCollector:
         This inner class is used by ``MetricsCollector.tool_timing()``. When used
         as a context manager, it records the elapsed time on exit (both for success
         and error paths) and increments the appropriate Prometheus counters.
-
-        Description:
             The timer starts in ``__init__`` (when entering the ``with`` block) and
             stops in ``__exit__``. Both success and exception paths are handled
             uniformly: the tool call counter and duration histogram are always
             updated, and the JSON log file always receives a write.
 
-        Example:
+        Examples:
             >>> mc = MetricsCollector()
             >>> with mc.tool_timing("create_chart", status="success"):
             ...     do_work()
@@ -396,8 +384,6 @@ class MetricsCollector:
         This is the recommended way to instrument synchronous tool functions.
         Wrap the tool body in a ``with`` block and the duration, call count,
         and JSON log entry will be recorded automatically on exit.
-
-        Description:
             The status label defaults to ``"success"``. If the tool raises an
             exception, the context manager still records the timing with the
             specified status (callers should set ``status="error"`` explicitly
@@ -412,7 +398,7 @@ class MetricsCollector:
         Returns:
             A ``_tool_timing`` context manager instance.
 
-        Example:
+        Examples:
             >>> mc = MetricsCollector()
             >>> with mc.tool_timing("superset_create_chart"):
             ...     result = create_chart()
@@ -431,8 +417,6 @@ class MetricsCollector:
         - Execution duration histogram
         - JSON log file entry
         - Error recording (via the ring buffer) when an exception is raised
-
-        Description:
             The decorator uses ``time.monotonic()`` for accurate timing. The status
             is inferred from the return value (checks for ``"Error"`` substring)
             or from exceptions raised during execution. The ``finally`` block
@@ -445,7 +429,7 @@ class MetricsCollector:
             A wrapper coroutine that, when awaited, executes the original function
             and records metrics around the execution.
 
-        Example:
+        Examples:
             >>> mc = MetricsCollector()
             >>> @mc.tool_wrapper("superset_get_chart_info")
             >>> async def get_chart_info(chart_id: int):
@@ -513,8 +497,6 @@ class MetricsCollector:
         accessing the internal counter attributes directly. It maps logical
         names (e.g. ``"resources_created"``) to the actual Prometheus counter
         objects.
-
-        Description:
             The mapping from logical names to counter attributes is defined in
             the ``counters`` dict. If an unknown name is passed, a ``ValueError``
             is raised to catch typos early.
@@ -634,8 +616,6 @@ def reset_metrics_for_testing() -> None:
 
     This function is intended exclusively for unit tests that need a clean state
     between test runs. It should never be called in production code.
-
-    Description:
         After calling this function, the next call to ``get_metrics()`` will create
         a fresh ``MetricsCollector`` instance with fresh Prometheus counters.
         Existing Prometheus metrics will persist (they are process-global), but

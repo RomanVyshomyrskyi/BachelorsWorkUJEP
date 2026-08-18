@@ -35,7 +35,7 @@ async def list_databases(manager: ConnectionManager, server_id: str) -> str:
         including each database's ID, name, engine, and connection metadata.
         Returns DatabaseError JSON if the server is not found.
 
-    Example:
+    Examples:
         result = await list_databases(manager, server_id="main")
         # Returns JSON array of all databases with their IDs, names, engines, and connection statuses
     """
@@ -73,7 +73,7 @@ async def get_database_info(
         whether it has been tested. Returns DatabaseError JSON if the server
         is not found or the database doesn't exist.
 
-    Example:
+    Examples:
         result = await get_database_info(manager, server_id="main", database_id=1)
         # Returns JSON with database name, engine type, connection URI, and test connection status
     """

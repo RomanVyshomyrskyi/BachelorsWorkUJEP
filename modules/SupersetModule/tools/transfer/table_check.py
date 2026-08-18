@@ -98,8 +98,6 @@ async def _resolve_dataset(
     Fetches the source dataset's details (table name, schema, database, SQL),
     resolves the target database and table, checks table existence, then
     creates a new dataset on the target via ``create_dataset()``.
-
-    Description:
         This is the dataset phase of the 3-phase transfer pipeline. It handles
         both physical tables and virtual datasets (SQL expressions). Virtual
         datasets are re-created with their original SQL, while physical tables

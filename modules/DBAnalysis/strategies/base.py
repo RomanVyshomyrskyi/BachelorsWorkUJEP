@@ -48,8 +48,6 @@ class DatabaseStrategy(ABC):
     - Read-only query enforcement using sqlparse AST analysis
     - Result set row limiting to prevent memory exhaustion
     - Abstract methods for connect, disconnect, execute_query, and get_schema_representation
-
-    Description:
         The strategy pattern allows the system to work with multiple database
         types through a unified interface. Each concrete strategy handles the
         database-specific driver details (psycopg2, mysql-connector, pyodbc)
@@ -78,7 +76,7 @@ class DatabaseStrategy(ABC):
         ...     results = db.execute_query("SELECT * FROM users")
         >>> # Connection is automatically closed after the with block
 
-        Example:
+        Examples:
             >>> strategy = get_db_strategy("postgres", {
             ...     "host": "localhost", "user": "admin", "password": "secret",
             ...     "dbname": "analytics", "port": 5432})
@@ -106,8 +104,6 @@ class DatabaseStrategy(ABC):
         Args:
             connection_details: A dictionary containing connection parameters
                 with keys: host, user, password, dbname, and optionally port.
-
-        Description:
             Stores the connection details and initializes the connection
             attribute to None. The actual connection is not established
             until connect() is called.
@@ -125,8 +121,6 @@ class DatabaseStrategy(ABC):
         This method must be implemented by each concrete strategy to handle
         database-specific connection logic, including driver initialization,
         credential validation, and connection state management.
-
-        Description:
             Concrete implementations should:
             1. Extract connection parameters from self.connection_details.
             2. Create a driver-specific connection object.
@@ -146,8 +140,6 @@ class DatabaseStrategy(ABC):
 
         This method must be implemented by each concrete strategy to handle
         database-specific connection cleanup.
-
-        Description:
             Concrete implementations should:
             1. Check if a connection exists.
             2. Close the connection if open.
@@ -213,7 +205,7 @@ class DatabaseStrategy(ABC):
             ValueError: If the query violates any security rule, with a
                         descriptive message explaining which rule was violated.
 
-        Example:
+        Examples:
             >>> DatabaseStrategy._validate_read_only_query("SELECT * FROM users")
             'SELECT * FROM users'
             >>> DatabaseStrategy._validate_read_only_query("DROP TABLE users")
@@ -291,8 +283,6 @@ class DatabaseStrategy(ABC):
         Returns:
             The rows list, truncated to max_rows if it exceeds the limit,
             or the original list if it is within the limit.
-
-        Description:
             1. Checks if the result set exceeds the row limit.
             2. Logs a warning if truncation occurs.
             3. Returns only the first max_rows entries if truncated.
@@ -343,7 +333,7 @@ class DatabaseStrategy(ABC):
         Returns:
             self: The strategy instance, ready for query execution.
 
-        Example:
+        Examples:
             >>> with PostgresStrategy(details) as db:
             ...     results = db.execute_query("SELECT 1")
         """
@@ -363,8 +353,6 @@ class DatabaseStrategy(ABC):
             exc_type: The exception type if an exception was raised, or None.
             exc_val: The exception value if an exception was raised, or None.
             exc_tb: The exception traceback if an exception was raised, or None.
-
-        Description:
             Always attempts to close the connection, even if an exception
             occurred during the with block, to prevent resource leaks.
         """

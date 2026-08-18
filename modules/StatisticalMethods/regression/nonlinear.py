@@ -11,8 +11,6 @@ from typing import Dict, Any, List, Callable
 def calculate_nonlinear_regression(X: List[float], y: List[float], model_func: Callable, p0: List[float] = None) -> Dict[str, Any]:
     """
     Calculate Nonlinear Regression for a user-specified parametric model function.
-
-    Description:
         Fits a nonlinear model to the data by minimizing the sum of squared residuals
         using scipy.optimize.curve_fit. The user provides a callable model function that
         describes the expected relationship between inputs and outputs, and the algorithm

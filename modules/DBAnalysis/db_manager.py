@@ -21,8 +21,6 @@ class DbManager:
     This class reads database configurations (host, port, user, password, etc.)
     from a JSON file, validates required fields, resolves password environment
     variables, and provides access to individual database configs by ID.
-
-    Description:
         Configuration is stored in a JSON file (default: databases.json) with
         the structure: {"db_id": {"db_type": "...", "host": "...", ...}}.
         Each database config must have db_type, host, dbname, and user fields.
@@ -33,7 +31,7 @@ class DbManager:
         _configs: Dictionary mapping database IDs to their connection config dicts.
         _config_dir: Path to the directory containing the databases.json config file.
 
-    Example:
+    Examples:
         >>> import tempfile, json, os
         >>> os.environ["DB_PASS"] = "s3cret"
         >>> # Create a test config file
@@ -60,8 +58,6 @@ class DbManager:
         Args:
             config_dir: Absolute or relative path to the directory containing
                         the databases.json configuration file.
-
-        Description:
             Sets up empty configuration storage and stores the path to the
             config directory for later file resolution.
         """
@@ -82,8 +78,6 @@ class DbManager:
         Args:
             config_filename: Name of the JSON configuration file to load
                              (default: "databases.json").
-
-        Description:
             1. Constructs the full path to the config file.
             2. Returns early if the file does not exist (with a warning).
             3. Parses the JSON file into a dictionary.
@@ -192,8 +186,6 @@ class DbManager:
             A dictionary containing the database connection details (db_type,
             host, port, dbname, user, password) if found, or None if the
             database ID does not exist in the configuration.
-
-        Description:
             1. Checks if configs are loaded; if not, triggers lazy loading.
             2. Looks up the db_id in the internal _configs dictionary.
             3. Returns the config dict or None if not found.

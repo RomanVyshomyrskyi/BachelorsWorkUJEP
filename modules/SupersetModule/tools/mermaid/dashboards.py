@@ -32,7 +32,7 @@ def dashboard_to_mermaid(
     Returns:
         Mermaid 'flowchart TD' diagram string with dashboard → chart edges.
 
-        Example:
+        Examples:
             >>> print(dashboard_to_mermaid("Sales Overview", chart_ids=[1, 2, 3]))
             flowchart TD
                 DASH["Dashboard: Sales Overview"]

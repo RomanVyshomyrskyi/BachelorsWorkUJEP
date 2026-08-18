@@ -8,8 +8,6 @@ properties, and grid sizing.
 
 def get_dashboard_creation_rules() -> str:
     """Return Markdown guide for creating Superset dashboards.
-
-    Description:
         Produces a structured reference covering the mandatory dashboard layout
         hierarchy (ROOT→GRID→ROW→CHART), required component properties,
         metadata requirements, and common pitfalls.

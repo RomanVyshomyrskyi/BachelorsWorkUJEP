@@ -29,8 +29,6 @@ async def impl_transfer_item(
     resource type: ``export_import`` for charts/dashboards/databases/datasets,
     ``json_copy`` for other types. Handles authentication, export, and import
     phases for both strategies.
-
-    Description:
         For ``export_import``: GETs the export ZIP from the source server
         (with query param ``q=[item_id]``), then POSTs it as multipart/form-data
         to the target server's import endpoint with ``overwrite=true``.
@@ -48,7 +46,7 @@ async def impl_transfer_item(
     Returns:
         JSON string with a success message or a TransferError JSON on failure.
 
-    Example:
+    Examples:
         result = await impl_transfer_item(
             manager, source_server_id="source", target_server_id="target",
             resource_type="chart", item_id=123

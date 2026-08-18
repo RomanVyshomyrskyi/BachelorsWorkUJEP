@@ -84,8 +84,6 @@ def _is_required(param) -> bool:
 
 def _extract_default(param) -> object:
     """Extract the default value from a function parameter for OpenAPI schema.
-
-    Description:
         Converts Python default values (including ``None`` and sentinel objects)
         to JSON-serializable forms. Returns ``None`` if the parameter has no default.
         ``Optional`` parameters with ``None`` default get ``None``, not ``""``.
@@ -137,8 +135,6 @@ def _build_openapi_parameters(
     fn, doc_params: list, is_get: bool
 ) -> list:
     """Build OpenAPI-compatible parameter definitions from function signature + docstrings.
-
-    Description:
         Introspects the function's signature to extract parameter names, types, and
         required flags, then merges descriptions from the parsed docstring Args section.
         For GET endpoints, parameters are ``query`` type; for POST they are ``body``
@@ -205,8 +201,6 @@ def _build_request_body(
     fn, doc_params: list, summary: str
 ) -> dict:
     """Build an OpenAPI requestBody definition for POST endpoints.
-
-    Description:
         Generates a JSON request body schema from the function's signature parameters.
         Each parameter becomes a property of the JSON object, with type and description
         from docstrings. Optional parameters are listed but not marked required.
@@ -285,8 +279,6 @@ def _build_request_body(
 
 def _resolve_wrapper_impl(fn):
     """Resolve the implementation function called by a thin tool wrapper.
-
-    Description:
         Tool wrappers in SupersetModule/main.py follow a consistent pattern:
         ``return [await] MODULE_VAR.FUNC_NAME(manager, ...)``. This function
         inspects the wrapper's bytecode to find the ``LOAD_GLOBAL`` +
@@ -332,8 +324,6 @@ def docstring_to_openapi(fn, impl_fn=None):
     Markdown ``description`` from the long description, parameter list, and return
     value documentation. Also builds OpenAPI-compatible ``parameters`` (for GET)
     or ``requestBody`` (for POST) and response descriptions from function signatures.
-
-    Description:
         When ``impl_fn`` is provided and has a richer docstring (contains ``Args:``
         while the wrapper doesn't), it is used for docstring content, parameter
         descriptions, and return value documentation. Parameter signatures are
@@ -445,8 +435,6 @@ def docstring_to_openapi(fn, impl_fn=None):
 
 def _is_get_endpoint(fn) -> bool:
     """Heuristically determine if a tool endpoint should be GET based on naming.
-
-    Description:
         Read-only tool names typically start with ``list_``, ``get_``, ``superset_get_``,
         or ``health_check``. This function detects those patterns. The definitive
         mapping is in ``main.py``'s ``READ_ONLY_TOOLS``, but this is a fallback

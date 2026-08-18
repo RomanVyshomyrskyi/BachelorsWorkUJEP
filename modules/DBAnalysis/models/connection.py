@@ -15,8 +15,6 @@ class ConnectionDetails(BaseModel):
     This model holds the credentials and connection parameters needed to
     establish a database connection. It is used by MCP tools to validate
     input parameters and by database strategies to configure connections.
-
-    Description:
         All fields except port are required (min_length=1) to prevent
         incomplete connection attempts. Port is optional and defaults to
         the database-specific default when not specified.
@@ -28,7 +26,7 @@ class ConnectionDetails(BaseModel):
         dbname: Name of the target database (required).
         port: Database server port number (optional, database-specific default applied).
 
-    Example:
+    Examples:
         >>> details = ConnectionDetails(
         ...     host="localhost",
         ...     user="admin",

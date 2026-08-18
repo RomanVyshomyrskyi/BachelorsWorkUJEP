@@ -31,7 +31,7 @@ async def list_resource_types() -> str:
         String listing all available resource types, one per line with '- ' prefix.
         Each line corresponds to a resource that can be queried with list_resources.
 
-    Example:
+    Examples:
         result = await list_resource_types()
         # Returns a formatted list of all resource types (chart, dashboard, dataset, database, etc.)
     """
@@ -75,7 +75,7 @@ async def list_resources(manager: ConnectionManager, server_id: str, resource_ty
     Returns:
         JSON string containing the list of resources from the Superset API.
 
-    Example:
+    Examples:
         result = await list_resources(manager, server_id="main", resource_type="chart")
         # Returns JSON array of all charts on the server
     """
@@ -106,7 +106,7 @@ async def list_dashboards(manager: ConnectionManager, server_id: str) -> str:
     Returns:
         JSON string containing the list of dashboards from GET /api/v1/dashboard/.
 
-    Example:
+    Examples:
         result = await list_dashboards(manager, server_id="main")
         # Returns JSON array of all dashboards with their IDs, titles, and slugs
     """
@@ -170,7 +170,7 @@ async def get_resource(
     Returns:
         JSON string containing the full resource details from GET /api/v1/{type}/{id}.
 
-    Example:
+    Examples:
         result = await get_resource(manager, server_id="main", resource_type="chart", resource_id=10)
         # Returns JSON with the full chart configuration, metadata, and datasource details
     """

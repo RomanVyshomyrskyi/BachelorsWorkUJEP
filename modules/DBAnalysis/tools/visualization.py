@@ -54,8 +54,6 @@ def tool_generate_chart(
     This tool connects to a database, executes a SELECT query, retrieves the
     result set, and renders it as a Matplotlib chart. The chart is returned
     as a list containing a text description and a base64-encoded PNG image.
-
-    Description:
         1. Resolves the default port if not explicitly provided.
         2. Establishes a database connection using the appropriate strategy.
         3. Executes the provided SELECT query via the database context manager.
@@ -174,8 +172,6 @@ def tool_generate_chart(
 def register_visualization_tools(mcp, db_manager=None):
     """
     Register visualization-related MCP tools with the FastMCP server.
-
-    Description:
         Maps the tool_generate_chart function to the MCP tool name
         "generate_database_chart" so it can be invoked by MCP clients.
 

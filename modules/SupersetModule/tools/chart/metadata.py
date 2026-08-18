@@ -30,7 +30,7 @@ async def list_charts(manager, server_id: str) -> str:
         JSON string containing the paginated list of charts from GET /api/v1/chart/,
         including each chart's ID, name, viz_type, and datasource info.
 
-    Example:
+    Examples:
         result = await list_charts(manager, "default")
         # Returns JSON paginated list of all charts with IDs, names, and viz_types.
     """
@@ -58,7 +58,7 @@ async def get_chart_info(
         including slice_name, viz_type, params, datasource_id, datasource_type,
         and other metadata.
 
-    Example:
+    Examples:
         result = await get_chart_info(manager, "default", chart_id=123)
         # Returns JSON with full chart details: slice_name, viz_type, params, datasource, etc.
     """
@@ -89,7 +89,7 @@ def get_standard_chart_params(viz_type: str, datasource_id: int, overrides_json:
         JSON string of the standard parameters for the given viz_type and datasource.
             This can be used as the base for chart creation or exploration.
 
-    Example:
+    Examples:
         result = get_standard_chart_params("echarts_bar", datasource_id=42)
         # Returns JSON with default params like metrics, groupby, and viz_type for the chart type.
     """
@@ -110,7 +110,7 @@ def get_chart_creation_rules() -> str:
         String containing the expert rules for chart creation, formatted as
             readable text with guidelines organized by topic.
 
-    Example:
+    Examples:
         result = get_chart_creation_rules()
         # Returns string with expert guidelines for creating charts.
     """

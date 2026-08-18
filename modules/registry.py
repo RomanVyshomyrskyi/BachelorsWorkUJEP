@@ -28,8 +28,6 @@ class ModuleInfo:
     - ``name``: The module's directory name (e.g. ``"superset"``).
     - ``api``: A dictionary mapping method names to callable objects, representing
       the public interface that other modules can use.
-
-    Description:
         This class is primarily used internally by ``ModuleRegistry`` and is not
         typically instantiated directly by module authors.
     """
@@ -68,8 +66,6 @@ class ModuleRegistry:
     - Querying whether a module is registered.
     - Retrieving a module's API dict.
     - Listing all registered module names.
-
-    Description:
         This registry enables modules to discover and use the APIs of other modules
         at runtime. For example, a module that generates charts can look up a database
         module's connection API via ``registry.get_module_api("database")``.
@@ -91,8 +87,6 @@ class ModuleRegistry:
         If the module is already registered, this method merges the new API dict into
         the existing one (allowing incremental API registration). If the module is
         not yet registered, a new ``ModuleInfo`` instance is created.
-
-        Description:
             This method is called by each module's ``register()`` function to announce
             its public API. The update-merging behaviour allows multiple calls to
             ``register_module_api()`` for the same module without overwriting existing
@@ -162,8 +156,6 @@ def resolve_dependency_order(
        and decrements the in-degree of all modules that depend on it.
     4. If the sorted output contains fewer modules than were input, a circular
        dependency exists and a ``ValueError`` is raised.
-
-    Description:
         This is the dependency resolution mechanism used at startup to determine the
         order in which dynamically-discovered modules should be imported. Without a
         correct ordering, a module might be loaded before its dependencies, causing

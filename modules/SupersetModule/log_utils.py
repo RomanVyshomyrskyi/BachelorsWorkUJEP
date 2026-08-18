@@ -23,15 +23,13 @@ class LogCollector:
     ``warning()``, and ``error()`` methods is stored in an internal list.
     When ``collect()`` is called with a JSON string result, the log entries
     are injected into the result dict under the ``"_logs"`` key.
-
-    Description:
         The ``collect()`` method attempts to parse the input string as JSON.
         If it succeeds and the result is a dictionary, the logs are added.
         If parsing fails (e.g., the result is a plain string or malformed JSON),
         the original string is returned unchanged so that non-JSON results
         pass through without modification.
 
-    Example:
+    Examples:
         >>> lc = LogCollector("my_tool")
         >>> lc.info("Starting operation")
         >>> lc.info("Processing item 1")
@@ -100,8 +98,6 @@ class LogCollector:
         dictionary, the captured log entries are added under the ``"_logs"``
         key and the enriched dictionary is returned as a formatted JSON string.
         If parsing fails, the original string is returned unchanged.
-
-        Description:
             The ``_logs`` key is chosen with a leading underscore to avoid
             collision with existing keys in the result dictionary. The result
             is re-serialised with indentation and ``default=str`` for readability

@@ -11,8 +11,6 @@ from typing import Dict, Any, List
 def calculate_support_vector_regression(X: List[List[float]], y: List[float], kernel: str = 'rbf', C: float = 1.0, epsilon: float = 0.1) -> Dict[str, Any]:
     """
     Calculate Support Vector Regression (SVR).
-
-    Description:
         Fits an SVR model that finds a hyperplane in a high-dimensional space such that
         all training data points are within a margin of width epsilon (the insensitive
         loss tube). Support vectors — the data points closest to the margin — determine

@@ -45,7 +45,7 @@ async def impl_superset_api(
         string on failure. For non-JSON responses, returns a formatted string
         with status code and body text.
 
-    Example:
+    Examples:
         result = await impl_superset_api(manager, server_id="main", method="GET", endpoint="/api/v1/chart/")
         # Returns JSON-formatted response from the Superset API, or error message string
     """
@@ -114,7 +114,7 @@ async def superset_api_request(
     Returns:
         JSON-formatted API response string on success, or an error message on failure.
 
-    Example:
+    Examples:
         result = await superset_api_request(
             manager, server_id="main", method="GET",
             endpoint="/api/v1/chart/", params='{"page_size": 10}'

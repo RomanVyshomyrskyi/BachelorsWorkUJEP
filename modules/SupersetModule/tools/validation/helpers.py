@@ -17,8 +17,6 @@ INVALID_METRIC_STRINGS: set = {
 def _is_adhoc_metric_object(val: Any) -> bool:
     """
     Check if a value is a properly formatted AdHocMetricObject dict.
-
-    Description:
         Validates that a dict has the required nested structure of an AdHocMetricObject:
         a 'column' key containing a dict with a non-empty 'column_name' string.
 
@@ -40,8 +38,6 @@ def _is_adhoc_metric_object(val: Any) -> bool:
 def _is_string_metric(val: Any) -> bool:
     """
     Check if a value is a valid string metric like 'count', 'SUM(col)', etc.
-
-    Description:
         Returns True if val is a non-empty, non-whitespace string that could
         represent a metric (e.g. "count", "SUM(sales)", "AVG(price)").
 
@@ -59,8 +55,6 @@ def _is_string_metric(val: Any) -> bool:
 def _parse_string_metric(metric_str: str) -> Tuple[str, str]:
     """
     Parse a string metric like 'SUM(sales)' or 'AVG(price)' into (aggregate, column_name).
-
-    Description:
         Extracts the aggregation function and column name from a metric string.
         Handles special case 'count' and standard SQL expressions.
         Falls back to ('AVG', metric_str) for unrecognized patterns.
@@ -90,8 +84,6 @@ def _parse_string_metric(metric_str: str) -> Tuple[str, str]:
 def _build_adhoc_metric_from_string(metric_str: str) -> Dict[str, Any]:
     """
     Convert a string metric like 'SUM(sales)' to an AdHocMetricObject.
-
-    Description:
         Parses a string metric and constructs a properly nested AdHocMetricObject
         dict with aggregate, column, expressionType, and label fields.
         Handles both 'SUM(sales)' and 'sum__SP_POP_TOTL' (Superset internal) formats.
@@ -102,7 +94,7 @@ def _build_adhoc_metric_from_string(metric_str: str) -> Dict[str, Any]:
     Returns:
         Dict formatted as an AdHocMetricObject with all required fields.
 
-    Example:
+    Examples:
         >>> _build_adhoc_metric_from_string("SUM(sales)")
         {'aggregate': 'SUM', 'column': {'column_name': 'sales'}, 'expressionType': 'SIMPLE', 'label': 'SUM(sales)'}
     """

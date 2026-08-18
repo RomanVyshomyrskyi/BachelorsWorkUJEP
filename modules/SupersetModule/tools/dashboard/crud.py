@@ -34,7 +34,7 @@ async def get_dashboard_info(
     Returns:
         JSON string containing the dashboard details.
 
-    Example:
+    Examples:
         result = await get_dashboard_info(manager, "default", dashboard_id=789)
         # Returns JSON with dashboard title, position_json, charts, and metadata.
     """
@@ -80,7 +80,7 @@ async def create_dashboard(
          JSON string containing the created dashboard's details on success,
             or a DashboardError JSON with specific validation errors on failure.
 
-     Example:
+     Examples:
          result = await create_dashboard(
              manager, "default",
              dashboard_title="Sales Dashboard",
@@ -233,7 +233,7 @@ async def get_dashboard_api_info(manager: ConnectionManager, server_id: str) -> 
     Returns:
         JSON string containing the dashboard API metadata from /api/v1/dashboard/_info.
 
-    Example:
+    Examples:
         result = await get_dashboard_api_info(manager, "default")
         # Returns JSON with dashboard API metadata including supported features and filters.
     """
@@ -262,7 +262,7 @@ async def update_dashboard(
         JSON string containing the updated dashboard's details from the API response,
             or an error JSON if the update fails.
 
-    Example:
+    Examples:
         result = await update_dashboard(
             manager, "default", dashboard_id=789,
             json_body='{"dashboard_title": "Updated Dashboard"}'
@@ -283,7 +283,7 @@ def get_dashboard_creation_rules() -> str:
     Returns:
         String containing the expert rules for dashboard creation.
 
-    Example:
+    Examples:
         result = get_dashboard_creation_rules()
         # Returns string with expert guidelines for dashboard creation.
     """

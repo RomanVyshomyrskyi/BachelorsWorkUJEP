@@ -16,8 +16,6 @@ def get_normalization_rules() -> str:
     DBAnalysis module's root directory and returns its contents as a string.
     The rules file contains guidelines for database schema normalization
     that AI agents reference when evaluating database designs.
-
-    Description:
         1. Constructs the absolute path to normalization_rules.md by navigating
            up two levels from this file's location (utils/ -> DBAnalysis/).
         2. Attempts to open and read the file contents.
@@ -29,7 +27,7 @@ def get_normalization_rules() -> str:
         Returns "Error: Normalization rules file not found." if the file
         does not exist at the expected path.
 
-    Example:
+    Examples:
         >>> rules = get_normalization_rules()
         >>> print(rules[:100])
         # Database Normalization Rules\\n...

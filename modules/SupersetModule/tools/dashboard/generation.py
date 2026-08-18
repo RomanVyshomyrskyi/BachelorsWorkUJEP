@@ -52,7 +52,7 @@ async def generate_dashboard(
          JSON string containing the created dashboard's details on success,
             or a DashboardError JSON with validation errors on failure.
 
-     Example:
+     Examples:
          result = await generate_dashboard(
              manager, "default",
              dashboard_title="Sales Dashboard",

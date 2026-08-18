@@ -73,7 +73,7 @@ async def generate_chart(
         JSON string containing the created chart's details (chart_id, slice_name, url,
             result) on success, or a ChartError JSON with detailed error messages on failure.
 
-    Example:
+    Examples:
         result = await generate_chart(
             manager, "default", dataset_id=42,
             config='{"viz_type": "bar", "metrics": ["SUM(sales)"], "groupby": ["region"]}',

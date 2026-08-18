@@ -30,7 +30,7 @@ def build_adhoc_metric(column_name: str, aggregate: str = "AVG") -> Dict[str, An
     Returns:
         Dict formatted as an AdHocMetricObject with keys: aggregate, column, expressionType, label.
 
-        Example:
+        Examples:
             >>> build_adhoc_metric("sales", "SUM")
             {'aggregate': 'SUM', 'column': {'column_name': 'sales'}, 'expressionType': 'SIMPLE', 'label': 'SUM(sales)'}
     """
@@ -60,7 +60,7 @@ def build_adhoc_dimension(column_name: str) -> Dict[str, Any]:
     Returns:
         Dict formatted as an AdHocDimensionObject with keys: column, expressionType.
 
-        Example:
+        Examples:
             >>> build_adhoc_dimension("product_line")
             {'column': {'column_name': 'product_line'}, 'expressionType': 'DIMENSION'}
     """
@@ -89,7 +89,7 @@ def parse_metric_string(metric_str: str) -> Tuple[str, str]:
     Returns:
         Tuple of (aggregate, column_name) where aggregate is uppercase (e.g. "SUM", "AVG").
 
-    Example:
+    Examples:
         >>> parse_metric_string("SUM(sales)")
         ('SUM', 'sales')
         >>> parse_metric_string("sum__revenue")
@@ -154,7 +154,7 @@ def resolve_column_name(
         The actual column name from the dataset if found, None if not found,
         or requested_column if dataset_columns is empty (no comparison possible).
 
-    Example:
+    Examples:
         >>> resolve_column_name("sales", [{"column_name": "Sales"}, {"column_name": "quantity"}])
         'Sales'
         >>> resolve_column_name("Sales", [{"column_name": "sales"}], case_sensitive=True)

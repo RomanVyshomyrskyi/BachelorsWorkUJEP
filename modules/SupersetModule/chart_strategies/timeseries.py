@@ -22,8 +22,6 @@ from ._base import ChartParamsStrategy
 class LineChartStrategy(ChartParamsStrategy):
     """
     Line chart strategy for time series data (echarts_timeseries_line).
-
-    Description:
         Generates params for a time-based line chart with forecasting support.
         Suitable for showing trends over time with optional forecast periods
         and confidence intervals.
@@ -62,8 +60,6 @@ class LineChartStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build line chart params with user overrides applied to defaults.
-
-        Description:
             Merges DEFAULTS with kwargs overrides, sets viz_type and datasource,
             then returns the complete params dict ready for Superset API.
 
@@ -88,8 +84,6 @@ class LineChartStrategy(ChartParamsStrategy):
 class BarChartStrategy(ChartParamsStrategy):
     """
     Bar chart strategy for time series data (echarts_timeseries_bar).
-
-    Description:
         Generates params for a time-based bar chart with forecasting support.
         Similar to line chart but displays data as vertical bars.
     """
@@ -130,8 +124,6 @@ class BarChartStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build bar chart params with user overrides applied to defaults.
-
-        Description:
             Merges DEFAULTS with kwargs overrides, sets viz_type and datasource,
             then returns the complete params dict ready for Superset API.
 
@@ -157,8 +149,6 @@ class BarChartStrategy(ChartParamsStrategy):
 class AreaChartStrategy(ChartParamsStrategy):
     """
     Area chart strategy (echarts_area).
-
-    Description:
         Generates params for an area chart, which fills the area below the line
         with a semi-transparent color. Useful for showing cumulative trends over time.
     """
@@ -197,8 +187,6 @@ class AreaChartStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build area chart params with user overrides applied to defaults.
-
-        Description:
             Merges DEFAULTS with kwargs overrides, sets viz_type and datasource,
             then returns the complete params dict ready for Superset API.
 

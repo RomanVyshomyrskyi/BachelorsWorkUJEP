@@ -10,8 +10,6 @@ from ._base import ChartParamsStrategy
 class TreeMapStrategy(ChartParamsStrategy):
     """
     TreeMap chart strategy (treemap_v2).
-
-    Description:
         Generates params for a treemap showing hierarchical data as nested rectangles.
         Uses groupby for hierarchy levels and metric for rectangle sizes.
     """
@@ -30,8 +28,6 @@ class TreeMapStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build treemap chart params with groupby hierarchy and metric.
-
-        Description:
             Merges DEFAULTS with kwargs overrides. The treemap shows hierarchical
             data as nested rectangles, with groupby defining the hierarchy levels
             and metric sizing each rectangle.
@@ -55,8 +51,6 @@ class TreeMapStrategy(ChartParamsStrategy):
 class SunburstStrategy(ChartParamsStrategy):
     """
     Sunburst chart strategy (sunburst_v2).
-
-    Description:
         Generates params for a sunburst diagram showing hierarchical data as concentric rings.
         Requires columns field defining the hierarchy levels and a metric for slice sizes.
     """
@@ -76,8 +70,6 @@ class SunburstStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build sunburst chart params with hierarchical columns and metric.
-
-        Description:
             Merges DEFAULTS with kwargs overrides. The sunburst chart displays
             hierarchical data as concentric rings. The columns field defines the
             hierarchy levels (outer to inner), and the metric sizes each segment.
@@ -101,8 +93,6 @@ class SunburstStrategy(ChartParamsStrategy):
 class SankeyStrategy(ChartParamsStrategy):
     """
     Sankey diagram strategy (sankey_v2).
-
-    Description:
         Generates params for a Sankey diagram showing flow between source and target
         nodes. Requires source, target columns and a metric for flow magnitude.
     """
@@ -117,8 +107,6 @@ class SankeyStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build Sankey diagram params with source, target, and metric.
-
-        Description:
             Merges DEFAULTS with kwargs overrides. The Sankey diagram shows flow
             between source and target nodes, with the metric representing flow
             magnitude (visualized as link width).
@@ -143,8 +131,6 @@ class SankeyStrategy(ChartParamsStrategy):
 class TreeStrategy(ChartParamsStrategy):
     """
     Tree chart strategy (tree_chart).
-
-    Description:
         Generates params for a hierarchical tree visualization showing parent-child
         relationships. Requires id, parent, name columns and optional layout algorithm.
     """
@@ -166,8 +152,6 @@ class TreeStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build tree chart params with hierarchical node columns and metric.
-
-        Description:
             Sets id, parent, and name columns for the tree structure,
             plus optional layout algorithm (radial, compact, etc.).
 

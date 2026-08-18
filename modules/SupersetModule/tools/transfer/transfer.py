@@ -46,8 +46,6 @@ async def transfer_dashboard(
     4. **Dashboard Phase**: Creates the target dashboard with remapped
        ``position_json`` (chart IDs updated to target values), then bulk-links
        all recreated charts.
-
-    Description:
         Generates a comprehensive transfer report including source/destination
         metadata, per-item execution status with timing, diffs against existing
         destination charts, error details, and a percentage success rate.
@@ -68,7 +66,7 @@ async def transfer_dashboard(
             required for resolution) or a complete transfer summary including
             datasource mapping, chart mapping, and a nested execution report.
 
-    Example:
+    Examples:
         result = await transfer_dashboard(
             manager, source_server_id="source", target_server_id="target",
             dashboard_id=789, db_mappings='{"1": 2}', table_mappings='{"old": "new"}'

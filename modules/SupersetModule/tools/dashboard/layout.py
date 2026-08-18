@@ -132,7 +132,7 @@ async def generate_simple_dashboard_layout(
     Returns:
         JSON string of the position_json layout object.
 
-    Example:
+    Examples:
         result = await generate_simple_dashboard_layout(
             manager, "default", chart_ids=[123, 456],
             layout_type="row_of_charts", chart_width=6, chart_height=50
@@ -181,7 +181,7 @@ async def generate_robust_layout(
     Returns:
         JSON string of the position_json layout, or DashboardError if server not found.
 
-    Example:
+    Examples:
         result = await generate_robust_layout(manager, "default", chart_ids=[123, 456])
         # Returns JSON nested position layout with auto-sizing per viz_type.
     """

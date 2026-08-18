@@ -10,8 +10,6 @@ from ._base import ChartParamsStrategy
 class GanttChartStrategy(ChartParamsStrategy):
     """
     Gantt chart strategy (gantt_chart).
-
-    Description:
         Generates params for a Gantt/timeline chart showing tasks with start/end times.
         Requires start_time, end_time, y_axis (category), and series (color groups).
     """
@@ -36,8 +34,6 @@ class GanttChartStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build Gantt chart params with timeline fields.
-
-        Description:
             Sets start_time, end_time columns, y_axis category, and series color grouping.
 
         Args:
@@ -61,8 +57,6 @@ class GanttChartStrategy(ChartParamsStrategy):
 class BoxPlotStrategy(ChartParamsStrategy):
     """
     Box plot strategy (box_plot).
-
-    Description:
         Generates params for a box-and-whisker plot showing data distribution
         by category. Requires columns (temporal), groupby categories, and metrics.
     """
@@ -82,8 +76,6 @@ class BoxPlotStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build box plot params with columns, groupby, and metrics.
-
-        Description:
             Sets temporal columns lookup automatically from the first column,
             normalizes groupby to list, and accepts metric overrides.
 
@@ -108,8 +100,6 @@ class BoxPlotStrategy(ChartParamsStrategy):
 class GraphChartStrategy(ChartParamsStrategy):
     """
     Graph/network chart strategy (graph_chart).
-
-    Description:
         Generates params for a network/graph visualization showing relationships
         between entities. Requires source and target columns.
     """
@@ -137,8 +127,6 @@ class GraphChartStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build graph/network chart params with source, target, and metric.
-
-        Description:
             Sets the source and target columns for edges, the metric for edge weight,
             and optional layout algorithm (circular, force-directed, etc.).
 
@@ -163,8 +151,6 @@ class GraphChartStrategy(ChartParamsStrategy):
 class HeatmapStrategy(ChartParamsStrategy):
     """
     Heatmap chart strategy (heatmap_v2).
-
-    Description:
         Generates params for a heatmap showing values as color intensity across
         a grid of x_axis categories and groupby rows.
     """
@@ -186,8 +172,6 @@ class HeatmapStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build heatmap chart params with x_axis, groupby, and metric.
-
-        Description:
             Merges DEFAULTS with kwargs overrides. The heatmap displays values as
             color intensity across a grid formed by x_axis (columns) and groupby
             (rows), sized by the metric.
@@ -212,8 +196,6 @@ class HeatmapStrategy(ChartParamsStrategy):
 class HistogramStrategy(ChartParamsStrategy):
     """
     Histogram chart strategy (histogram_v2).
-
-    Description:
         Generates params for a histogram showing the distribution of a numeric column
         by binning values. Requires a column to histogram and optional groupby for segmentation.
     """
@@ -231,8 +213,6 @@ class HistogramStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build histogram chart params with column, groupby, and bin count.
-
-        Description:
             Merges DEFAULTS with kwargs overrides. The histogram visualizes the
             distribution of a numeric column by binning values and showing counts
             per bin. Optional groupby adds segmentation.

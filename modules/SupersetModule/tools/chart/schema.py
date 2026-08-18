@@ -37,7 +37,7 @@ async def get_chart_api_info(manager, server_id: str) -> str:
         JSON string containing the chart API metadata from /api/v1/chart/_info,
         including supported viz_types, form_data schemas, and feature flags.
 
-    Example:
+    Examples:
         result = await get_chart_api_info(manager, "default")
         # Returns JSON with chart API metadata including available viz_types and filters.
     """
@@ -68,7 +68,7 @@ async def get_chart_type_schema(
         the raw schema object from the Superset API. Returns ChartError JSON if
             the schema cannot be retrieved.
 
-    Example:
+    Examples:
         result = await get_chart_type_schema(manager, "default", chart_type="echarts_bar")
         # Returns JSON schema describing all valid params for the chart type.
     """
@@ -89,8 +89,6 @@ async def get_all_chart_schemas(manager, server_id: str) -> str:
     """
     Dynamically discovers ALL chart types from Superset API,
     fetches each schema, and returns a consolidated Markdown reference.
-
-    Description:
         Calls the chart _info endpoint to discover all registered viz_types,
         then fetches the full JSON schema for each type. Results are parsed
         into categorized field lists (required, metric, groupby/dimension,
@@ -110,7 +108,7 @@ async def get_all_chart_schemas(manager, server_id: str) -> str:
         required fields, metric fields, groupby fields, and other fields
             for every chart type available on the Superset instance.
 
-    Example:
+    Examples:
         result = await get_all_chart_schemas(manager, "default")
         # Returns Markdown reference with required/metric/groupby fields for all chart types.
     """

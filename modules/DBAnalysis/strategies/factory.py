@@ -44,7 +44,7 @@ def get_db_strategy(db_type: str, connection_details: dict) -> DatabaseStrategy:
         ImportError: If MSSQL is requested but pyodbc/unixODBC are not installed.
         ValueError: If db_type is not one of the supported database types.
 
-    Example:
+    Examples:
         >>> details = {"host": "localhost", "user": "admin", "password": "secret",
         ...            "dbname": "mydb", "port": 5432}
         >>> strategy = get_db_strategy("postgres", details)

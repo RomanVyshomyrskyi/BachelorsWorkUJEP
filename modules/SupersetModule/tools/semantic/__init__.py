@@ -1,7 +1,5 @@
 """
 Semantic layer for Apache Superset database introspection and profiling.
-
-Description:
     Provides tools for analyzing database tables: column classification, statistical
     profiling, metric/dimension suggestion, and data dictionary generation. All functions
     execute SQL queries against PostgreSQL/MariaDB databases via Superset's SQL Lab.

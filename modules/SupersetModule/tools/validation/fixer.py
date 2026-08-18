@@ -17,8 +17,6 @@ logger = logging.getLogger(__name__)
 def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, Any]:
     """
     Auto-fix common parameter mistakes in chart params.
-
-    Description:
         Applies a series of corrections to chart params to fix the most common
         issues that cause Superset frontend errors (e.g., 'e.column is undefined',
         'Data error', 'Cannot compile Column object'). Handles metric format
@@ -59,7 +57,7 @@ def auto_fix_chart_params(viz_type: str, params: Dict[str, Any]) -> Dict[str, An
         Fix 16: Universal aggregate/expressionType/label completion
         Fix 18: Universal label for groupby/orderby/columns dict entries
 
-        Example:
+        Examples:
             >>> bad_params = {"groupby": "product_line", "metrics": ["SUM(sales)"], "metric": None}
             >>> fixed = auto_fix_chart_params("echarts_timeseries_line", bad_params)
             >>> fixed["groupby"]

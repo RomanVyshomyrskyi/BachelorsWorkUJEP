@@ -43,7 +43,7 @@ async def get_schema(
         including filterable/sortable columns and available resources.
         Returns ServerError JSON if the server is not found.
 
-    Example:
+    Examples:
         result = await get_schema(manager, server_id="main", model_type="chart")
         # Returns JSON with filterable/sortable columns and metadata for charts endpoint
     """
@@ -82,7 +82,7 @@ async def get_instance_info(manager: ConnectionManager, server_id: str) -> str:
         JSON string containing user info (from GET /api/v1/me/) and feature flags
         (from GET /api/v1/feature-features/). Returns ServerError JSON on failure.
 
-    Example:
+    Examples:
         result = await get_instance_info(manager, server_id="main")
         # Returns JSON with current user identity, roles, and enabled feature flags
     """
@@ -137,7 +137,7 @@ async def health_check(manager: ConnectionManager, server_id: str) -> str:
           - status_code: HTTP status code from the health check
           - error: Error description if status is not 'healthy'
 
-    Example:
+    Examples:
         result = await health_check(manager, server_id="main")
         # Returns JSON with status ("healthy"), authentication state, and base URL
     """

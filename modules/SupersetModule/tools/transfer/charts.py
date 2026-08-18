@@ -27,8 +27,6 @@ async def _recreate_chart(
     Fetches the source chart's full details (name, viz_type, params, description,
     datasource), looks up the target datasource ID from ``ds_mapping``, and
     calls ``create_chart()`` to recreate the chart on the target.
-
-    Description:
         This is the chart phase of the 3-phase transfer pipeline. Each chart's
         datasource reference is remapped from source datasource ID to target
         datasource ID. Charts referencing untransferred datasources are skipped

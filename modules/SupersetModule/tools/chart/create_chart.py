@@ -83,7 +83,7 @@ async def create_chart(
         JSON string containing the created chart's details (ID, name, URL, params) on success,
         or a ChartError JSON with detailed error message and fix suggestions on failure.
 
-    Example:
+    Examples:
         result = await create_chart(
             manager, "default",
             slice_name="Monthly Sales",

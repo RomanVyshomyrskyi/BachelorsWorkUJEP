@@ -34,7 +34,7 @@ async def sqllab_get_query_results(
         JSON string containing the query results (data rows, column metadata,
         row count), or SqlLabError JSON on failure.
 
-    Example:
+    Examples:
         result = await sqllab_get_query_results(manager, server_id="main", client_id="abc123-xyz")
         # Returns JSON with data rows and column metadata from the previously executed query
     """

@@ -48,7 +48,7 @@ def build_adhoc_metric(
     Returns:
         A dict formatted as an AdHocMetricObject for the Superset API.
 
-    Example:
+    Examples:
         >>> build_adhoc_metric("sales", "SUM")
         {
             "aggregate": "SUM",
@@ -86,7 +86,7 @@ def build_adhoc_dimension(column_name: str) -> Dict[str, Any]:
     Returns:
         A dict formatted as an AdHocDimension for the Superset API.
 
-    Example:
+    Examples:
         >>> build_adhoc_dimension("SP_DYN_CBRT_IN")
         {
             "column": {"column_name": "SP_DYN_CBRT_IN"},
@@ -127,8 +127,6 @@ def build_adhoc_dimension_with_type(
 def build_string_metric(metric_str: str) -> str:
     """
     Build a simple string metric for chart types that support it.
-
-    Description:
         Some chart types (timeseries, heatmap_v2, bubble_v2) accept string metrics
         directly rather than AdHocMetricObject dicts. This function is a
         pass-through that preserves the string format for those chart types.
@@ -139,7 +137,7 @@ def build_string_metric(metric_str: str) -> str:
     Returns:
         The string metric unchanged (for compatibility with string-based chart types).
 
-    Example:
+    Examples:
         >>> build_string_metric("SUM(sales)")
         "SUM(sales)"
     """
@@ -152,8 +150,6 @@ def build_string_metric(metric_str: str) -> str:
 def parse_string_metric(metric_str: str) -> tuple:
     """
     Parse a string metric into its component parts.
-
-    Description:
         Decomposes a metric string like "SUM(sales)" into the aggregate function
         and the column name. Used when converting string metrics to AdHocMetricObject
         format or when extracting column references for resolution.
@@ -165,7 +161,7 @@ def parse_string_metric(metric_str: str) -> tuple:
         A tuple of (aggregate, column_name).
         Returns ("AVG", metric_str) as fallback if pattern doesn't match.
 
-    Example:
+    Examples:
         >>> parse_string_metric("SUM(health_exp)")
         ("SUM", "health_exp")
     """
@@ -199,7 +195,7 @@ def metric(column_name: str, aggregate: str = "AVG") -> Dict[str, Any]:
     Short alias for build_adhoc_metric(). Designed for rapid chart construction
     where you want a metric object without the full parameter list.
 
-    Example:
+    Examples:
         >>> metric("sales", "SUM")
         {"aggregate": "SUM", "column": {"column_name": "sales"}, "expressionType": "SIMPLE", "label": "SUM(sales)"}
     """
@@ -214,7 +210,7 @@ def dimension(column_name: str) -> Dict[str, Any]:
     Short alias for build_adhoc_dimension(). Designed for rapid chart construction
     where you need a dimension object for axis values.
 
-    Example:
+    Examples:
         >>> dimension("product_line")
         {"column": {"column_name": "product_line"}, "expressionType": "DIMENSION"}
     """

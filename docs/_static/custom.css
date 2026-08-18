@@ -1,0 +1,12 @@
+/* Force single-column layout for RTD theme */
+.wy-nav-content {
+    max-width: 100% !important;
+}
+.wy-side-nav-search, .wy-nav-side {
+    width: 300px !important;
+}
+@media screen and (max-width: 768px) {
+    .wy-nav-content {
+        max-width: 100% !important;
+    }
+}

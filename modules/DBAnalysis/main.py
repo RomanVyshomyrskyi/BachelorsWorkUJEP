@@ -31,8 +31,6 @@ def get_module_api():
     This function exposes the core utility functions that other modules
     or consumers can import directly without going through the MCP tool
     registration system.
-
-    Description:
         Maps function names to their implementations for external use
         by dependent modules or the application registry.
 
@@ -59,8 +57,6 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         mcp: The FastMCP server instance to register tools on.
         registry: Optional ModuleRegistry for exposing the module API
                   to other parts of the application.
-
-    Description:
         1. Creates a DbManager instance using the module's directory
            as the configuration directory.
         2. Loads database configurations from databases.json.

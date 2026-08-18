@@ -11,8 +11,6 @@ from typing import Any, Dict, List
 class ChartParamsStrategy(ABC):
     """
     Base strategy – every chart type must implement `build()`.
-
-    Description:
         Abstract base class that defines the interface for all chart parameter
         generation strategies. Each concrete strategy sets VIZ_TYPE (the actual
         Superset viz_type string), DEFAULTS (default parameter values), and
@@ -32,8 +30,6 @@ class ChartParamsStrategy(ABC):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Return a fully-formed params dict for the Superset chart API.
-
-        Description:
             Abstract method that must be implemented by every concrete strategy.
             Produces a complete params dict that can be serialized to JSON and
             sent to Superset's chart creation API.
@@ -53,8 +49,6 @@ class ChartParamsStrategy(ABC):
     def _base(datasource_id: int, row_limit: int = 10000) -> Dict[str, Any]:
         """
         Common base keys all strategies start from.
-
-        Description:
             Returns the foundational dict structure shared by every chart type,
             including the datasource reference string, empty filter array, and row limit.
 
@@ -75,8 +69,6 @@ class ChartParamsStrategy(ABC):
     def _normalize_groupby(val: Any) -> List[str]:
         """
         Ensure groupby is always a list (or empty list).
-
-        Description:
             Superset's chart API expects groupby to be a list of column name strings.
             This helper accepts a string, list, or None and always returns a list.
 
@@ -96,8 +88,6 @@ class ChartParamsStrategy(ABC):
     def _defaults() -> Dict[str, Any]:
         """
         Merge strategy defaults – overrideable by kwargs.
-
-        Description:
             Retrieves the DEFAULTS dict from the first concrete subclass.
             Used internally for initialization and default value resolution.
 

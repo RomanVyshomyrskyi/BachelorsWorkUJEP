@@ -5,8 +5,6 @@ from modules.SupersetModule.api_client import authenticate, execute_request
 
 async def list_servers(manager: ConnectionManager) -> str:
     """Lists all configured Superset servers with their base URLs and auth methods.
-
-    Description:
         Reads the internal context store and returns a formatted list of all
         configured servers. If no servers are loaded, triggers a hot-reload
         from the servers.json config file and provides debug information.
@@ -18,7 +16,7 @@ async def list_servers(manager: ConnectionManager) -> str:
         A string listing all configured servers with their IDs, base URLs,
         and authentication methods. Returns debug info if no servers are found.
 
-    Example:
+    Examples:
         result = await list_servers(manager)
         # Returns a formatted list of all configured Superset server connections
     """
@@ -54,8 +52,6 @@ async def list_servers(manager: ConnectionManager) -> str:
 
 async def reauthenticate(manager: ConnectionManager, server_id: str) -> str:
     """Forces re-authentication with a Superset server by clearing cached tokens.
-
-    Description:
         Clears the current access token for the specified server and performs
         a fresh authentication flow (DB login, Keycloak OIDC, or cookie-based).
         The new token is persisted to disk for cross-session reuse.
@@ -68,7 +64,7 @@ async def reauthenticate(manager: ConnectionManager, server_id: str) -> str:
         A status string indicating success with the new token, or an error
         message if the server is not found or authentication fails.
 
-    Example:
+    Examples:
         result = await reauthenticate(manager, server_id="main")
         # Returns success confirmation with new token details or error message
     """
@@ -89,8 +85,6 @@ async def reauthenticate(manager: ConnectionManager, server_id: str) -> str:
 
 async def server_status(manager: ConnectionManager, server_id: str) -> str:
     """Checks the status and connectivity of a specific Superset server.
-
-    Description:
         Performs a health check by calling ``GET /api/v1/me/`` on the target
         server. If successful, returns the authenticated username. If the
         request fails, reports whether the server is reachable or offline.
@@ -103,7 +97,7 @@ async def server_status(manager: ConnectionManager, server_id: str) -> str:
         A string indicating the server status (ONLINE with username, REACHABLE
         with HTTP error, or OFFLINE) along with relevant details.
 
-    Example:
+    Examples:
         result = await server_status(manager, server_id="main")
         # Returns status like "Server 'main' is ONLINE. Authenticated as: admin"
     """

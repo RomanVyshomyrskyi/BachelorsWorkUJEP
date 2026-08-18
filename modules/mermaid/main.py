@@ -50,8 +50,6 @@ def get_mermaid_doc_content(doc_filename: str) -> str:
     This function locates a Markdown file in the ``docs/`` subdirectory, reads
     its entire content, and returns it as a string. If the file does not exist
     or cannot be read, an error message is returned instead.
-
-    Description:
         The function uses ``pathlib`` for path construction, which handles
         platform-specific path separators automatically. The file is read
         in text mode with UTF-8 encoding (default).
@@ -90,8 +88,6 @@ def get_mermaid_file_descriptions() -> str:
     This function scans the ``docs/`` and ``examples/`` subdirectories, reads
     metadata from each file (title from the first line for docs, filename for
     examples), and returns a JSON array of file descriptions.
-
-    Description:
         For ``.md`` documentation files, the first line is expected to be a
         Markdown heading (``# Title``). The title is extracted and used as the
         file's display name. The second line (if present and different from the

@@ -9,8 +9,6 @@ creation workflow.
 
 def get_chart_creation_rules() -> str:
     """Return comprehensive Markdown guide for creating Superset charts.
-
-    Description:
         Produces a structured reference document covering all 20+ Superset
         viz_types with their required and optional parameters, metric format
         specifications, creation workflow steps, and important notes about
@@ -156,7 +154,7 @@ def get_chart_creation_rules() -> str:
 4. Use `json.dumps(params)` to create the JSON string
 5. Call `generate_chart` with a config JSON that includes the params
 
-Example:
+Examples:
   params = get_standard_chart_params("line", 13, x_axis="order_date", time_grain_sqla="P1M", metrics=["SUM(sales)"], groupby=["product_line"])
   # Returns: {"datasource": "13__table", "viz_type": "echarts_timeseries_line", "metrics": ["SUM(sales)"], ...}
   params_json = json.dumps(params)  # Convert to JSON string for API

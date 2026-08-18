@@ -13,8 +13,6 @@ def _remap_chart_ids_in_position_json(position_json: Dict, chart_id_mapping: Dic
     Recursively walks the dashboard position_json structure and replaces
     chart ID references in CHART-type components. Updates both the ``id``
     field and ``meta.chartId``/``meta.id`` values.
-
-    Description:
         After charts are recreated on the target server, they get new IDs.
         The dashboard's position_json must reference the new IDs so the
         dashboard renders the correct charts. This function performs a deep

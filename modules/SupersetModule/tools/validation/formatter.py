@@ -17,7 +17,7 @@ def format_error_summary(errors: List[str]) -> str:
     Returns:
         A human-readable summary string, or a success message if no errors.
 
-        Example:
+        Examples:
             >>> errors = ["Missing metric field", "Invalid groupby format"]
             >>> print(format_error_summary(errors))
             Found 2 error(s):

@@ -40,8 +40,6 @@ logger = logging.getLogger(__name__)
 def validate_chart_params(viz_type: str, params: Dict[str, Any]) -> List[str]:
     """
     Validate chart params and return a list of human-readable error messages.
-
-    Description:
         Performs comprehensive validation of chart parameters against the expected
         format for each viz type. Checks chart structure, metric format, required
         fields, axis structure, time grain, and duplicate labels. Returns an empty
@@ -54,7 +52,7 @@ def validate_chart_params(viz_type: str, params: Dict[str, Any]) -> List[str]:
     Returns:
         List of error message strings. Empty list means params are valid.
 
-    Example:
+    Examples:
         >>> errors = validate_chart_params("pie", {"groupby": ["product_line"]})
         >>> errors  # Missing 'metric' field
         ["Chart 'pie' is missing 'metric' field. Add: 'metric': 'count' (or 'SUM(column_name)')."]

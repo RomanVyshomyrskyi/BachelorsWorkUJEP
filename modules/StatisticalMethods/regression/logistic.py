@@ -11,8 +11,6 @@ from typing import Dict, Any, List
 def calculate_logistic_regression(X: List[List[float]], y: List[int], C: float = 1.0) -> Dict[str, Any]:
     """
     Calculate Logistic Regression for classification tasks.
-
-    Description:
         Fits a logistic regression model that predicts the probability that a sample
         belongs to each class using the logistic (sigmoid) function for binary classification
         or the softmax function for multiclass classification. The model is regularized

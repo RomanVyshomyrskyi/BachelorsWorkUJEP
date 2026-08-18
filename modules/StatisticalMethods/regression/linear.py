@@ -15,8 +15,6 @@ from typing import Dict, Any, List, Union
 def calculate_linear_regression(X: List[List[float]], y: List[float]) -> Dict[str, Any]:
     """
     Calculate Ordinary Least Squares (OLS) linear regression.
-
-    Description:
         Fits a linear model by minimizing the residual sum of squares between the
         observed targets and those predicted by a linear approximation. Supports both
         simple regression (one feature) and multiple regression (many features).
@@ -37,7 +35,7 @@ def calculate_linear_regression(X: List[List[float]], y: List[float]) -> Dict[st
             - 'score_r2' (float): The R-squared coefficient of determination
                 (1.0 = perfect fit, 0.0 = baseline, negative = worse than baseline).
 
-        Example:
+        Examples:
             >>> result = calculate_linear_regression(
             ...     X=[[1.0], [2.0], [3.0], [4.0], [5.0]],
             ...     y=[2.0, 4.0, 6.0, 8.0, 10.0])
@@ -72,8 +70,6 @@ def calculate_linear_regression(X: List[List[float]], y: List[float]) -> Dict[st
 def calculate_ridge_regression(X: List[List[float]], y: List[float], alpha: float = 1.0) -> Dict[str, Any]:
     """
     Calculate Ridge Regression with L2 regularization.
-
-    Description:
         Fits a linear model with L2 penalty on the size of coefficients. The regularization
         term (L2 norm squared) is added to the loss function, which shrinks coefficients
         toward zero but never eliminates them completely.
@@ -99,7 +95,7 @@ def calculate_ridge_regression(X: List[List[float]], y: List[float], alpha: floa
             - 'intercept' (float): The y-intercept of the fitted model.
             - 'score_r2' (float): R-squared coefficient of determination.
 
-        Example:
+        Examples:
             >>> result = calculate_ridge_regression(
             ...     X=[[1.0, 2.0], [2.0, 4.0], [3.0, 6.0], [4.0, 8.0]],
             ...     y=[1.0, 2.0, 3.0, 4.0],
@@ -135,8 +131,6 @@ def calculate_ridge_regression(X: List[List[float]], y: List[float], alpha: floa
 def calculate_lasso_regression(X: List[List[float]], y: List[float], alpha: float = 1.0) -> Dict[str, Any]:
     """
     Calculate Lasso Regression with L1 regularization.
-
-    Description:
         Fits a linear model with L1 penalty on the size of coefficients. The regularization
         term (L1 norm) is added to the loss function, which can shrink some coefficients
         all the way to exactly zero — effectively performing automatic feature selection.
@@ -166,7 +160,7 @@ def calculate_lasso_regression(X: List[List[float]], y: List[float], alpha: floa
             - 'intercept' (float): The y-intercept of the fitted model.
             - 'score_r2' (float): R-squared coefficient of determination.
 
-        Example:
+        Examples:
             >>> result = calculate_lasso_regression(
             ...     X=[[1.0, 0.0], [2.0, 0.1], [3.0, 0.0], [4.0, 0.1]],
             ...     y=[1.0, 2.0, 3.0, 4.0],

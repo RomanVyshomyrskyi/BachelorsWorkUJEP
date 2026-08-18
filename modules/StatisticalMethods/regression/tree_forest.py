@@ -12,8 +12,6 @@ from typing import Dict, Any, List
 def calculate_decision_tree_regression(X: List[List[float]], y: List[float], max_depth: int = None) -> Dict[str, Any]:
     """
     Calculate Decision Tree Regression.
-
-    Description:
         Builds a single decision tree that recursively partitions the feature space
         into regions (nodes) by finding the feature and threshold that best split the
         data to minimize variance (MSE). Predictions for new samples are the mean target
@@ -73,8 +71,6 @@ def calculate_decision_tree_regression(X: List[List[float]], y: List[float], max
 def calculate_random_forest_regression(X: List[List[float]], y: List[float], n_estimators: int = 100, max_depth: int = None) -> Dict[str, Any]:
     """
     Calculate Random Forest Regression.
-
-    Description:
         Builds an ensemble of decision trees (a "forest") where each tree is trained on
         a bootstrap sample (random sample with replacement) of the training data and
         considers a random subset of features at each split. The final prediction is the

@@ -36,7 +36,7 @@ async def update_chart(
         JSON string containing the updated chart's details from the API response,
         or an error JSON if the update fails.
 
-    Example:
+    Examples:
         result = await update_chart(
             manager, "default", chart_id=123,
             json_body='{"slice_name": "Updated Sales Chart"}'

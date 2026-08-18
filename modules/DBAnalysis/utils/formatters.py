@@ -14,8 +14,6 @@ def format_schema(db_name: str, db_type: str, tables_and_columns: list, relation
     This function takes raw schema data (tables with columns and their metadata,
     plus foreign key relationships) and produces a structured text output that
     clearly shows the database structure for LLM consumption and analysis.
-
-    Description:
         1. Creates a header line with the database name and type.
         2. Iterates through the tables_and_columns list, creating a TABLE section
            for each unique table and listing its columns with details.

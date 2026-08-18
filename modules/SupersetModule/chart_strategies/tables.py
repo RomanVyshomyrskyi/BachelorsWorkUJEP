@@ -10,8 +10,6 @@ from ._base import ChartParamsStrategy
 class TableChartStrategy(ChartParamsStrategy):
     """
     Table chart strategy (table).
-
-    Description:
         Generates params for a data table display. Shows raw data rows with
         configurable columns, sorting, and pagination. Uses query_mode='raw'.
     """
@@ -35,8 +33,6 @@ class TableChartStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build table chart params with user overrides applied to defaults.
-
-        Description:
             Table charts have a lower default row_limit (1000) and require
             all_columns and order_by_cols configuration for proper display.
 
@@ -61,8 +57,6 @@ class TableChartStrategy(ChartParamsStrategy):
 class PivotTableStrategy(ChartParamsStrategy):
     """
     Pivot table strategy (pivot_table_v2).
-
-    Description:
         Generates params for a pivot table with rows, columns, and aggregated metrics.
         Requires groupbyRows, groupbyColumns, and metrics configuration.
     """
@@ -85,8 +79,6 @@ class PivotTableStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build pivot table params with row/column groupings and metrics.
-
-        Description:
             Maps kwargs keys (groupby_columns, groupby_rows) to internal field names
             (groupbyColumns, groupbyRows) for Superset compatibility.
 

@@ -44,7 +44,7 @@ async def sqllab_execute_query(
         JSON string containing the query results, metadata (column names, row count),
         and execution details. Returns SqlLabError JSON on failure.
 
-    Example:
+    Examples:
         result = await sqllab_execute_query(
             manager, server_id="main", database_id=1,
             sql_query="SELECT * FROM public.sales LIMIT 10"

@@ -119,7 +119,7 @@ async def get_chart_preview(
           - embed_url: URL suitable for embedding in external pages
         Returns ChartError JSON if the server is not found.
 
-    Example:
+    Examples:
         result = await get_chart_preview(manager, "default", chart_id=123)
         # Returns JSON with preview_url and embed_url for chart viewing.
     """
@@ -163,7 +163,7 @@ async def get_chart_data(
             including the data rows, SQL query, row count, and execution metadata.
         Returns ChartError JSON if the request fails.
 
-    Example:
+    Examples:
         result = await get_chart_data(manager, "default", chart_id=123)
         # Returns JSON with chart query data rows, SQL, row count, and metadata.
     """

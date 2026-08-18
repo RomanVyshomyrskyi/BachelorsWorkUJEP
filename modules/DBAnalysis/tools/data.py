@@ -92,8 +92,6 @@ def _resolve_config(
 
     Returns:
         A dictionary with keys: db_type, host, port, dbname, user, password.
-
-    Description:
         1. If db_id is provided, look up the config in DbManager and return it.
         2. If no db_id, require all of db_type, host, user, dbname to be provided.
         3. Resolve the port using the default if not specified.
@@ -173,8 +171,6 @@ def tool_run_sql(
     Returns:
         A JSON string containing the query results as a list of dictionaries,
         or an error message string if the query fails.
-
-    Description:
         1. Resolves the default port if not explicitly provided.
         2. Creates a ConnectionDetails object and gets the appropriate strategy.
         3. Opens a database context manager (connect -> execute -> disconnect).
@@ -246,8 +242,6 @@ def tool_get_table_data(
     Returns:
         A JSON string containing the table rows as a list of dictionaries,
         or an error message string if the operation fails.
-
-    Description:
         1. Validates the table name against SQL identifier patterns.
         2. Resolves the default port if not explicitly provided.
         3. Creates a ConnectionDetails object and gets the appropriate strategy.
@@ -300,8 +294,6 @@ def tool_get_table_data(
 def register_data_tools(mcp, db_manager=None):
     """
     Register data-related MCP tools with the FastMCP server.
-
-    Description:
         Maps the tool_run_sql and tool_get_table_data functions to their
         respective MCP tool names for invocation by MCP clients.
 

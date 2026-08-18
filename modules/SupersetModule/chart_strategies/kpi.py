@@ -10,8 +10,6 @@ from ._base import ChartParamsStrategy
 class BigNumberChartStrategy(ChartParamsStrategy):
     """
     Big Number chart strategy with optional trend line (big_number).
-
-    Description:
         Generates params for a KPI card showing a single metric value,
         optionally with a trend line over time.
     """
@@ -34,8 +32,6 @@ class BigNumberChartStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build big_number chart params with trend line support.
-
-        Description:
             Sets metric, optional time axis for trend line, time grain, and
             trend line toggle. Supports color customization and font sizing.
 
@@ -60,8 +56,6 @@ class BigNumberChartStrategy(ChartParamsStrategy):
 class BigNumberTotalStrategy(ChartParamsStrategy):
     """
     Big Number Total chart strategy (big_number_total).
-
-    Description:
         Generates params for a KPI card showing a single total value without trend line.
         Simpler than big_number — only requires a metric.
     """
@@ -78,8 +72,6 @@ class BigNumberTotalStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build big_number_total chart params.
-
-        Description:
             Merges big_number_total DEFAULTS with kwargs overrides, sets viz_type
             and datasource, then returns the complete params dict. Simpler than
             big_number — only requires a metric, with no trend line or time axis.
@@ -102,8 +94,6 @@ class BigNumberTotalStrategy(ChartParamsStrategy):
 class GaugeChartStrategy(ChartParamsStrategy):
     """
     Gauge chart strategy (gauge_chart).
-
-    Description:
         Generates params for a gauge/meter visualization showing a single value
         against a defined range. Useful for KPIs with targets.
     """
@@ -127,8 +117,6 @@ class GaugeChartStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build gauge chart params with groupby categories and a metric value.
-
-        Description:
             Merges DEFAULTS with kwargs overrides. The gauge chart shows a single
             metric value against a range, visualized as a speedometer-like dial.
             Groupby defines the gauge segments/categories.

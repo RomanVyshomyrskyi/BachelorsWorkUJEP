@@ -36,7 +36,7 @@ async def transfer_dashboard(
         JSON string with transfer results, including updated chart/dashboard IDs
             on the target server. Returns NEED_INPUT if manual mappings are required.
 
-    Example:
+    Examples:
         result = await transfer_dashboard(
             manager, source_server_id="source", target_server_id="target",
             dashboard_id=789, db_mappings='{"1": 2}', table_mappings='{"old": "new"}'

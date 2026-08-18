@@ -117,7 +117,7 @@ def chart_to_mermaid(
     Returns:
         Mermaid diagram string suitable for rendering in Markdown.
 
-        Example:
+        Examples:
             >>> print(chart_to_mermaid("pie", {"metric": "count", "groupby": ["product_line"]}, "Sales Pie"))
             pie title "Sales Pie"
                 "product_line" : 30

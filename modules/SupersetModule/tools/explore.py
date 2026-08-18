@@ -48,7 +48,7 @@ async def generate_explore_link(
         and a note that this is a temporary exploration link. Returns ExploreError
         JSON on failure.
 
-    Example:
+    Examples:
         result = await generate_explore_link(manager, server_id="main", dataset_id=42)
         # Returns JSON with a URL for interactive exploration; does NOT create a permanent chart
     """

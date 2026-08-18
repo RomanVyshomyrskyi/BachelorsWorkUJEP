@@ -98,8 +98,6 @@ _REGISTRY: Dict[str, ChartParamsStrategy] = {
 def get_standard_chart_params(viz_type: str, datasource_id: int, **kwargs) -> Dict[str, Any]:
     """
     Generate chart params using the strategy for the requested viz_type.
-
-    Description:
         Public API function that resolves a user-friendly chart type name to the
         actual Superset viz_type, looks up the corresponding strategy from the
         registry, and calls its build() method. Falls back to minimal params
@@ -118,7 +116,7 @@ def get_standard_chart_params(viz_type: str, datasource_id: int, **kwargs) -> Di
         chart creation API. Contains keys like 'datasource', 'viz_type', 'metrics',
         'groupby', 'adhoc_filters', 'row_limit', and chart-type-specific fields.
 
-    Example:
+    Examples:
         >>> params = get_standard_chart_params("line", 13,
         ...     x_axis="order_date",
         ...     time_grain_sqla="P1M",

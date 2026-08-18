@@ -15,8 +15,6 @@ def validate_datasource_compatibility(
 ) -> List[str]:
     """
     Validate that the datasource and params are compatible for the viz type.
-
-    Description:
         Checks datasource-level compatibility requirements by cross-referencing
         chart params against required/optional fields and column data types.
         Used as a secondary check after metric format validation.
@@ -38,7 +36,7 @@ def validate_datasource_compatibility(
         - time series charts prefer temporal x_axis
         - big_number trendline needs temporal x_axis
 
-        Example:
+        Examples:
             >>> cols = [{"column_name": "order_date", "type": "DATETIME"}]
             >>> errors = validate_datasource_compatibility("echarts_timeseries_line",
             ...     {"x_axis": "order_date", "granularity_sqla": "order_date"},

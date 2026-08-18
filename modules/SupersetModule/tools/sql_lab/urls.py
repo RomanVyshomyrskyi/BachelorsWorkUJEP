@@ -35,7 +35,7 @@ async def open_sql_lab_with_context(
         JSON string containing the SQL Lab URL, database_id, sql (if provided),
         and schema (if provided). Returns SqlLabError JSON if the server is not found.
 
-    Example:
+    Examples:
         result = await open_sql_lab_with_context(
             manager, server_id="main", database_id=1,
             sql="SELECT * FROM public.sales", schema="public"

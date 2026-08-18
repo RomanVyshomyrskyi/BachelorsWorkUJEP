@@ -10,8 +10,6 @@ from ._base import ChartParamsStrategy
 class RadarStrategy(ChartParamsStrategy):
     """
     Radar chart strategy (radar).
-
-    Description:
         Generates params for a radar/spider chart showing multiple metrics across
         categories. Requires groupby for dimension labels and metrics for axes.
     """
@@ -35,8 +33,6 @@ class RadarStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build radar chart params with groupby categories and multiple metrics.
-
-        Description:
             Merges DEFAULTS with kwargs overrides. The radar/spider chart plots
             multiple metrics on separate axes for each groupby category, allowing
             visual comparison across dimensions.
@@ -60,8 +56,6 @@ class RadarStrategy(ChartParamsStrategy):
 class WordCloudStrategy(ChartParamsStrategy):
     """
     Word cloud chart strategy (word_cloud).
-
-    Description:
         Generates params for a word cloud where font size represents metric value
         for each text category. Requires a series column and metric.
     """
@@ -79,8 +73,6 @@ class WordCloudStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build word cloud chart params with series column and metric.
-
-        Description:
             Merges DEFAULTS with kwargs overrides. The word cloud displays text
             labels from the series column sized proportionally to the metric value.
             Higher metric values produce larger, more prominent labels.

@@ -14,8 +14,6 @@ from typing import Any, Dict, List
 def generate_robust_dashboard_layout(chart_info: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Generates a robust position_json for Superset.
-
-    Description:
         Builds a nested layout dictionary that enforces the ROOT → GRID → ROW →
         CHART hierarchy required by Superset's frontend. Charts are grouped into
         rows of 2 (6 columns each in a 12-column Bootstrap grid) to ensure

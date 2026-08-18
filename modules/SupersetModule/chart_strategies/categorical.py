@@ -22,8 +22,6 @@ from ._base import ChartParamsStrategy
 class PieChartStrategy(ChartParamsStrategy):
     """
     Pie chart strategy (pie).
-
-    Description:
         Generates params for a pie/donut chart showing proportions of categories.
         Requires a groupby column for slices and a metric for slice sizes.
     """
@@ -49,8 +47,6 @@ class PieChartStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build pie chart params with user overrides applied to defaults.
-
-        Description:
             Merges DEFAULTS with kwargs overrides for groupby (slice categories)
             and metric (slice sizes), sets viz_type and datasource, then returns
             the complete params dict ready for Superset API.
@@ -74,8 +70,6 @@ class PieChartStrategy(ChartParamsStrategy):
 class FunnelStrategy(ChartParamsStrategy):
     """
     Funnel chart strategy (funnel).
-
-    Description:
         Generates params for a funnel visualization showing stages of a process
         (e.g., sales pipeline). Each groupby category becomes a stage.
     """
@@ -97,8 +91,6 @@ class FunnelStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build funnel chart params with stage categories and metric.
-
-        Description:
             Merges DEFAULTS with kwargs overrides. The funnel chart shows
             sequential stages (from groupby categories) sized by metric values,
             illustrating process flow and drop-off between stages.
@@ -122,8 +114,6 @@ class FunnelStrategy(ChartParamsStrategy):
 class WaterfallStrategy(ChartParamsStrategy):
     """
     Waterfall chart strategy (waterfall).
-
-    Description:
         Generates params for a waterfall chart showing cumulative effect of
         positive and negative values over time. Requires x_axis, time_grain, and metric.
     """
@@ -145,8 +135,6 @@ class WaterfallStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build waterfall chart params with time axis and metric.
-
-        Description:
             Sets x_axis for time dimension, time_grain_sqla for aggregation level,
             optional groupby for series, and metric for values.
 

@@ -11,8 +11,6 @@ from typing import Dict, Any, List
 def calculate_polynomial_regression(X: List[List[float]], y: List[float], degree: int = 2) -> Dict[str, Any]:
     """
     Calculate Polynomial Regression of a given degree.
-
-    Description:
         Transforms the input features into polynomial features (e.g., x1, x1^2, x1*x2, ...)
         up to the specified degree, then fits a linear regression model on those transformed
         features. This enables modeling non-linear relationships as a linear combination of

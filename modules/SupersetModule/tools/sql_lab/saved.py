@@ -43,7 +43,7 @@ async def save_sql_query(
         JSON string containing the saved query's details (ID, label, SQL,
         database reference) on success, or SqlLabError JSON on failure.
 
-    Example:
+    Examples:
         result = await save_sql_query(
             manager, server_id="main", database_id=1,
             label="Monthly Sales Report", sql="SELECT * FROM public.sales",

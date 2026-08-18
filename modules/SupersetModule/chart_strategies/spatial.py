@@ -11,8 +11,6 @@ from ._base import ChartParamsStrategy
 class WorldMapStrategy(ChartParamsStrategy):
     """
     World map chart strategy (world_map).
-
-    Description:
         Generates params for a choropleth world map showing metric values by geographic region.
         Requires groupby for country/region and metric for color intensity.
     """
@@ -28,8 +26,6 @@ class WorldMapStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build world map chart params with groupby regions and metric.
-
-        Description:
             Merges DEFAULTS with kwargs overrides. The world map displays metric
             values as color intensity on geographical regions. Groupby defines the
             country/region column, and metric controls choropleth color intensity.

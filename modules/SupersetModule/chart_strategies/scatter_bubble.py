@@ -10,8 +10,6 @@ from ._base import ChartParamsStrategy
 class ScatterChartStrategy(ChartParamsStrategy):
     """
     Scatter plot strategy for time series data (echarts_timeseries_scatter).
-
-    Description:
         Generates params for a time-based scatter plot, showing individual data
         points as circles over a time axis. Good for spotting outliers and patterns.
     """
@@ -48,8 +46,6 @@ class ScatterChartStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build scatter plot params with user overrides applied to defaults.
-
-        Description:
             Merges DEFAULTS with kwargs overrides, sets viz_type and datasource,
             then returns the complete params dict ready for Superset API. Uses
             daily time grain (P1D) by default for finer scatter granularity.
@@ -75,8 +71,6 @@ class ScatterChartStrategy(ChartParamsStrategy):
 class BubbleChartStrategy(ChartParamsStrategy):
     """
     Bubble chart strategy (bubble_v2).
-
-    Description:
         Generates params for a bubble chart showing 3 dimensions: x, y, and bubble size.
         Requires x, y, and size fields, plus an optional series for color grouping.
     """
@@ -121,8 +115,6 @@ class BubbleChartStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build bubble chart params with user overrides applied to defaults.
-
-        Description:
             Sets x, y (dimensions), size (metric for bubble radius), and series for color grouping.
 
         Args:
@@ -148,8 +140,6 @@ class BubbleChartStrategy(ChartParamsStrategy):
 class MixedTimeseriesStrategy(ChartParamsStrategy):
     """
     Mixed timeseries strategy (mixed_timeseries).
-
-    Description:
         Generates params for a dual-axis chart combining two different chart types
         (e.g., line + bar) on shared time axis. Requires metrics (primary) and metrics_b (secondary).
     """
@@ -180,8 +170,6 @@ class MixedTimeseriesStrategy(ChartParamsStrategy):
     def build(self, datasource_id: int, **kwargs) -> Dict[str, Any]:
         """
         Build mixed timeseries params with dual-axis configuration.
-
-        Description:
             Sets primary metrics (metrics) and secondary metrics (metrics_b),
             each with their own groupby, series type, and visual properties.
 

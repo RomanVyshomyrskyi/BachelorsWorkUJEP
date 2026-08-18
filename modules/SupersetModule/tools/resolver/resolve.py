@@ -60,7 +60,7 @@ def resolve_metrics(
             - resolved_metrics: The metrics with corrected column names
             - list_of_warnings: Human-readable warnings about changes made
 
-    Example:
+    Examples:
         >>> resolve_metrics("SUM(sales)", [{"column_name": "Sales"}])
         ('SUM(Sales)', ["Metric column 'sales' renamed to 'Sales' to match dataset"])
     """
@@ -86,7 +86,7 @@ def resolve_groupby(
     Returns:
         Tuple of (resolved_groupby, list_of_warnings).
 
-    Example:
+    Examples:
         >>> resolve_groupby("product_line", [{"column_name": "Product_Line"}])
         ('Product_Line', ["Groupby column 'product_line' renamed to 'Product_Line' to match dataset"])
     """
@@ -116,7 +116,7 @@ def resolve_chart_params(
             - resolved_params: A copy of params with all column names corrected
             - list_of_warnings: Human-readable warnings about all changes made
 
-    Example:
+    Examples:
         >>> params = {"metric": "SUM(sales)", "groupby": "product_line"}
         >>> resolved, warns = resolve_chart_params(params, [{"column_name": "Sales"}])
         >>> resolved["metric"]

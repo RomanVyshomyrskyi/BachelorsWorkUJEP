@@ -66,8 +66,6 @@ def tool_analyze_db(
         - The normalization rules reference.
         - The database schema representation (tables, columns, relationships).
         - Instructions for the AI to analyze the schema against the rules.
-
-    Description:
         1. Resolves database configuration from db_id or individual fields.
         2. Creates a ConnectionDetails object and gets the appropriate strategy.
         3. Opens a database context manager (connect -> extract schema -> disconnect).
@@ -140,8 +138,6 @@ Please analyze the schema above based on the normalization rules provided.
 def register_analysis_tools(mcp, db_manager=None):
     """
     Register analysis-related MCP tools with the FastMCP server.
-
-    Description:
         Maps the tool_get_rules and tool_analyze_db functions to their
         respective MCP tool names. The analyze_database_schema tool is
         registered as a nested function that passes the db_manager.

@@ -48,7 +48,7 @@ async def profile_table(
         statistics (nulls, distinct count, min, max, avg, stddev, top values),
         and overall table metadata.
 
-    Example:
+    Examples:
         result = await profile_table(manager, server_id="main", database_id=1, schema="public", table="sales")
         # Returns JSON with row count, per-column stats (nulls, min, max, top values), and table metadata
     """
@@ -81,7 +81,7 @@ async def suggest_metrics(
         JSON string containing suggested metrics for each numeric column,
         including recommended aggregation functions (SUM, AVG, COUNT, MIN, MAX).
 
-    Example:
+    Examples:
         result = await suggest_metrics(manager, server_id="main", database_id=1, schema="public", table="sales")
         # Returns JSON with per-column metric suggestions (SUM for amount, AVG for price, COUNT for id)
     """
@@ -114,7 +114,7 @@ async def suggest_dimensions(
         JSON string containing suggested dimension columns with their types
         (text, categorical, date, boolean) and suitability for grouping/filtering.
 
-    Example:
+    Examples:
         result = await suggest_dimensions(manager, server_id="main", database_id=1, schema="public", table="sales")
         # Returns JSON with dimension suggestions (product_name as text, sale_date as date, region as categorical)
     """
@@ -151,7 +151,7 @@ async def get_data_dictionary(
         JSON string containing the data dictionary with column names, types,
         recommended roles, and optionally statistics for each column.
 
-    Example:
+    Examples:
         result = await get_data_dictionary(
             manager, server_id="main", database_id=1, schema="public",
             table="sales", include_statistics=True

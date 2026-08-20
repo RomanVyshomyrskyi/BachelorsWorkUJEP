@@ -454,10 +454,16 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     async def tool_import_dashboard(config_json: str, target_server_id: str, db_mapping: Optional[str] = None, skip_existing: bool = True) -> str:
         """Import a dashboard export JSON into a target Superset server. Recreates the dashboard with all charts (full params preserved), datasets, and databases with automatic ID remapping.
 
+        Accepts config_json as either:
+        1. A file path (e.g. "/home/user/exports/dashboard_42.json") - file will be read automatically
+        2. Raw JSON content string (full output from export_dashboard_to_json)
+
+        File paths are recommended for large exports to avoid MCP payload size limits.
+
         Follows strict dependency order: databases → datasets → charts → dashboard. All datasource references, chart IDs in position_json, and database references are remapped automatically.
 
         Args:
-            config_json: The full JSON string from export_dashboard_to_json. Can be the raw JSON output or file contents.
+            config_json: Either a file path to the exported JSON file, or raw JSON string from export_dashboard_to_json. For large exports, use file path.
             target_server_id: The Superset server ID to import into (e.g. "dev", "staging", "production").
             db_mapping: Optional JSON string mapping source database IDs to target database IDs. Format: {"1": 5, "2": 7}. Only needed when the target server has differently numbered databases. If omitted, databases are matched by name.
             skip_existing: If True (default), skip resources that already exist on the target (matched by name). Set to False to force recreation (may fail if names conflict).
@@ -466,15 +472,21 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
             JSON string with the import report: summary counts, id_mappings (source→new), errors, and timing.
 
         Example:
-            # Simple import: databases matched by name
+            # Using file path (recommended for large exports):
             result = await tool_import_dashboard(
-                config_json=open("dashboard_42_export.json").read(),
+                config_json="/home/user/exports/dashboard_42.json",
                 target_server_id="dev"
             )
 
-            # Import with explicit database mapping (source db 1 → target db 3)
+            # Using raw JSON string:
             result = await tool_import_dashboard(
-                config_json=open("dashboard_42_export.json").read(),
+                config_json='{"export_type": "dashboard_transfer", ...}',
+                target_server_id="dev"
+            )
+
+            # Import with explicit database mapping:
+            result = await tool_import_dashboard(
+                config_json="/home/user/exports/dashboard_42.json",
                 target_server_id="staging",
                 db_mapping='{"1": 3}',
                 skip_existing=True

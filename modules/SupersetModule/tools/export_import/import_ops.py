@@ -39,6 +39,13 @@ async def import_dashboard_from_json(
     dashboard with all its charts, datasets, and databases on the target
     server. Follows strict dependency order to ensure all references are valid.
 
+    Supports two input formats for ``config_json``:
+    1. A file path string (e.g. ``"/home/user/exports/dashboard_42.json"``) - the file will be read
+    2. Raw JSON content as a string (the full JSON output from export_dashboard_to_json)
+
+    The file path format is recommended for large exports to avoid passing
+    multi-megabyte strings through the MCP protocol.
+
     Database mapping: If ``db_mapping`` is provided, source database IDs are
     mapped to existing target database IDs. Without mapping, the tool attempts
     to match databases by name.
@@ -46,8 +53,9 @@ async def import_dashboard_from_json(
     Args:
         manager: ConnectionManager instance.
         target_server_id: The target Superset server ID.
-        config_json: JSON string from ``export_dashboard_to_json`` containing
-            a single dashboard with all its charts, datasets, and databases.
+        config_json: Either a file path to the exported JSON file, or raw JSON
+            string content from ``export_dashboard_to_json``. For large exports
+            with many charts, use a file path to avoid MCP payload limits.
         db_mapping: Optional dict mapping source database ID strings to
             target database IDs (e.g., ``{"1": 5}``). If a source database
             ID is not mapped, it will be matched by name on the target.
@@ -70,9 +78,37 @@ async def import_dashboard_from_json(
     except Exception as e:
         return log.collect(f"Error: Authentication failed: {e}")
 
+    # Load config: try file path first, then raw JSON
+    if not config_json or not config_json.strip():
+        return log.collect("Error: config_json is empty. Provide either a file path or raw JSON content.")
+
+    config_str = config_json.strip()
+
+    # Check if it looks like a file path (starts with /, ./, ../, or drive letter, and is not raw JSON)
+    import os
+    is_file_path = (
+        config_str.startswith('/') or
+        config_str.startswith('./') or
+        config_str.startswith('../') or
+        (len(config_str) > 1 and config_str[1] == ':') or
+        (os.path.exists(config_str) and os.path.isfile(config_str))
+    )
+
+    if is_file_path:
+        try:
+            with open(config_str, 'r', encoding='utf-8') as f:
+                config_str = f.read()
+            log.info(f"Loaded export config from file: {config_json}")
+        except FileNotFoundError:
+            return log.collect(f"Error: File not found: {config_json}")
+        except PermissionError:
+            return log.collect(f"Error: Permission denied reading file: {config_json}")
+        except OSError as e:
+            return log.collect(f"Error: Could not read file {config_json}: {e}")
+
     # Parse config
     try:
-        config = json.loads(config_json)
+        config = json.loads(config_str)
     except json.JSONDecodeError as e:
         return log.collect(f"Error: Invalid JSON: {e}")
 

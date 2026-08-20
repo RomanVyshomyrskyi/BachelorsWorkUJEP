@@ -451,19 +451,20 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         return await _export_dash(manager, server_id, dashboard_id)
 
     @mcp.tool(name="import_dashboard_from_json")
-    async def tool_import_dashboard(config_json: str, target_server_id: str, db_mapping: Optional[str] = None, skip_existing: bool = True) -> str:
+    async def tool_import_dashboard(config_json: Optional[str] = None, file_path: Optional[str] = None, target_server_id: str = "", db_mapping: Optional[str] = None, skip_existing: bool = True) -> str:
         """Import a dashboard export JSON into a target Superset server. Recreates the dashboard with all charts (full params preserved), datasets, and databases with automatic ID remapping.
 
-        Accepts config_json as either:
-        1. A file path (e.g. "/home/user/exports/dashboard_42.json") - file will be read automatically
-        2. Raw JSON content string (full output from export_dashboard_to_json)
+        Input options (use ONE of the following):
+        1. file_path — Path to the exported JSON file on disk (recommended for large exports)
+        2. config_json — Raw JSON string from export_dashboard_to_json
 
-        File paths are recommended for large exports to avoid MCP payload size limits.
+        Swagger usage: Just fill in file_path with the file path (e.g. /home/user/exports/dashboard_42.json). Do NOT fill in config_json when using file_path.
 
         Follows strict dependency order: databases → datasets → charts → dashboard. All datasource references, chart IDs in position_json, and database references are remapped automatically.
 
         Args:
-            config_json: Either a file path to the exported JSON file, or raw JSON string from export_dashboard_to_json. For large exports, use file path.
+            config_json: Raw JSON string from export_dashboard_to_json. Use this OR file_path, not both. For small exports or testing.
+            file_path: Path to the exported JSON file on disk. Use this OR config_json, not both. Recommended for large exports with many charts (Swagger users: use this field).
             target_server_id: The Superset server ID to import into (e.g. "dev", "staging", "production").
             db_mapping: Optional JSON string mapping source database IDs to target database IDs. Format: {"1": 5, "2": 7}. Only needed when the target server has differently numbered databases. If omitted, databases are matched by name.
             skip_existing: If True (default), skip resources that already exist on the target (matched by name). Set to False to force recreation (may fail if names conflict).
@@ -472,24 +473,22 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
             JSON string with the import report: summary counts, id_mappings (source→new), errors, and timing.
 
         Example:
-            # Using file path (recommended for large exports):
-            result = await tool_import_dashboard(
-                config_json="/home/user/exports/dashboard_42.json",
-                target_server_id="dev"
-            )
+            # Swagger — just type the file path:
+            file_path = "/home/user/exports/dashboard_42.json"
+            target_server_id = "dev"
 
-            # Using raw JSON string:
+            # With database mapping:
             result = await tool_import_dashboard(
-                config_json='{"export_type": "dashboard_transfer", ...}',
-                target_server_id="dev"
-            )
-
-            # Import with explicit database mapping:
-            result = await tool_import_dashboard(
-                config_json="/home/user/exports/dashboard_42.json",
+                file_path="/home/user/exports/dashboard_42.json",
                 target_server_id="staging",
                 db_mapping='{"1": 3}',
                 skip_existing=True
+            )
+
+            # Using raw JSON string (for small exports):
+            result = await tool_import_dashboard(
+                config_json='{"export_type": "dashboard_transfer", ...}',
+                target_server_id="dev"
             )
         """
         import json
@@ -503,8 +502,20 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
                 from modules.SupersetModule.exceptions import ChartError
                 return log.collect(ChartError("Invalid db_mapping JSON. Expected format: {\"source_db_id\": \"target_db_id\"}").to_json())
 
+        if not file_path and not config_json:
+            from modules.log_utils import LogCollector
+            log = LogCollector(__name__)
+            from modules.SupersetModule.exceptions import ChartError
+            return log.collect(ChartError("Provide either file_path (path to JSON file on disk) or config_json (raw JSON string). Not both.").to_json())
+
+        if file_path and config_json:
+            from modules.log_utils import LogCollector
+            log = LogCollector(__name__)
+            from modules.SupersetModule.exceptions import ChartError
+            return log.collect(ChartError("Provide either file_path OR config_json, not both.").to_json())
+
         from modules.SupersetModule.tools.export_import import import_dashboard_from_json as _import_dash
-        return await _import_dash(manager, target_server_id, config_json, db_mapping=db_map, skip_existing=skip_existing)
+        return await _import_dash(manager, target_server_id, file_path or config_json or "", db_mapping=db_map, skip_existing=skip_existing)
 
     # --- Semantic & Data Profiling Tools ---
 

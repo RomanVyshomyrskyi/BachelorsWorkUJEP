@@ -29,7 +29,7 @@ log = LogCollector(__name__)
 async def import_dashboard_from_json(
     manager: ConnectionManager,
     target_server_id: str,
-    config_json: str,
+    config_str: str,
     db_mapping: Optional[Dict[str, int]] = None,
     skip_existing: bool = True,
 ) -> str:
@@ -39,13 +39,6 @@ async def import_dashboard_from_json(
     dashboard with all its charts, datasets, and databases on the target
     server. Follows strict dependency order to ensure all references are valid.
 
-    Supports two input formats for ``config_json``:
-    1. A file path string (e.g. ``"/home/user/exports/dashboard_42.json"``) - the file will be read
-    2. Raw JSON content as a string (the full JSON output from export_dashboard_to_json)
-
-    The file path format is recommended for large exports to avoid passing
-    multi-megabyte strings through the MCP protocol.
-
     Database mapping: If ``db_mapping`` is provided, source database IDs are
     mapped to existing target database IDs. Without mapping, the tool attempts
     to match databases by name.
@@ -53,7 +46,7 @@ async def import_dashboard_from_json(
     Args:
         manager: ConnectionManager instance.
         target_server_id: The target Superset server ID.
-        config_json: Either a file path to the exported JSON file, or raw JSON
+        config_str: Either a file path to the exported JSON file, or raw JSON
             string content from ``export_dashboard_to_json``. For large exports
             with many charts, use a file path to avoid MCP payload limits.
         db_mapping: Optional dict mapping source database ID strings to
@@ -66,6 +59,7 @@ async def import_dashboard_from_json(
         JSON string with the import report including summary, id_mappings,
         and any errors.
     """
+    import os
     mc = get_metrics()
     start_time = time.monotonic()
 
@@ -78,37 +72,36 @@ async def import_dashboard_from_json(
     except Exception as e:
         return log.collect(f"Error: Authentication failed: {e}")
 
-    # Load config: try file path first, then raw JSON
-    if not config_json or not config_json.strip():
-        return log.collect("Error: config_json is empty. Provide either a file path or raw JSON content.")
+    # Load config: if config_str is a file path, read it
+    config_content = config_str.strip()
 
-    config_str = config_json.strip()
+    if not config_content:
+        return log.collect("Error: config_str is empty. Provide either a file path or raw JSON content.")
 
-    # Check if it looks like a file path (starts with /, ./, ../, or drive letter, and is not raw JSON)
-    import os
+    # Check if it looks like a file path (starts with /, ./, ../, or drive letter)
     is_file_path = (
-        config_str.startswith('/') or
-        config_str.startswith('./') or
-        config_str.startswith('../') or
-        (len(config_str) > 1 and config_str[1] == ':') or
-        (os.path.exists(config_str) and os.path.isfile(config_str))
+        config_content.startswith('/') or
+        config_content.startswith('./') or
+        config_content.startswith('../') or
+        (len(config_content) > 1 and config_content[1] == ':') or
+        (os.path.exists(config_content) and os.path.isfile(config_content))
     )
 
     if is_file_path:
         try:
-            with open(config_str, 'r', encoding='utf-8') as f:
-                config_str = f.read()
-            log.info(f"Loaded export config from file: {config_json}")
+            with open(config_content, 'r', encoding='utf-8') as f:
+                config_content = f.read()
+            log.info(f"Loaded export config from file: {config_str}")
         except FileNotFoundError:
-            return log.collect(f"Error: File not found: {config_json}")
+            return log.collect(f"Error: File not found: {config_str}")
         except PermissionError:
-            return log.collect(f"Error: Permission denied reading file: {config_json}")
+            return log.collect(f"Error: Permission denied reading file: {config_str}")
         except OSError as e:
-            return log.collect(f"Error: Could not read file {config_json}: {e}")
+            return log.collect(f"Error: Could not read file {config_str}: {e}")
 
     # Parse config
     try:
-        config = json.loads(config_str)
+        config = json.loads(config_content)
     except json.JSONDecodeError as e:
         return log.collect(f"Error: Invalid JSON: {e}")
 

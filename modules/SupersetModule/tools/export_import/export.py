@@ -1,19 +1,12 @@
 """
-Export all Superset resources to a single JSON structure.
+Per-dashboard export to JSON.
 
-This module provides functionality to export all dashboards, charts, datasets,
-databases, CSS templates, and annotations from a Superset server into a
-comprehensive JSON format suitable for backup, migration, or archival.
-
-The exported JSON captures:
-- All database connections with their configurations
-- All datasets (both physical tables and virtual datasets with SQL)
-- All charts with their params, viz_types, and datasource mappings
-- All dashboards with their position_json and chart linkages
-- CSS templates and annotation layers
+Exports ONE dashboard with ALL its charts (full params, datasource info),
+datasets (columns, metrics, SQL for virtual datasets), and databases into
+a single JSON structure suitable for transfer to another Superset instance.
 
 MCP Tools Provided:
-    - export_superset_config: Export all resources from a server to JSON
+    - export_dashboard_to_json: Export one dashboard with all charts/datasets/databases
 """
 
 import json
@@ -29,42 +22,27 @@ from modules.metrics import get_metrics
 log = LogCollector(__name__)
 
 
-async def export_superset_config(
+async def export_dashboard_to_json(
     manager: ConnectionManager,
     server_id: str,
-    include_dashboards: bool = True,
-    include_charts: bool = True,
-    include_datasets: bool = True,
-    include_databases: bool = True,
-    include_css_templates: bool = True,
-    include_annotations: bool = True,
+    dashboard_id: int,
 ) -> str:
-    """Export all Superset resources from a server into a single JSON structure.
+    """Export a single dashboard with ALL its charts, datasets, and databases to JSON.
 
-    Fetches all databases, datasets, charts, dashboards, CSS templates, and
-    annotation layers from the specified Superset server and assembles them
-    into a comprehensive export format. The export includes full resource
-    details (params, metadata, configurations) with read-only fields stripped
-    for clean serialization.
+    Fetches the dashboard metadata, all charts (with full params, viz_type, datasource
+    references), all datasets (columns, metrics, SQL for virtual datasets), and all
+    databases (connection configs) into a single JSON structure. The export preserves
+    the complete layout (position_json) so the dashboard can be recreated with
+    identical chart placement on another server.
 
     Args:
-        manager: ConnectionManager instance with Superset connection details.
-        server_id: The ID of the Superset server to export from.
-        include_dashboards: Whether to include dashboards (default: True).
-        include_charts: Whether to include charts (default: True).
-        include_datasets: Whether to include datasets (default: True).
-        include_databases: Whether to include databases (default: True).
-        include_css_templates: Whether to include CSS templates (default: True).
-        include_annotations: Whether to include annotation layers (default: True).
+        manager: ConnectionManager instance.
+        server_id: The Superset server ID to export from.
+        dashboard_id: The ID of the dashboard to export.
 
     Returns:
-        JSON string containing the complete export with all requested resources,
-        metadata about the export (server_id, timestamp, version), and a
-        summary of items exported by type.
-
-    Examples:
-        result = await export_superset_config(manager, "production")
-        # Returns JSON with databases, datasets, charts, dashboards, etc.
+        JSON string with the complete dashboard export including metadata,
+        dashboards (single entry), charts, datasets, databases, and a summary.
     """
     mc = get_metrics()
     start_time = time.monotonic()
@@ -79,158 +57,189 @@ async def export_superset_config(
         return log.collect(f"Error: Authentication failed: {e}")
 
     export_data: Dict[str, Any] = {
-        "export_version": "1.0",
+        "export_type": "dashboard_transfer",
+        "export_version": "2.0",
         "source_server": server_id,
+        "source_dashboard_id": dashboard_id,
         "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "resources": {}
+        "resources": {
+            "dashboards": [],
+            "charts": [],
+            "datasets": [],
+            "databases": [],
+        },
+        "summary": {},
+        "errors": [],
     }
 
-    summary: Dict[str, int] = {}
-    errors: List[str] = []
+    # --- Fetch dashboard ---
+    log.info(f"Fetching dashboard {dashboard_id} from {server_id}...")
+    dash_str = await impl_get_resource(manager, server_id, "dashboard", dashboard_id)
+    dash_data = _parse_json_result(dash_str)
+    if not dash_data:
+        err = f"Could not get dashboard {dashboard_id} from {server_id}: {dash_str}"
+        export_data["errors"].append(err)
+        _finalize_export(export_data, start_time)
+        return json.dumps(export_data, indent=2, default=str)
 
-    # Export databases
-    if include_databases:
-        log.info(f"Exporting databases from {server_id}...")
-        db_result = await impl_list_resources(manager, server_id, "database")
-        db_data = _parse_json_result(db_result)
-        if db_data:
-            databases = []
-            for db in db_data.get("result", []):
-                db_detail_str = await impl_get_resource(manager, server_id, "database", db.get("id"))
-                db_detail = _parse_json_result(db_detail_str)
-                if db_detail:
-                    db_obj = _sanitize_resource(db_detail.get("result", {}), ["id", "created_by", "changed_by", "created_on", "changed_on"])
-                    databases.append(db_obj)
-            export_data["resources"]["databases"] = databases
-            summary["databases"] = len(databases)
-            log.info(f"  Exported {len(databases)} databases")
-        else:
-            errors.append(f"Failed to list databases: {db_result}")
+    dash_result = dash_data.get("result", {})
+    dashboard_title = dash_result.get("dashboard_title", f"Dashboard {dashboard_id}")
 
-    # Export datasets
-    if include_datasets:
-        log.info(f"Exporting datasets from {server_id}...")
-        ds_result = await impl_list_resources(manager, server_id, "dataset")
-        ds_data = _parse_json_result(ds_result)
-        if ds_data:
-            datasets = []
-            for ds in ds_data.get("result", []):
-                ds_detail_str = await impl_get_resource(manager, server_id, "dataset", ds.get("id"))
-                ds_detail = _parse_json_result(ds_detail_str)
-                if ds_detail:
-                    ds_obj = _sanitize_resource(ds_detail.get("result", {}), ["id", "created_by", "changed_by", "created_on", "changed_on"])
-                    datasets.append(ds_obj)
-            export_data["resources"]["datasets"] = datasets
-            summary["datasets"] = len(datasets)
-            log.info(f"  Exported {len(datasets)} datasets")
-        else:
-            errors.append(f"Failed to list datasets: {ds_result}")
+    # Extract chart IDs from position_json
+    position_json_raw = dash_result.get("position_json", "{}")
+    chart_ids = _extract_chart_ids_from_position_json(position_json_raw)
 
-    # Export charts
-    if include_charts:
-        log.info(f"Exporting charts from {server_id}...")
-        chart_result = await impl_list_resources(manager, server_id, "chart")
-        chart_data = _parse_json_result(chart_result)
-        if chart_data:
-            charts = []
-            for ch in chart_data.get("result", []):
-                chart_detail_str = await impl_get_resource(manager, server_id, "chart", ch.get("id"))
-                chart_detail = _parse_json_result(chart_detail_str)
-                if chart_detail:
-                    chart_obj = _sanitize_resource(chart_detail.get("result", {}), ["id", "created_by", "changed_by", "created_on", "changed_on"])
-                    charts.append(chart_obj)
-            export_data["resources"]["charts"] = charts
-            summary["charts"] = len(charts)
-            log.info(f"  Exported {len(charts)} charts")
-        else:
-            errors.append(f"Failed to list charts: {chart_result}")
+    # Also check the charts list from dashboard metadata
+    if not chart_ids:
+        source_charts = dash_result.get("charts", [])
+        for c in source_charts:
+            if isinstance(c, dict):
+                cid = c.get("id")
+            elif isinstance(c, (int, str)):
+                cid = c
+            else:
+                continue
+            if cid:
+                chart_ids.append(int(cid) if isinstance(cid, str) else cid)
 
-    # Export dashboards
-    if include_dashboards:
-        log.info(f"Exporting dashboards from {server_id}...")
-        dash_result = await impl_list_resources(manager, server_id, "dashboard")
-        dash_data = _parse_json_result(dash_result)
-        if dash_data:
-            dashboards = []
-            for dash in dash_data.get("result", []):
-                dash_detail_str = await impl_get_resource(manager, server_id, "dashboard", dash.get("id"))
-                dash_detail = _parse_json_result(dash_detail_str)
-                if dash_detail:
-                    dash_obj = _sanitize_resource(dash_detail.get("result", {}), ["id", "created_by", "changed_by", "created_on", "changed_on"])
-                    dashboards.append(dash_obj)
-            export_data["resources"]["dashboards"] = dashboards
-            summary["dashboards"] = len(dashboards)
-            log.info(f"  Exported {len(dashboards)} dashboards")
-        else:
-            errors.append(f"Failed to list dashboards: {dash_result}")
+    log.info(f"Dashboard '{dashboard_title}' ({dashboard_id}) has {len(chart_ids)} charts")
 
-    # Export CSS templates
-    if include_css_templates:
-        log.info(f"Exporting CSS templates from {server_id}...")
-        css_result = await impl_list_resources(manager, server_id, "css_template")
-        css_data = _parse_json_result(css_result)
-        if css_data:
-            css_templates = _sanitize_list(css_data.get("result", []), ["id", "created_by", "changed_by", "created_on", "changed_on"])
-            export_data["resources"]["css_templates"] = css_templates
-            summary["css_templates"] = len(css_templates)
-            log.info(f"  Exported {len(css_templates)} CSS templates")
-        else:
-            errors.append(f"Failed to list CSS templates: {css_result}")
+    # --- Build dashboard export entry (sanitized) ---
+    dashboard_export = _sanitize_resource(dash_result, [
+        "id", "created_by", "changed_by", "created_on", "changed_on", "uuid"
+    ])
+    export_data["resources"]["dashboards"].append(dashboard_export)
 
-    # Export annotation layers
-    if include_annotations:
-        log.info(f"Exporting annotation layers from {server_id}...")
-        ann_result = await impl_list_resources(manager, server_id, "annotation_layer")
-        ann_data = _parse_json_result(ann_result)
-        if ann_data:
-            annotations = []
-            for ann in ann_data.get("result", []):
-                ann_detail_str = await impl_get_resource(manager, server_id, "annotation_layer", ann.get("id"))
-                ann_detail = _parse_json_result(ann_detail_str)
-                if ann_detail:
-                    ann_obj = _sanitize_resource(ann_detail.get("result", {}), ["id", "created_by", "changed_by", "created_on", "changed_on"])
-                    annotations.append(ann_obj)
-            export_data["resources"]["annotations"] = annotations
-            summary["annotations"] = len(annotations)
-            log.info(f"  Exported {len(annotations)} annotation layers")
-        else:
-            errors.append(f"Failed to list annotation layers: {ann_result}")
+    # --- Fetch each chart ---
+    chart_details: List[Dict[str, Any]] = []
+    unique_ds_ids: Dict[int, str] = {}
 
-    export_data["summary"] = summary
-    export_data["errors"] = errors
-    export_data["total_items"] = sum(summary.values())
-    export_data["export_duration_ms"] = int((time.monotonic() - start_time) * 1000)
+    for cid in chart_ids:
+        log.info(f"  Fetching chart {cid}...")
+        chart_str = await impl_get_resource(manager, server_id, "chart", cid)
+        chart_data = _parse_json_result(chart_str)
+        if not chart_data:
+            export_data["errors"].append(f"Could not get chart {cid}: {chart_str}")
+            continue
 
-    mc.tool_calls.labels(tool="export_superset_config", status="success").inc()
-    mc.tool_duration.labels(tool="export_superset_config").observe(time.monotonic() - start_time)
+        chart_result = chart_data.get("result", {})
+        chart_export = _sanitize_resource(chart_result, [
+            "id", "created_by", "changed_by", "created_on", "changed_on", "uuid"
+        ])
+        export_data["resources"]["charts"].append(chart_export)
+        chart_details.append(chart_export)
 
+        ds_id = chart_result.get("datasource_id")
+        if ds_id:
+            ds_type = chart_result.get("datasource_type", "table")
+            unique_ds_ids[int(ds_id)] = ds_type
+
+    # --- Fetch each dataset ---
+    for ds_id, ds_type in unique_ds_ids.items():
+        log.info(f"  Fetching dataset {ds_id}...")
+        ds_str = await impl_get_resource(manager, server_id, "dataset", ds_id)
+        ds_data = _parse_json_result(ds_str)
+        if not ds_data:
+            export_data["errors"].append(f"Could not get dataset {ds_id}: {ds_str}")
+            continue
+
+        ds_result = ds_data.get("result", {})
+        ds_export = _sanitize_resource(ds_result, [
+            "id", "created_by", "changed_by", "created_on", "changed_on", "uuid"
+        ])
+        export_data["resources"]["datasets"].append(ds_export)
+
+        db_id = ds_result.get("database")
+        if isinstance(db_id, dict):
+            db_id = db_id.get("id")
+        if db_id:
+            export_data.setdefault("_pending_dbs", set()).add(int(db_id))
+
+    # --- Fetch each database ---
+    if "_pending_dbs" in export_data:
+        for db_id in export_data["_pending_dbs"]:
+            log.info(f"  Fetching database {db_id}...")
+            db_str = await impl_get_resource(manager, server_id, "database", db_id)
+            db_data = _parse_json_result(db_str)
+            if not db_data:
+                export_data["errors"].append(f"Could not get database {db_id}: {db_str}")
+                continue
+
+            db_result = db_data.get("result", {})
+            db_export = _sanitize_resource(db_result, [
+                "id", "created_by", "changed_by", "created_on", "changed_on", "uuid"
+            ])
+            export_data["resources"]["databases"].append(db_export)
+
+    # Clean up internal key
+    export_data.pop("_pending_dbs", None)
+
+    # --- Summary ---
+    export_data["summary"] = {
+        "dashboard_id": dashboard_id,
+        "dashboard_title": dashboard_title,
+        "chart_count": len(chart_details),
+        "dataset_count": len(export_data["resources"]["datasets"]),
+        "database_count": len(export_data["resources"]["databases"]),
+        "chart_ids": chart_ids,
+        "dataset_ids": [ds.get("id") for ds in export_data["resources"]["datasets"]],
+        "database_ids": [db.get("id") for db in export_data["resources"]["databases"]],
+    }
+
+    _finalize_export(export_data, start_time)
     return json.dumps(export_data, indent=2, default=str)
 
 
+def _extract_chart_ids_from_position_json(position_json: Any) -> List[int]:
+    """Extract chart IDs from position_json (chartId or slice_id in meta/id)."""
+    if isinstance(position_json, str):
+        try:
+            pos_data = json.loads(position_json)
+        except (json.JSONDecodeError, TypeError):
+            return []
+    else:
+        pos_data = position_json
+
+    found: set = set()
+
+    def _find(obj: Any) -> None:
+        if isinstance(obj, dict):
+            cid = obj.get("chartId") or obj.get("slice_id")
+            if cid is not None:
+                try:
+                    found.add(int(cid))
+                except (ValueError, TypeError):
+                    pass
+            # Also check meta.chartId or meta.id
+            meta = obj.get("meta", {})
+            if isinstance(meta, dict):
+                mid = meta.get("chartId") or meta.get("id")
+                if mid is not None:
+                    try:
+                        found.add(int(mid))
+                    except (ValueError, TypeError):
+                        pass
+            for v in obj.values():
+                _find(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                _find(item)
+
+    _find(pos_data)
+    return sorted(found)
+
+
 def _sanitize_resource(resource: Dict[str, Any], fields_to_remove: List[str]) -> Dict[str, Any]:
-    """Remove read-only fields from a resource dict.
-
-    Strips fields like id, created_by, changed_by, created_on, changed_on
-    which should not be directly copied during import (IDs will be remapped).
-
-    Args:
-        resource: The resource dictionary to sanitize.
-        fields_to_remove: List of field names to remove.
-
-    Returns:
-        New dictionary with specified fields removed.
-    """
+    """Remove read-only fields from a resource dict."""
     return {k: v for k, v in resource.items() if k not in fields_to_remove}
 
 
-def _sanitize_list(resources: List[Any], fields_to_remove: List[str]) -> List[Dict[str, Any]]:
-    """Remove read-only fields from a list of resources.
-
-    Args:
-        resources: List of resource dictionaries.
-        fields_to_remove: List of field names to remove.
-
-    Returns:
-        List of sanitized dictionaries.
-    """
-    return [_sanitize_resource(r if isinstance(r, dict) else {}, fields_to_remove) for r in resources]
+def _finalize_export(export_data: Dict[str, Any], start_time: float) -> None:
+    """Add timing and totals to export data."""
+    export_data["total_items"] = sum([
+        len(export_data["resources"]["dashboards"]),
+        len(export_data["resources"]["charts"]),
+        len(export_data["resources"]["datasets"]),
+        len(export_data["resources"]["databases"]),
+    ])
+    export_data["export_duration_ms"] = int((time.monotonic() - start_time) * 1000)

@@ -21,7 +21,8 @@ import inspect
 import importlib.util
 import logging
 from fastmcp import FastMCP
-from fastapi import FastAPI, Request, UploadFile, File
+from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
+from typing import Optional
 from fastapi.responses import RedirectResponse, Response
 import uvicorn
 from modules.registry import ModuleRegistry, resolve_dependency_order
@@ -646,38 +647,48 @@ UPLOAD_DIR = "/tmp/superset_uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @app.post("/upload_file")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: Optional[UploadFile] = File(None), content: Optional[str] = Form(None)):
     """
-    Upload a file (e.g. dashboard export JSON) to the server.
+    Save JSON content to the server for use with import tools.
 
-    This endpoint accepts multipart/form-data file uploads and saves them to a
-    temporary directory. Returns the saved file path which can be used with tools
-    that accept file_path parameters (e.g. import_dashboard_from_json).
+    Accepts EITHER:
+    1. A file upload (multipart/form-data) — choose file → Upload
+    2. Raw JSON string — paste the full JSON content into the "content" field
+
+    Returns the saved file path to use with the file_path parameter of import_dashboard_from_json.
 
     Returns:
-        JSON with the saved file path. Use this path with the file_path parameter
-        of import_dashboard_from_json.
+        JSON with the saved file path.
 
     Example:
-        # In Swagger: choose file → Upload
-        # Response: {"file_path": "/tmp/superset_uploads/dashboard_42_export.json"}
+        # Option 1 — File upload (Swagger): choose file → Upload
+        # Response: {"file_path": "/tmp/superset_uploads/abc123.json"}
+
+        # Option 2 — Raw JSON string (Swagger): paste into "content" field
+        # Response: {"file_path": "/tmp/superset_uploads/abc123.json"}
 
         # Then use:
-        # file_path = "/tmp/superset_uploads/dashboard_42_export.json"
+        # file_path = "/tmp/superset_uploads/abc123.json"
         # target_server_id = "dev"
     """
     import uuid
-    # Generate unique filename to avoid collisions
-    ext = os.path.splitext(file.filename)[1] if file.filename else ".json"
-    filename = f"{uuid.uuid4().hex}{ext}"
+    # Generate unique filename
+    filename = f"{uuid.uuid4().hex}.json"
     filepath = os.path.join(UPLOAD_DIR, filename)
 
-    # Save uploaded file
-    with open(filepath, "wb") as f:
-        content = await file.read()
-        f.write(content)
+    # Get content from file or text
+    if file and file.filename:
+        content_bytes = await file.read()
+    elif content:
+        content_bytes = content.encode("utf-8")
+    else:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Provide either a file or raw JSON content string.")
 
-    return {"file_path": filepath, "filename": file.filename, "size": len(content)}
+    with open(filepath, "wb") as f:
+        f.write(content_bytes)
+
+    return {"file_path": filepath, "size": len(content_bytes)}
 
 # 5. Add observability endpoints
 @app.get("/metrics")

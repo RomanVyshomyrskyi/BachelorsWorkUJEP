@@ -425,13 +425,61 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
 
     @mcp.tool(name="export_dashboard_to_json")
     async def tool_export_dashboard(server_id: str, dashboard_id: int) -> str:
-        """Export ONE dashboard with ALL its charts (full params, datasource info), datasets, and databases to a single JSON file. Preserves layout (position_json) for transfer to another Superset instance."""
+        """Export ONE dashboard with ALL its charts (full params, viz_type, datasource refs), datasets (columns, metrics, SQL), databases (connection configs), and layout (position_json) into a single JSON file.
+
+        Use this tool to create a portable backup of a dashboard that can be imported into another Superset instance with identical chart placement, parameters, and datasource references.
+
+        Args:
+            server_id: The Superset server ID (as defined in servers.json). E.g. "production", "dev", "staging".
+            dashboard_id: The integer ID of the dashboard to export.
+
+        Returns:
+            JSON string containing the full export with metadata, dashboards, charts, datasets, databases, summary, and timing info.
+
+        Example:
+            # Export dashboard ID 42 from the production server
+            result = await tool_export_dashboard(
+                server_id="production",
+                dashboard_id=42
+            )
+            # result is a JSON string you can save to a file:
+            # with open("dashboard_42_export.json", "w") as f:
+            #     f.write(result)
+            # Then pass that JSON to import_dashboard_from_json on another server.
+        """
         from modules.SupersetModule.tools.export_import import export_dashboard_to_json as _export_dash
         return await _export_dash(manager, server_id, dashboard_id)
 
     @mcp.tool(name="import_dashboard_from_json")
     async def tool_import_dashboard(config_json: str, target_server_id: str, db_mapping: Optional[str] = None, skip_existing: bool = True) -> str:
-        """Import a dashboard export JSON into a target Superset server. Recreates the dashboard with all charts (full params), datasets, and databases with automatic ID remapping."""
+        """Import a dashboard export JSON into a target Superset server. Recreates the dashboard with all charts (full params preserved), datasets, and databases with automatic ID remapping.
+
+        Follows strict dependency order: databases → datasets → charts → dashboard. All datasource references, chart IDs in position_json, and database references are remapped automatically.
+
+        Args:
+            config_json: The full JSON string from export_dashboard_to_json. Can be the raw JSON output or file contents.
+            target_server_id: The Superset server ID to import into (e.g. "dev", "staging", "production").
+            db_mapping: Optional JSON string mapping source database IDs to target database IDs. Format: {"1": 5, "2": 7}. Only needed when the target server has differently numbered databases. If omitted, databases are matched by name.
+            skip_existing: If True (default), skip resources that already exist on the target (matched by name). Set to False to force recreation (may fail if names conflict).
+
+        Returns:
+            JSON string with the import report: summary counts, id_mappings (source→new), errors, and timing.
+
+        Example:
+            # Simple import: databases matched by name
+            result = await tool_import_dashboard(
+                config_json=open("dashboard_42_export.json").read(),
+                target_server_id="dev"
+            )
+
+            # Import with explicit database mapping (source db 1 → target db 3)
+            result = await tool_import_dashboard(
+                config_json=open("dashboard_42_export.json").read(),
+                target_server_id="staging",
+                db_mapping='{"1": 3}',
+                skip_existing=True
+            )
+        """
         import json
         db_map = None
         if db_mapping:

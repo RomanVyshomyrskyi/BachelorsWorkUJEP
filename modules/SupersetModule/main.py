@@ -423,58 +423,28 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
 
     # --- Export/Import Tools ---
 
-    @mcp.tool(name="export_superset_config")
-    async def tool_export_config(
-        server_id: str,
-        include_dashboards: bool = True,
-        include_charts: bool = True,
-        include_datasets: bool = True,
-        include_databases: bool = True,
-        include_css_templates: bool = True,
-        include_annotations: bool = True,
-    ) -> str:
-        """Export all Superset resources (dashboards, charts, datasets, databases, CSS templates, annotations) to a single JSON structure for backup or migration."""
-        from modules.SupersetModule.tools.export_import import export_superset_config as _export_config
-        return await _export_config(
-            manager,
-            server_id,
-            include_dashboards=include_dashboards,
-            include_charts=include_charts,
-            include_datasets=include_datasets,
-            include_databases=include_databases,
-            include_css_templates=include_css_templates,
-            include_annotations=include_annotations,
-        )
+    @mcp.tool(name="export_dashboard_to_json")
+    async def tool_export_dashboard(server_id: str, dashboard_id: int) -> str:
+        """Export ONE dashboard with ALL its charts (full params, datasource info), datasets, and databases to a single JSON file. Preserves layout (position_json) for transfer to another Superset instance."""
+        from modules.SupersetModule.tools.export_import import export_dashboard_to_json as _export_dash
+        return await _export_dash(manager, server_id, dashboard_id)
 
-    @mcp.tool(name="import_superset_config")
-    async def tool_import_config(
-        server_id: str,
-        config_json: str,
-        db_mappings: Optional[str] = None,
-        create_missing_databases: bool = False,
-        skip_existing: bool = True,
-    ) -> str:
-        """Import all Superset resources from exported JSON into a target server. Follows dependency order: databases -> datasets -> charts -> dashboards with automatic ID remapping."""
+    @mcp.tool(name="import_dashboard_from_json")
+    async def tool_import_dashboard(config_json: str, target_server_id: str, db_mapping: Optional[str] = None, skip_existing: bool = True) -> str:
+        """Import a dashboard export JSON into a target Superset server. Recreates the dashboard with all charts (full params), datasets, and databases with automatic ID remapping."""
         import json
         db_map = None
-        if db_mappings:
+        if db_mapping:
             try:
-                db_map = json.loads(db_mappings)
+                db_map = json.loads(db_mapping)
             except json.JSONDecodeError:
                 from modules.log_utils import LogCollector
                 log = LogCollector(__name__)
                 from modules.SupersetModule.exceptions import ChartError
-                return log.collect(ChartError("Invalid db_mappings JSON. Expected format: {\"source_db_id\": \"target_db_id\"}").to_json())
+                return log.collect(ChartError("Invalid db_mapping JSON. Expected format: {\"source_db_id\": \"target_db_id\"}").to_json())
 
-        from modules.SupersetModule.tools.export_import import import_superset_config as _import_config
-        return await _import_config(
-            manager,
-            server_id,
-            config_json,
-            db_mappings=db_map,
-            create_missing_databases=create_missing_databases,
-            skip_existing=skip_existing,
-        )
+        from modules.SupersetModule.tools.export_import import import_dashboard_from_json as _import_dash
+        return await _import_dash(manager, target_server_id, config_json, db_mapping=db_map, skip_existing=skip_existing)
 
     # --- Semantic & Data Profiling Tools ---
 

@@ -70,6 +70,157 @@ This module provides tools for interacting with Apache Superset servers, allowin
     1. **Export**: Calls GET `/api/v1/dashboard/export/?q=[id]` on the source server to get a ZIP archive.
     2. **Import**: Calls POST `/api/v1/dashboard/import/` on the target server, uploading the ZIP content as multipart form data.
 
+### Per-Dashboard Export/Import (`tools/export_import/`)
+
+#### `export_dashboard_to_json(server_id, dashboard_id)`
+- **What it does**: Exports ONE dashboard with ALL its charts (full params, viz_type, datasource refs), datasets (columns, metrics, SQL), databases, and layout (position_json) into a single JSON structure.
+- **How it does it**: Fetches dashboard detail, extracts chart IDs from `position_json`, then fetches each chart/dataset/database detail and strips read-only fields (`id`, `created_by`, `changed_by`, `created_on`, `changed_on`, `uuid`).
+
+#### `import_dashboard_from_json(config_json, target_server_id, db_mapping, skip_existing)`
+- **What it does**: Reads a dashboard export JSON and recreates the dashboard with all charts/datasets/databases on the target server with automatic ID remapping.
+- **How it does it**: Follows strict dependency order — databases → datasets → charts → dashboard. Remaps `datasource_id` in chart params, chart IDs in `position_json`, and database IDs in dataset references.
+
+---
+
+## Export/Import JSON File Structure
+
+The JSON file produced by `export_dashboard_to_json` and consumed by `import_dashboard_from_json` has the following structure:
+
+```jsonc
+{
+  // === Metadata ===
+  "export_type": "dashboard_transfer",     // Always "dashboard_transfer"
+  "export_version": "2.0",                  // Schema version
+  "source_server": "prod-superset",         // Source server_id from servers.json
+  "source_dashboard_id": 42,                // Original dashboard ID on source
+  "exported_at": "2025-01-15T10:30:00Z",    // ISO 8601 timestamp
+
+  // === Resources ===
+  "resources": {
+    "dashboards": [
+      {
+        "dashboard_title": "Sales Overview",
+        "position_json": "...",             // Full layout JSON (chartId → target remapped on import)
+        "json_metadata": "...",             // Dashboard metadata JSON
+        "slug": "sales-overview",           // URL-friendly slug
+        "published": true,                  // Publication status
+        "owners": [5],                      // Owner user IDs (NOT remapped)
+        "roles": [3],                       // Access roles (NOT remapped)
+        // ... all other dashboard fields EXCEPT: id, created_by, changed_by, created_on, changed_on, uuid
+      }
+    ],
+    "charts": [
+      {
+        "slice_name": "Revenue by Month",
+        "viz_type": "line",
+        "datasource_id": 10,                // Source dataset ID (remapped during import)
+        "datasource_type": "table",
+        "params": "{ \"datasource_id\": 10, \"metrics\": [\"...\"], ... }",
+        //                                      ^ Will be remapped to target dataset ID on import
+        "description": "Monthly revenue trend",
+        // ... all other chart fields EXCEPT: id, created_by, changed_by, created_on, changed_on, uuid
+      }
+    ],
+    "datasets": [
+      {
+        "table_name": "sales_transactions",
+        "database": 1,                      // Source database ID (remapped during import)
+        "schema": "public",
+        "columns": [ ... ],                 // Column definitions
+        "metrics": [ ... ],                 // Column metrics
+        "sql": null,                        // Non-null for virtual datasets
+        // ... all other dataset fields EXCEPT: id, created_by, changed_by, created_on, changed_on, uuid
+      }
+    ],
+    "databases": [
+      {
+        "database_name": "PostgreSQL Prod",
+        "sqlalchemy_uri": "postgresql://user:pass@host/db",
+        "engine_name": "postgresql",
+        "extra": { ... },
+        "allow_csv_upload": false,
+        "allow_dml": false,
+        "allow_schema_metadata_fetch": true,
+        "expose_in_sqllab": true,
+        // ... all other database fields EXCEPT: id, created_by, changed_by, created_on, changed_on, uuid
+      }
+    ]
+  },
+
+  // === Summary ===
+  "summary": {
+    "dashboard_id": 42,
+    "dashboard_title": "Sales Overview",
+    "chart_count": 5,
+    "dataset_count": 3,
+    "database_count": 1,
+    "chart_ids": [101, 102, 103, 104, 105],
+    "dataset_ids": [10, 11, 12],
+    "database_ids": [1]
+  },
+
+  // === Errors (only if something failed) ===
+  "errors": [],
+
+  "total_items": 10,
+  "export_duration_ms": 3450
+}
+```
+
+### Import Report Response
+
+The `import_dashboard_from_json` tool returns an import report:
+
+```json
+{
+  "message": "Import completed: 10 items imported, 0 failed",
+  "target_server": "dev-superset",
+  "source_server": "prod-superset",
+  "source_dashboard_id": 42,
+  "imported_at": "2025-01-15T11:00:00Z",
+  "summary": {
+    "databases": { "imported": 1, "skipped": 0, "failed": 0 },
+    "datasets":  { "imported": 3, "skipped": 0, "failed": 0 },
+    "charts":    { "imported": 5, "skipped": 0, "failed": 0 },
+    "dashboard": { "imported": 1, "skipped": 0, "failed": 0 }
+  },
+  "id_mappings": {
+    "databases": { "1": 7 },
+    "datasets":  { "10": 20, "11": 21, "12": 22 },
+    "charts":    { "101": 30, "102": 31, "103": 32, "104": 33, "105": 34 }
+  },
+  "errors": [],
+  "import_duration_ms": 5200
+}
+```
+
+### ID Remapping Process
+
+During import, references are remapped as follows:
+
+| Reference | Where found | Updated to |
+|-----------|-------------|------------|
+| Dataset ID | `chart.params.datasource_id` | New target dataset ID |
+| Database ID | `dataset.database` | New target database ID |
+| Chart ID | `position_json` chartId/meta.id | New target chart ID |
+| Database ID | `dataset.database` | New target database ID |
+
+### Database Matching Strategy
+
+1. If `db_mapping` is provided: use the mapped target database ID
+2. If a database with the same **name** exists on the target: use that ID
+3. If neither matches and `skip_existing` is True: the database is skipped
+4. If no mapping and the database doesn't exist: a new database is created with the exported config
+
+### Sanitized Fields (NOT exported)
+
+The following fields are stripped during export to prevent conflicts during import:
+
+- `id` — new IDs are assigned on import
+- `created_by` / `changed_by` — belongs to the target user
+- `created_on` / `changed_on` — use current timestamp
+- `uuid` — Superset generates new UUIDs
+
 ### Expert Rules and Layouts (`rules.py`)
 
 #### `superset_generate_robust_dashboard_layout(server_id, chart_ids)`

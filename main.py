@@ -21,7 +21,7 @@ import inspect
 import importlib.util
 import logging
 from fastmcp import FastMCP
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.responses import RedirectResponse, Response
 import uvicorn
 from modules.registry import ModuleRegistry, resolve_dependency_order
@@ -641,7 +641,45 @@ try:
 except Exception as e:
     logging.error(f"Failed to mount FastMCP app: {e}")
 
-# 4. Add observability endpoints
+# 4. File upload endpoint for large JSON exports
+UPLOAD_DIR = "/tmp/superset_uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+@app.post("/upload_file")
+async def upload_file(file: UploadFile = File(...)):
+    """
+    Upload a file (e.g. dashboard export JSON) to the server.
+
+    This endpoint accepts multipart/form-data file uploads and saves them to a
+    temporary directory. Returns the saved file path which can be used with tools
+    that accept file_path parameters (e.g. import_dashboard_from_json).
+
+    Returns:
+        JSON with the saved file path. Use this path with the file_path parameter
+        of import_dashboard_from_json.
+
+    Example:
+        # In Swagger: choose file → Upload
+        # Response: {"file_path": "/tmp/superset_uploads/dashboard_42_export.json"}
+
+        # Then use:
+        # file_path = "/tmp/superset_uploads/dashboard_42_export.json"
+        # target_server_id = "dev"
+    """
+    import uuid
+    # Generate unique filename to avoid collisions
+    ext = os.path.splitext(file.filename)[1] if file.filename else ".json"
+    filename = f"{uuid.uuid4().hex}{ext}"
+    filepath = os.path.join(UPLOAD_DIR, filename)
+
+    # Save uploaded file
+    with open(filepath, "wb") as f:
+        content = await file.read()
+        f.write(content)
+
+    return {"file_path": filepath, "filename": file.filename, "size": len(content)}
+
+# 5. Add observability endpoints
 @app.get("/metrics")
 async def prometheus_metrics():
     """
@@ -701,6 +739,7 @@ if __name__ == "__main__":
     # Log startup information including where to find Swagger docs and MCP endpoints
     logging.info("Starting FastMCP Server with FastAPI integration...")
     logging.info("Documentation available at: http://localhost:8000/docs")
+    logging.info("File Upload Endpoint at: http://localhost:8000/upload_file (POST multipart/form-data)")
     logging.info("MCP Streamable HTTP Endpoint at: http://localhost:8000/mcp")
     logging.info("MCP SSE Endpoint at: http://localhost:8000/sse/sse")
     logging.info("MCP SSE Messages Endpoint at: http://localhost:8000/sse/messages")

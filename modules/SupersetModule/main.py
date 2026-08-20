@@ -456,15 +456,15 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
 
         Input options (use ONE of the following):
         1. file_path — Path to the exported JSON file on disk (recommended for large exports)
-        2. config_json — Raw JSON string from export_dashboard_to_json
+        2. config_json — Raw JSON string from export_dashboard_to_json (small exports only)
 
-        Swagger usage: Just fill in file_path with the file path (e.g. /home/user/exports/dashboard_42.json). Do NOT fill in config_json when using file_path.
+        To upload a file via Swagger: POST to /upload_file with multipart/form-data, then use the returned file_path here.
 
         Follows strict dependency order: databases → datasets → charts → dashboard. All datasource references, chart IDs in position_json, and database references are remapped automatically.
 
         Args:
             config_json: Raw JSON string from export_dashboard_to_json. Use this OR file_path, not both. For small exports or testing.
-            file_path: Path to the exported JSON file on disk. Use this OR config_json, not both. Recommended for large exports with many charts (Swagger users: use this field).
+            file_path: Path to the exported JSON file on disk. Use this OR config_json, not both. Recommended for large exports with many charts. Upload via POST /upload_file first.
             target_server_id: The Superset server ID to import into (e.g. "dev", "staging", "production").
             db_mapping: Optional JSON string mapping source database IDs to target database IDs. Format: {"1": 5, "2": 7}. Only needed when the target server has differently numbered databases. If omitted, databases are matched by name.
             skip_existing: If True (default), skip resources that already exist on the target (matched by name). Set to False to force recreation (may fail if names conflict).
@@ -473,22 +473,19 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
             JSON string with the import report: summary counts, id_mappings (source→new), errors, and timing.
 
         Example:
-            # Swagger — just type the file path:
-            file_path = "/home/user/exports/dashboard_42.json"
+            # Step 1: Upload file via Swagger POST /upload_file
+            # Response: {"file_path": "/tmp/superset_uploads/abc123.json"}
+
+            # Step 2: Use the file path to import
+            file_path = "/tmp/superset_uploads/abc123.json"
             target_server_id = "dev"
 
             # With database mapping:
             result = await tool_import_dashboard(
-                file_path="/home/user/exports/dashboard_42.json",
+                file_path="/tmp/superset_uploads/abc123.json",
                 target_server_id="staging",
                 db_mapping='{"1": 3}',
                 skip_existing=True
-            )
-
-            # Using raw JSON string (for small exports):
-            result = await tool_import_dashboard(
-                config_json='{"export_type": "dashboard_transfer", ...}',
-                target_server_id="dev"
             )
         """
         import json

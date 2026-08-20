@@ -21,7 +21,7 @@ import inspect
 import importlib.util
 import logging
 from fastmcp import FastMCP
-from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, Request
 from typing import Optional
 from fastapi.responses import RedirectResponse, Response
 import uvicorn
@@ -642,55 +642,7 @@ try:
 except Exception as e:
     logging.error(f"Failed to mount FastMCP app: {e}")
 
-# 4. File upload endpoint for large JSON exports
-UPLOAD_DIR = "/tmp/superset_uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-@app.post("/upload_file")
-async def upload_file(file: Optional[UploadFile] = File(None), content: Optional[str] = Form(None)):
-    """
-    Save JSON content to the server for use with import tools.
-
-    Accepts EITHER:
-    1. A file upload (multipart/form-data) — choose file → Upload
-    2. Raw JSON string — paste the full JSON content into the "content" field
-
-    Returns the saved file path to use with the file_path parameter of import_dashboard_from_json.
-
-    Returns:
-        JSON with the saved file path.
-
-    Example:
-        # Option 1 — File upload (Swagger): choose file → Upload
-        # Response: {"file_path": "/tmp/superset_uploads/abc123.json"}
-
-        # Option 2 — Raw JSON string (Swagger): paste into "content" field
-        # Response: {"file_path": "/tmp/superset_uploads/abc123.json"}
-
-        # Then use:
-        # file_path = "/tmp/superset_uploads/abc123.json"
-        # target_server_id = "dev"
-    """
-    import uuid
-    # Generate unique filename
-    filename = f"{uuid.uuid4().hex}.json"
-    filepath = os.path.join(UPLOAD_DIR, filename)
-
-    # Get content from file or text
-    if file and file.filename:
-        content_bytes = await file.read()
-    elif content:
-        content_bytes = content.encode("utf-8")
-    else:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="Provide either a file or raw JSON content string.")
-
-    with open(filepath, "wb") as f:
-        f.write(content_bytes)
-
-    return {"file_path": filepath, "size": len(content_bytes)}
-
-# 5. Add observability endpoints
+# 4. Add observability endpoints
 @app.get("/metrics")
 async def prometheus_metrics():
     """

@@ -59,7 +59,6 @@ async def import_dashboard_from_json(
         JSON string with the import report including summary, id_mappings,
         and any errors.
     """
-    import os
     mc = get_metrics()
     start_time = time.monotonic()
 
@@ -72,36 +71,13 @@ async def import_dashboard_from_json(
     except Exception as e:
         return log.collect(f"Error: Authentication failed: {e}")
 
-    # Load config: if config_str is a file path, read it
-    config_content = config_str.strip()
+    # Parse config (expects raw JSON string)
+    config_str = config_str.strip()
+    if not config_str:
+        return log.collect("Error: config_str is empty. Provide the full JSON string from export_dashboard_to_json.")
 
-    if not config_content:
-        return log.collect("Error: config_str is empty. Provide either a file path or raw JSON content.")
-
-    # Check if it looks like a file path (starts with /, ./, ../, or drive letter)
-    is_file_path = (
-        config_content.startswith('/') or
-        config_content.startswith('./') or
-        config_content.startswith('../') or
-        (len(config_content) > 1 and config_content[1] == ':') or
-        (os.path.exists(config_content) and os.path.isfile(config_content))
-    )
-
-    if is_file_path:
-        try:
-            with open(config_content, 'r', encoding='utf-8') as f:
-                config_content = f.read()
-            log.info(f"Loaded export config from file: {config_str}")
-        except FileNotFoundError:
-            return log.collect(f"Error: File not found: {config_str}")
-        except PermissionError:
-            return log.collect(f"Error: Permission denied reading file: {config_str}")
-        except OSError as e:
-            return log.collect(f"Error: Could not read file {config_str}: {e}")
-
-    # Parse config
     try:
-        config = json.loads(config_content)
+        config = json.loads(config_str)
     except json.JSONDecodeError as e:
         return log.collect(f"Error: Invalid JSON: {e}")
 

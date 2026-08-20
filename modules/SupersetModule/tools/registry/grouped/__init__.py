@@ -8,4 +8,5 @@ Each submodule handles a specific category of Superset tools:
 - dataset_tools.py: Dataset management tools
 - sqllab_tools.py: SQL Lab execution tools
 - system_tools.py: System, metadata, and database tools
+- export_import_tools.py: Export/import all resources to/from JSON
 """

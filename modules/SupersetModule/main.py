@@ -421,6 +421,61 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Check the health status of a Superset server."""
         return await system.health_check(manager, server_id)
 
+    # --- Export/Import Tools ---
+
+    @mcp.tool(name="export_superset_config")
+    async def tool_export_config(
+        server_id: str,
+        include_dashboards: bool = True,
+        include_charts: bool = True,
+        include_datasets: bool = True,
+        include_databases: bool = True,
+        include_css_templates: bool = True,
+        include_annotations: bool = True,
+    ) -> str:
+        """Export all Superset resources (dashboards, charts, datasets, databases, CSS templates, annotations) to a single JSON structure for backup or migration."""
+        from modules.SupersetModule.tools.export_import import export_superset_config as _export_config
+        return await _export_config(
+            manager,
+            server_id,
+            include_dashboards=include_dashboards,
+            include_charts=include_charts,
+            include_datasets=include_datasets,
+            include_databases=include_databases,
+            include_css_templates=include_css_templates,
+            include_annotations=include_annotations,
+        )
+
+    @mcp.tool(name="import_superset_config")
+    async def tool_import_config(
+        server_id: str,
+        config_json: str,
+        db_mappings: Optional[str] = None,
+        create_missing_databases: bool = False,
+        skip_existing: bool = True,
+    ) -> str:
+        """Import all Superset resources from exported JSON into a target server. Follows dependency order: databases -> datasets -> charts -> dashboards with automatic ID remapping."""
+        import json
+        db_map = None
+        if db_mappings:
+            try:
+                db_map = json.loads(db_mappings)
+            except json.JSONDecodeError:
+                from modules.log_utils import LogCollector
+                log = LogCollector(__name__)
+                from modules.SupersetModule.exceptions import ChartError
+                return log.collect(ChartError("Invalid db_mappings JSON. Expected format: {\"source_db_id\": \"target_db_id\"}").to_json())
+
+        from modules.SupersetModule.tools.export_import import import_superset_config as _import_config
+        return await _import_config(
+            manager,
+            server_id,
+            config_json,
+            db_mappings=db_map,
+            create_missing_databases=create_missing_databases,
+            skip_existing=skip_existing,
+        )
+
     # --- Semantic & Data Profiling Tools ---
 
     @mcp.tool(name="profile_table")

@@ -98,6 +98,16 @@ services:
     networks:
       - mcp-network
 
+  frontend:
+    build: ./frontend
+    container_name: superset-frontend
+    ports:
+      - "8081:80"
+    depends_on:
+      - fast-mcp
+    networks:
+      - mcp-network
+
 networks:
   mcp-network:
     driver: bridge

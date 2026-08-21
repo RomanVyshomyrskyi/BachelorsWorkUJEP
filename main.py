@@ -565,6 +565,8 @@ READ_ONLY_TOOLS = {
     "generate_all_mermaid_diagrams",
     "analyze_database_schema", "get_normalization_rules", "get_table_data",
     "run_read_only_sql",
+    "get_server_configs_json", "get_server_configs_full",
+    "get_dashboard_expert_info", "check_dashboard_import_ready",
 }
 
 # 1. Register all MCP tools as FastAPI endpoints to generate Swagger docs

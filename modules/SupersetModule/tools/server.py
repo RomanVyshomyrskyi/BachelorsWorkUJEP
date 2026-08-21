@@ -114,3 +114,52 @@ async def server_status(manager: ConnectionManager, server_id: str) -> str:
             return f"Server '{server_id}' is REACHABLE but returned status {resp.status_code}: {resp.text}"
     except Exception as e:
         return f"Server '{server_id}' is OFFLINE or error occurred: {e}"
+
+async def get_server_configs_json(manager: ConnectionManager) -> str:
+    """Returns all configured Superset server IDs as a JSON array.
+        Reads the internal context store and returns a JSON array of server IDs
+        that are currently loaded and available for use.
+
+    Args:
+        manager: The ConnectionManager instance holding server configurations.
+
+    Returns:
+        A JSON string containing an array of server ID strings.
+
+    Examples:
+        result = await get_server_configs_json(manager)
+        # Returns '["prod-superset", "staging-superset"]'
+    """
+    if not manager._contexts:
+        manager.load_servers()
+
+    server_ids = list(manager._contexts.keys())
+    return json.dumps(server_ids)
+
+async def get_server_configs_full(manager: ConnectionManager) -> str:
+    """Returns all configured Superset server details as a JSON object.
+        Reads the internal context store and returns a JSON object mapping
+        server IDs to their base URLs. This is useful for frontend clients
+        that need to know available servers.
+
+    Args:
+        manager: The ConnectionManager instance holding server configurations.
+
+    Returns:
+        A JSON string containing an object with server IDs as keys and
+        base URLs as values, e.g. '{"prod": "https://superset.example.com"}'
+
+    Examples:
+        result = await get_server_configs_full(manager)
+        # Returns '{"prod": "https://superset.example.com", "staging": "https://staging.example.com"}'
+    """
+    if not manager._contexts:
+        manager.load_servers()
+
+    configs = {}
+    for sid, ctx in manager._contexts.items():
+        configs[sid] = {
+            "base_url": ctx.config.base_url,
+            "auth_method": ctx.config.auth_method,
+        }
+    return json.dumps(configs)

@@ -98,6 +98,16 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Checks the status and connectivity of a specific Superset server."""
         return await server.server_status(manager, server_id)
 
+    @mcp.tool(name="get_server_configs_json")
+    async def tool_get_server_configs_json() -> str:
+        """Returns all configured Superset server IDs as a JSON array."""
+        return await server.get_server_configs_json(manager)
+
+    @mcp.tool(name="get_server_configs_full")
+    async def tool_get_server_configs_full() -> str:
+        """Returns all configured Superset server details as a JSON object."""
+        return await server.get_server_configs_full(manager)
+
     # --- Resource Discovery Tools ---
 
     @mcp.tool(name="superset_available_resource_types")
@@ -471,6 +481,31 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """
         from modules.SupersetModule.tools.dashboard.expert_info import check_dashboard_import_ready as _check
         return await _check(manager, source_server_id, target_server_id, dashboard_id)
+
+    @mcp.tool(name="validate_export_file")
+    async def tool_validate_export_file(target_server_id: str, export_data: str) -> str:
+        """Validate an exported dashboard JSON file against a target Superset server.
+
+        Checks if a dashboard export file can be imported into a target server
+        by analyzing the export JSON and comparing it against the target server's
+        existing resources. No source server connection is needed.
+
+        Args:
+            target_server_id: The Superset server ID to import into.
+            export_data: JSON string containing the exported dashboard data.
+
+        Returns:
+            JSON string with import readiness: can_import (boolean), blockers list,
+            recommendations, and detailed check results.
+
+        Example:
+            result = await tool_validate_export_file(
+                target_server_id="staging",
+                export_data='{"resources": {...}, "dashboard": {...}}'
+            )
+        """
+        from modules.SupersetModule.tools.dashboard.expert_info import validate_export_file as _validate
+        return await _validate(manager, target_server_id, export_data)
 
     # --- Export/Import Tools ---
     #TODO: Leve it to manula transer (uncomnet with new model avalible)

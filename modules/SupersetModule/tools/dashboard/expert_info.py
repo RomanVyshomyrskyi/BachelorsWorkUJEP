@@ -443,7 +443,7 @@ async def check_dashboard_import_ready(
     if target_ds_data:
         for ds in target_ds_data.get("result", []):
             target_ds_list.append(ds)
-            key = f"{ds.get('table_name', '').lower()}|{ds.get('schema', '').lower()}|{ds.get('database', {})}"
+            key = f"{(ds.get('table_name') or '').lower()}|{(ds.get('schema') or '').lower()}|{ds.get('database', {})}"
             target_ds_by_name[key] = ds
 
     # --- Check databases ---
@@ -594,5 +594,213 @@ async def check_dashboard_import_ready(
         mc.tool_calls.labels(tool="check_dashboard_import_ready", status="ready").inc()
 
     mc.tool_duration.labels(tool="check_dashboard_import_ready").observe(time.monotonic() - start_time)
+
+    return json.dumps(result, indent=2, default=str)
+
+
+async def validate_export_file(
+    manager: ConnectionManager,
+    target_server_id: str,
+    export_data: str
+) -> str:
+    """Validate an exported dashboard JSON file against a target Superset server.
+
+    This tool checks if a dashboard export file can be imported into a target server
+    by comparing the export data against the target server's existing resources.
+    No source server connection is needed - only the exported JSON and target server.
+
+    Args:
+        target_server_id: The Superset server ID to import into.
+        export_data: JSON string containing the exported dashboard data.
+
+    Returns:
+        JSON string with import readiness report including blockers and recommendations.
+    """
+    import time
+    mc = get_metrics()
+    start_time = time.monotonic()
+
+    # Validate target server exists
+    target_ctx = manager.get_context(target_server_id)
+    if not target_ctx:
+        return log.collect(f"Error: Target server '{target_server_id}' not found.")
+
+    try:
+        await ensure_auth(target_ctx)
+    except Exception as e:
+        return log.collect(f"Error: Authentication failed: {e}")
+
+    # Parse export data
+    try:
+        export = json.loads(export_data) if isinstance(export_data, str) else export_data
+    except json.JSONDecodeError as e:
+        return log.collect(f"Error: Invalid JSON in export data: {e}")
+
+    resources = export.get("resources", {})
+    dashboard_info = export.get("dashboard", {})
+    charts_data = resources.get("charts", []) or export.get("charts", [])
+    datasets_data = resources.get("datasets", []) or export.get("datasets", [])
+    databases_data = resources.get("databases", []) or export.get("databases", [])
+
+    blockers = []
+    recommendations = []
+    checks = {
+        "databases": [],
+        "datasets": [],
+        "charts": []
+    }
+
+    # --- Fetch target databases ---
+    target_dbs_str = await impl_list_resources(manager, target_server_id, "database")
+    target_dbs_data = _parse_json_result(target_dbs_str)
+    target_db_list = []
+    target_db_by_name: Dict[str, Dict] = {}
+    target_db_by_id: Dict[int, Dict] = {}
+
+    if target_dbs_data:
+        for db in target_dbs_data.get("result", []):
+            target_db_list.append(db)
+            target_db_by_name[db.get("database_name", "").lower()] = db
+            target_db_by_id[db.get("id")] = db
+
+    # --- Fetch target datasets ---
+    target_ds_str = await impl_list_resources(manager, target_server_id, "dataset")
+    target_ds_data = _parse_json_result(target_ds_str)
+    target_ds_list = []
+    target_ds_by_name: Dict[str, Dict] = {}
+
+    if target_ds_data:
+        for ds in target_ds_data.get("result", []):
+            target_ds_list.append(ds)
+            key = f"{(ds.get('table_name') or '').lower()}|{(ds.get('schema') or '').lower()}|{ds.get('database', {})}"
+            target_ds_by_name[key] = ds
+
+    # --- Check databases ---
+    for db_info in databases_data:
+        db_name = db_info.get("database_name", db_info.get("name", "")).lower()
+        db_id = db_info.get("id")
+        found = False
+        matched_target_id = None
+
+        # Try exact name match
+        if db_name in target_db_by_name:
+            found = True
+            matched_target_id = target_db_by_name[db_name]["id"]
+        else:
+            # Try partial match
+            for tdb_name in target_db_by_name:
+                if db_name in tdb_name or tdb_name in db_name:
+                    found = True
+                    matched_target_id = target_db_by_name[tdb_name]["id"]
+                    break
+
+        db_result = {
+            "source_id": db_id,
+            "source_name": db_info.get("database_name", db_info.get("name", f"DB {db_id}")),
+            "exists_on_target": found,
+            "target_id": matched_target_id
+        }
+        checks["databases"].append(db_result)
+
+        if not found:
+            blockers.append(f"Database '{db_info.get('database_name', db_info.get('name', str(db_id)))}' not found on target server '{target_server_id}'.")
+            recommendations.append(f"Create database '{db_info.get('database_name', db_info.get('name', str(db_id)))}' on target server with same connection settings, or provide db_mapping during import.")
+
+    # --- Check datasets ---
+    for ds_info in datasets_data:
+        ds_name = ds_info.get("table_name", "").lower()
+        ds_schema = (ds_info.get("schema") or "").lower()
+        ds_id = ds_info.get("id")
+        ds_type = "virtual" if ds_info.get("sql") else "physical"
+
+        # For physical datasets, check if table exists on target
+        found = False
+        matched_target_id = None
+
+        if ds_type == "physical":
+            # Check if physical dataset with same name exists on target
+            for tds in target_ds_list:
+                tds_name = (tds.get("table_name") or "").lower()
+                tds_schema = (tds.get("schema") or "").lower()
+                tds_db = tds.get("database", {})
+                if isinstance(tds_db, dict):
+                    tds_db_id = tds_db.get("id")
+                else:
+                    tds_db_id = tds_db
+
+                if tds_name == ds_name and (tds_schema == ds_schema or not ds_schema):
+                    found = True
+                    matched_target_id = tds["id"]
+                    break
+        else:
+            # Virtual datasets need to be recreated during import
+            found = True  # Virtual datasets will be created
+            matched_target_id = None
+
+        ds_result = {
+            "source_id": ds_id,
+            "source_name": ds_info.get("table_name", f"Dataset {ds_id}"),
+            "type": ds_type,
+            "exists_on_target": found,
+            "target_id": matched_target_id
+        }
+        checks["datasets"].append(ds_result)
+
+        if not found and ds_type == "physical":
+            blockers.append(f"Dataset '{ds_info.get('table_name', str(ds_id))}' not found on target server.")
+            recommendations.append(f"Create physical dataset '{ds_info.get('table_name', str(ds_id))}' on target server, or ensure database exists first.")
+
+    # --- Check charts ---
+    for chart_info in charts_data:
+        chart_id = chart_info.get("id")
+        chart_name = chart_info.get("slice_name", f"Chart {chart_id}")
+        ds_id = chart_info.get("datasource_id")
+
+        # Check if chart's dataset is available in export
+        ds_available = any(ds.get("id") == ds_id for ds in datasets_data)
+
+        checks["charts"].append({
+            "chart_id": chart_id,
+            "chart_name": chart_name,
+            "datasource_id": ds_id,
+            "dataset_in_export": ds_available
+        })
+
+        if not ds_available:
+            blockers.append(f"Chart '{chart_name}' references dataset ID {ds_id} which is not in export.")
+            recommendations.append(f"Ensure dataset referenced by chart '{chart_name}' is included in export.")
+
+    # --- Determine overall readiness ---
+    can_import = len(blockers) == 0
+
+    # --- Build result ---
+    result = {
+        "can_import": can_import,
+        "dashboard": {
+            "id": dashboard_info.get("id", dashboard_info.get("dashboard_id", "unknown")),
+            "name": dashboard_info.get("name", dashboard_info.get("dashboard_title", "Unknown Dashboard")),
+            "source_server": export.get("source_server", "unknown"),
+            "chart_count": len(charts_data)
+        },
+        "target_server": target_server_id,
+        "checks": checks,
+        "summary": {
+            "databases_checked": len(databases_data),
+            "datasets_checked": len(datasets_data),
+            "charts_checked": len(charts_data),
+            "databases_missing": sum(1 for c in checks["databases"] if not c.get("exists_on_target")),
+            "datasets_missing": sum(1 for c in checks["datasets"] if not c.get("exists_on_target") and c.get("type") == "physical"),
+            "chart_issues": len([c for c in checks["charts"] if not c.get("dataset_in_export")])
+        },
+        "blockers": blockers,
+        "recommendations": recommendations
+    }
+
+    if not can_import:
+        mc.tool_calls.labels(tool="validate_export_file", status="blocked").inc()
+    else:
+        mc.tool_calls.labels(tool="validate_export_file", status="ready").inc()
+
+    mc.tool_duration.labels(tool="validate_export_file").observe(time.monotonic() - start_time)
 
     return json.dumps(result, indent=2, default=str)

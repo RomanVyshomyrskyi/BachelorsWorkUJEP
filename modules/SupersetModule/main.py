@@ -421,6 +421,57 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Check the health status of a Superset server."""
         return await system.health_check(manager, server_id)
 
+    # --- Dashboard Expert Info Tools ---
+
+    @mcp.tool(name="get_dashboard_expert_info")
+    async def tool_get_dashboard_expert_info(server_id: str, dashboard_id: int) -> str:
+        """Get comprehensive dashboard info: name, tables, datasets, SQL queries used.
+
+        Extracts all data lineage from a dashboard including charts, datasets,
+        database references, table names, and SQL queries. Returns structured
+        data showing exactly what data sources the dashboard depends on.
+
+        Args:
+            server_id: The Superset server ID (as defined in servers.json). E.g. "production", "dev".
+            dashboard_id: The integer ID of the dashboard to analyze.
+
+        Returns:
+            JSON string with dashboard info: dashboard name, charts list, datasets list,
+            databases list, unique tables, and all SQL queries found.
+
+        Example:
+            result = await tool_get_dashboard_expert_info(server_id="production", dashboard_id=42)
+        """
+        from modules.SupersetModule.tools.dashboard.expert_info import get_dashboard_expert_info as _expert
+        return await _expert(manager, server_id, dashboard_id)
+
+    @mcp.tool(name="check_dashboard_import_ready")
+    async def tool_check_dashboard_import_ready(source_server_id: str, target_server_id: str, dashboard_id: int) -> str:
+        """Check if a dashboard can be imported into a target Superset server.
+
+        Validates whether all dependencies (databases, datasets, charts) needed
+        to import a dashboard exist on the target server. Returns a clear report
+        with yes/no answer and detailed reasons if import is not possible.
+
+        Args:
+            source_server_id: The Superset server ID where dashboard currently exists.
+            target_server_id: The Superset server ID to import into.
+            dashboard_id: The integer ID of the dashboard to check.
+
+        Returns:
+            JSON string with import readiness: can_import (boolean), blockers list,
+            recommendations, and detailed check results.
+
+        Example:
+            result = await tool_check_dashboard_import_ready(
+                source_server_id="production",
+                target_server_id="staging",
+                dashboard_id=42
+            )
+        """
+        from modules.SupersetModule.tools.dashboard.expert_info import check_dashboard_import_ready as _check
+        return await _check(manager, source_server_id, target_server_id, dashboard_id)
+
     # --- Export/Import Tools ---
 
     @mcp.tool(name="export_dashboard_to_json")

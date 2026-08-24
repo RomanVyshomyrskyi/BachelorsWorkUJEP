@@ -1,3 +1,10 @@
+/**
+ * @module api/service
+ * @description Frontend API service for communicating with the backend MCP server.
+ * Provides methods for exporting dashboards, validating imports, listing servers,
+ * and managing application configuration via localStorage.
+ */
+
 import type {
   ExportResult,
   ImportCheckResult,
@@ -5,11 +12,33 @@ import type {
   AppConfig,
 } from '../types';
 
+/**
+ * Configuration object for a backend Superset server (internal use only).
+ *
+ * @interface BackendServerConfig
+ * @property {string} base_url - The full URL of the backend server (e.g., "http://localhost:8000/api").
+ * @property {string} auth_method - The authentication method used by the server (e.g., "token", "session").
+ */
 interface BackendServerConfig {
   base_url: string;
   auth_method: string;
 }
 
+/**
+ * Determines the backend API URL based on environment configuration.
+ *
+ * Priority order:
+ * 1. `VITE_BACKEND_URL` from environment variables
+ * 2. `http://host.docker.internal:8000` when running on port 8080 or in dev mode
+ * 3. Empty string (relative URL) for production behind a reverse proxy
+ *
+ * @returns {string} The resolved backend base URL.
+ *
+ * @example
+ * // In development (VITE_BACKEND_URL not set):
+ * // Returns "http://host.docker.internal:8000"
+ * const url = getBackendUrl();
+ */
 const getBackendUrl = (): string => {
   const envUrl = import.meta.env.VITE_BACKEND_URL;
   if (envUrl) return envUrl;
@@ -19,6 +48,23 @@ const getBackendUrl = (): string => {
   return '';
 };
 
+/**
+ * Serializes query parameters into a URL-encoded query string.
+ *
+ * Handles null/undefined filtering and JSON-stringifies object values.
+ *
+ * @param {Record<string, any>} params - Key-value pairs of query parameters.
+ * @returns {string} A URL-encoded query string (e.g., "key1=value1&key2=value2").
+ *
+ * @example
+ * // Returns "server_id=prod&dashboard_id=42"
+ * buildQueryString({ server_id: 'prod', dashboard_id: 42 });
+ *
+ * @example
+ * // Filters out null/undefined values
+ * // Returns "name=dashboard"
+ * buildQueryString({ name: 'dashboard', filter: null, sort: undefined });
+ */
 const buildQueryString = (params: Record<string, any>): string => {
   return Object.entries(params)
     .filter(([, v]) => v !== null && v !== undefined)
@@ -26,6 +72,30 @@ const buildQueryString = (params: Record<string, any>): string => {
     .join('&');
 };
 
+/**
+ * Sends an HTTP request to a backend tool endpoint.
+ *
+ * Routes requests to GET (with query string) or POST (with JSON body)
+ * based on the `usePost` flag. Automatically parses double-encoded JSON
+ * responses from the backend.
+ *
+ * @param {string} toolName - The name of the backend tool/endpoint to call (e.g., "get_dashboard_expert_info").
+ * @param {Record<string, any>} params - Parameters to pass to the endpoint. For GET, these are query params. For POST, these are the JSON body.
+ * @param {boolean} [usePost=false] - Whether to use POST (true) or GET (false) method.
+ * @returns {Promise<any>} The parsed JSON response from the backend.
+ * @throws {Error} Throws an error with the HTTP status text if the response is not OK.
+ *
+ * @example
+ * // GET request with query parameters
+ * const result = await callTool('list_dashboards', { server_id: 'prod' });
+ *
+ * @example
+ * // POST request with JSON body
+ * const result = await callTool('validate_export_file', {
+ *   target_server_id: 'staging',
+ *   export_data: JSON.stringify(exportData),
+ * }, true);
+ */
 const callTool = async (toolName: string, params: Record<string, any>, usePost = false): Promise<any> => {
   const backendUrl = getBackendUrl();
   let url: string;
@@ -63,6 +133,27 @@ const callTool = async (toolName: string, params: Record<string, any>, usePost =
   }
 };
 
+/**
+ * Recursively parses double-encoded JSON strings in an object.
+ *
+ * The backend sometimes returns JSON strings that are themselves
+ * JSON-encoded. This function detects string values that are valid
+ * JSON and parses them into native JavaScript objects.
+ *
+ * @param {any} data - The data to parse. Can be a string, object, or other value.
+ * @returns {any} The parsed data with all string values attempted to be JSON-decoded.
+ *
+ * @example
+ * // Input: { message: '{"status": "ok"}' }
+ * // Output: { message: { status: 'ok' } }
+ * const parsed = parseDoubleEncoded({ message: '{"status": "ok"}' });
+ *
+ * @example
+ * // String that is valid JSON gets parsed
+ * // Input: '{"key": "value"}'
+ * // Output: { key: 'value' }
+ * const parsed = parseDoubleEncoded('{"key": "value"}');
+ */
 const parseDoubleEncoded = (data: any): any => {
   if (typeof data === 'string') {
     try {
@@ -85,12 +176,71 @@ const parseDoubleEncoded = (data: any): any => {
   return data;
 };
 
+/**
+ * Frontend API service module for communicating with the backend MCP server.
+ *
+ * Provides methods for exporting dashboards, validating imports, managing
+ * server configurations, and persisting app settings to localStorage.
+ *
+ * @namespace api
+ *
+ * @example
+ * // Export a dashboard
+ * const result = await api.exportDashboard('production', 42);
+ * console.log(result.dashboard.name);
+ *
+ * @example
+ * // Validate import readiness
+ * const check = await api.checkImportReady('staging', JSON.stringify(exportData));
+ * if (check.can_import) {
+ *   console.log('Ready to import');
+ * }
+ *
+ * @example
+ * // List available servers
+ * const servers = await api.listServers();
+ * console.log(servers);
+ */
 export const api = {
+  /**
+   * Exports detailed information about a Superset dashboard including charts,
+   * datasets, databases, and SQL queries.
+   *
+   * @param {string} serverId - The ID of the Superset server to query.
+   * @param {number} dashboardId - The numeric ID of the dashboard to export.
+   * @returns {Promise<ExportResult>} A promise resolving to the full export result containing
+   *   dashboard metadata, charts, datasets, databases, tables, and SQL queries.
+   *
+   * @example
+   * const result = await api.exportDashboard('production', 10);
+   * console.log(result.dashboard.name);           // "Sales Overview"
+   * console.log(result.summary.total_charts);     // 5
+   * console.log(result.charts[0].name);           // "Revenue Chart"
+   */
   exportDashboard: async (serverId: string, dashboardId: number): Promise<ExportResult> => {
     const data = await callTool('get_dashboard_expert_info', { server_id: serverId, dashboard_id: dashboardId });
     return parseDoubleEncoded(data) as ExportResult;
   },
 
+  /**
+   * Validates whether an exported dashboard can be safely imported into a target server.
+   *
+   * Checks for missing databases, datasets, and chart issues that would block
+   * the import. Returns a detailed report with blockers and recommendations.
+   *
+   * @param {string} targetServerId - The ID of the target Superset server for import.
+   * @param {string} exportData - JSON string of the export data to validate.
+   * @returns {Promise<ImportCheckResult>} A promise resolving to the import check result
+   *   containing can_import flag, detailed checks, blockers, and recommendations.
+   *
+   * @example
+   * const result = await api.checkImportReady('staging', JSON.stringify(exportData));
+   * if (result.can_import) {
+   *   console.log('Safe to import');
+   * } else {
+   *   result.blockers.forEach(b => console.log('Blocker:', b));
+   * }
+   */
   checkImportReady: async (targetServerId: string, exportData: string): Promise<ImportCheckResult> => {
     const data = await callTool('validate_export_file', {
       target_server_id: targetServerId,
@@ -99,11 +249,31 @@ export const api = {
     return parseDoubleEncoded(data) as ImportCheckResult;
   },
 
+  /**
+   * Retrieves a list of configured server IDs from the backend.
+   *
+   * @returns {Promise<string[]>} A promise resolving to an array of server ID strings.
+   *
+   * @example
+   * const servers = await api.listServers();
+   * // Returns: ["production", "staging", "development"]
+   */
   listServers: async (): Promise<string[]> => {
     const data = await callTool('get_server_configs_json', {});
     return Array.isArray(data) ? data : [];
   },
 
+  /**
+   * Fetches full configuration objects for all backend servers.
+   *
+   * @returns {Promise<Record<string, BackendServerConfig>>} A promise resolving to a record mapping
+   *   server IDs to their configuration (base_url, auth_method).
+   *
+   * @example
+   * const configs = await api.getBackendServerConfigs();
+   * console.log(configs['production'].base_url);
+   * // Returns: "http://prod-server:8000/api"
+   */
   getBackendServerConfigs: async (): Promise<Record<string, BackendServerConfig>> => {
     try {
       const data = await callTool('get_server_configs_full', {});
@@ -116,6 +286,17 @@ export const api = {
     }
   },
 
+  /**
+   * Lists all available dashboards for a given Superset server.
+   *
+   * @param {string} serverId - The ID of the Superset server to query.
+   * @returns {Promise<DashboardItem[]>} A promise resolving to an array of dashboard items
+   *   containing id and dashboard_title for each dashboard.
+   *
+   * @example
+   * const dashboards = await api.listDashboards('production');
+   * // Returns: [{ id: 10, dashboard_title: "Sales Overview" }, { id: 11, dashboard_title: "Marketing ROI" }]
+   */
   listDashboards: async (serverId: string): Promise<DashboardItem[]> => {
     const data = await callTool('list_dashboards', { server_id: serverId });
     console.log('listDashboards raw data:', data, typeof data);
@@ -141,6 +322,19 @@ export const api = {
     return [];
   },
 
+  /**
+   * Loads the application configuration from localStorage.
+   *
+   * Falls back to default configuration (backend host: localhost, port: 8000,
+   * no Superset servers) if no stored config exists.
+   *
+   * @returns {Promise<AppConfig>} A promise resolving to the application configuration.
+   *
+   * @example
+   * const config = await api.loadConfig();
+   * console.log(config.backend.host);  // "localhost"
+   * console.log(config.supersetServers);  // Array of server configs
+   */
   loadConfig: async (): Promise<AppConfig> => {
     const stored = localStorage.getItem('app_config');
     if (stored) {
@@ -152,6 +346,20 @@ export const api = {
     };
   },
 
+  /**
+   * Saves the application configuration to localStorage.
+   *
+   * @param {AppConfig} config - The complete application configuration to persist.
+   *
+   * @example
+   * const config = {
+   *   backend: { host: 'localhost', port: 8000 },
+   *   supersetServers: [
+   *     { id: 'prod', name: 'Production', host: '10.0.0.1', port: 8001, enabled: true }
+   *   ]
+   * };
+   * api.saveConfig(config);
+   */
   saveConfig: (config: AppConfig): void => {
     localStorage.setItem('app_config', JSON.stringify(config));
   },

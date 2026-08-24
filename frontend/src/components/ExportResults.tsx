@@ -1,9 +1,38 @@
+/**
+ * @module components/ExportResults
+ * @description Displays detailed export results including databases, datasets, charts, and SQL queries.
+ * Renders a structured view of all resources extracted from a Superset dashboard.
+ */
+
 import type { ExportResult } from '../types';
 
+/**
+ * Props for the ExportResults component.
+ *
+ * @interface Props
+ * @property {ExportResult} data - The complete export result containing all dashboard metadata and resources.
+ */
 interface Props {
   data: ExportResult;
 }
 
+/**
+ * Export results component displaying detailed dashboard export information.
+ *
+ * Renders sections for:
+ * - Databases: Lists all database connections with their engine type
+ * - Datasets: Lists all datasets with type and optional schema
+ * - Charts: Lists all charts with visualization type and SQL query count
+ * - SQL Queries: Shows up to 5 SQL queries in collapsible details (with "+ N more" indicator)
+ *
+ * @component
+ * @param {Props} props - The component props.
+ * @param {ExportResult} props.data - The full export result to display.
+ * @returns {JSX.Element} A card containing detailed export information.
+ *
+ * @example
+ * <ExportResults data={exportData} />
+ */
 function ExportResults({ data }: Props) {
   return (
     <div className="card">

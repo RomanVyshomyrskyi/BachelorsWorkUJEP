@@ -1,3 +1,10 @@
+/**
+ * @module pages/DashboardPage
+ * @description Main dashboard management page with export and import functionality.
+ * Provides UI for selecting servers, exporting dashboards, loading export files,
+ * and checking import readiness.
+ */
+
 import { useState, useEffect } from 'react';
 import type { ExportResult, ImportCheckResult, DashboardItem } from '../types';
 import { api } from '../api/service';
@@ -5,6 +12,33 @@ import SummaryCards from '../components/SummaryCards';
 import ExportResults from '../components/ExportResults';
 import ImportResults from '../components/ImportResults';
 
+/**
+ * Dashboard management page component with export and import tabs.
+ *
+ * Features:
+ * - Export tab: Select a server and dashboard, export to JSON, download results
+ * - Import tab: Load a JSON export file, select target server, check import readiness
+ *
+ * State:
+ * - servers: Merged list of custom and backend Superset servers
+ * - selectedServer: Currently selected source server ID
+ * - dashboards: List of dashboards on the selected server
+ * - selectedDashboard: Currently selected dashboard ID
+ * - exportData: Result of the last export operation
+ * - importCheckData: Result of the last import readiness check
+ * - loading: Current loading state ('servers' | 'dashboards' | 'export' | 'import' | '')
+ * - importFile: Selected file for import
+ * - importFileData: Parsed JSON data from the import file
+ * - importTargetServer: Target server ID for import check
+ * - activeTab: Currently active tab ('export' | 'import')
+ *
+ * @component
+ * @returns {JSX.Element} The dashboard management page with export/import UI.
+ *
+ * @example
+ * // Used in App.tsx routing
+ * <Route path="/" element={<DashboardPage />} />
+ */
 function DashboardPage() {
   const [servers, setServers] = useState<Array<{id: string; name: string; host: string; port: number; enabled: boolean}>>([]);
   const [selectedServer, setSelectedServer] = useState<string>('');
@@ -18,10 +52,18 @@ function DashboardPage() {
   const [importTargetServer, setImportTargetServer] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'export' | 'import'>('export');
 
+  /**
+   * Loads servers on initial mount.
+   * Merges custom servers from config with backend-discovered servers.
+   */
   useEffect(() => {
     loadServers();
   }, []);
 
+  /**
+   * Loads dashboards when selected server changes.
+   * Resets export/import state when server changes.
+   */
   useEffect(() => {
     if (selectedServer && servers.length > 0) {
       const server = servers.find(s => s.id === selectedServer);
@@ -31,6 +73,15 @@ function DashboardPage() {
     }
   }, [selectedServer]);
 
+  /**
+   * Loads and merges server configurations from localStorage and backend.
+   *
+   * Custom servers from config take precedence over backend-discovered servers.
+   * Backend servers are added only if not already present in custom config.
+   *
+   * @async
+   * @returns {Promise<void>}
+   */
   const loadServers = async () => {
     setLoading('servers');
     try {
@@ -71,6 +122,15 @@ function DashboardPage() {
     }
   };
 
+  /**
+   * Loads dashboards for the specified server.
+   *
+   * Resets all export/import state when switching servers.
+   *
+   * @async
+   * @param {string} serverId - The ID of the server to load dashboards for.
+   * @returns {Promise<void>}
+   */
   const loadDashboards = async (serverId: string) => {
     setLoading('dashboards');
     try {
@@ -87,6 +147,15 @@ function DashboardPage() {
     }
   };
 
+  /**
+   * Exports the selected dashboard from the selected server.
+   *
+   * Fetches dashboard details including charts, datasets, databases, and SQL queries.
+   * Sets both exportData and importFileData so the export can be immediately used for import.
+   *
+   * @async
+   * @returns {Promise<void>}
+   */
   const handleExport = async () => {
     if (!selectedServer || !selectedDashboard) return;
     setLoading('export');
@@ -101,6 +170,14 @@ function DashboardPage() {
     }
   };
 
+  /**
+   * Handles file selection for import.
+   *
+   * Reads the selected JSON file and parses it into ExportResult format.
+   * Resets export and import check state when a new file is loaded.
+   *
+   * @param {React.ChangeEvent<HTMLInputElement>} event - The file input change event.
+   */
   const handleFileLoad = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -119,6 +196,15 @@ function DashboardPage() {
     reader.readAsText(file);
   };
 
+  /**
+   * Checks import readiness for the loaded export file against the target server.
+   *
+   * Sends the export data to the backend for validation and displays
+   * blockers, recommendations, and detailed check results.
+   *
+   * @async
+   * @returns {Promise<void>}
+   */
   const handleImportCheck = async () => {
     if (!importFileData || !importTargetServer) return;
     setLoading('import');
@@ -133,6 +219,15 @@ function DashboardPage() {
     }
   };
 
+  /**
+   * Downloads data as a JSON file.
+   *
+   * Creates a Blob from the JSON data, generates a temporary download link,
+   * triggers the download, and cleans up the object URL.
+   *
+   * @param {any} data - The data to serialize and download.
+   * @param {string} filename - The filename for the downloaded file.
+   */
   const downloadJson = (data: any, filename: string) => {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);

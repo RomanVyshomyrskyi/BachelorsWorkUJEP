@@ -1,9 +1,40 @@
+/**
+ * @module components/ImportResults
+ * @description Displays import readiness check results with detailed validation information.
+ * Shows blockers, recommendations, and per-resource check status (databases, datasets, charts).
+ */
+
 import type { ImportCheckResult } from '../types';
 
+/**
+ * Props for the ImportResults component.
+ *
+ * @interface Props
+ * @property {ImportCheckResult} data - The import check result containing validation details.
+ */
 interface Props {
   data: ImportCheckResult;
 }
 
+/**
+ * Import results component displaying import readiness validation.
+ *
+ * Renders:
+ * - Header with can_import status badge (✓ Can Import / ✗ Cannot Import)
+ * - Summary cards showing pass/fail counts for databases, datasets, and charts
+ * - Blockers section (red) with critical issues preventing import
+ * - Recommendations section (yellow) with suggestions to improve import success
+ * - Detailed checks section listing each database, dataset, and chart with
+ *   existence status on the target server
+ *
+ * @component
+ * @param {Props} props - The component props.
+ * @param {ImportCheckResult} props.data - The import check result to display.
+ * @returns {JSX.Element} A structured view of import readiness validation.
+ *
+ * @example
+ * <ImportResults data={importCheckData} />
+ */
 function ImportResults({ data }: Props) {
   return (
     <div>

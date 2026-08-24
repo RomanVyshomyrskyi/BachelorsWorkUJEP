@@ -6,6 +6,7 @@ AutomationMCP Superset Documentation
    :caption: Contents:
 
    modules
+   frontend
 
 Indices and tables
 ==================

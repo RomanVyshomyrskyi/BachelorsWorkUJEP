@@ -1,8 +1,37 @@
+/**
+ * @module pages/SettingsPage
+ * @description Application settings page for managing backend and Superset server configurations.
+ * Provides UI for adding, editing, deleting, and enabling/disabling Superset servers,
+ * as well as configuring the backend API connection.
+ */
+
 import { useState, useEffect } from 'react';
 import type { SupersetServerConfig, AppConfig } from '../types';
 import { api } from '../api/service';
 import toast from 'react-hot-toast';
 
+/**
+ * Settings page component for application configuration.
+ *
+ * Features:
+ * - Backend configuration: Edit backend host and port
+ * - Superset servers: List, add, edit, delete, enable/disable servers
+ * - Server form: Add new or edit existing server with validation
+ *
+ * State:
+ * - config: Current application configuration (backend + servers)
+ * - editingServer: ID of the server currently being edited (null if none)
+ * - isAdding: Whether the form is in "add new server" mode
+ * - loading: Whether data is being loaded from backend
+ * - formData: Current form values for add/edit server
+ *
+ * @component
+ * @returns {JSX.Element} The settings page with configuration UI.
+ *
+ * @example
+ * // Used in App.tsx routing
+ * <Route path="/settings" element={<SettingsPage />} />
+ */
 function SettingsPage() {
   const [config, setConfig] = useState<AppConfig>({
     backend: { host: 'localhost', port: 8000 },
@@ -19,10 +48,21 @@ function SettingsPage() {
     enabled: true,
   });
 
+  /**
+   * Loads configuration on initial mount.
+   */
   useEffect(() => {
     loadConfig();
   }, []);
 
+  /**
+   * Loads configuration from localStorage and merges with backend server configs.
+   *
+   * Backend-discovered servers are prepended to custom servers in the list.
+   *
+   * @async
+   * @returns {Promise<void>}
+   */
   const loadConfig = async () => {
     setLoading(true);
     const cfg = await api.loadConfig();
@@ -49,12 +89,22 @@ function SettingsPage() {
     }
   };
 
+  /**
+   * Resets the form for adding a new server.
+   *
+   * Clears editing state and sets default form values.
+   */
   const handleAddServer = () => {
     setFormData({ id: '', name: '', host: 'localhost', port: '8001', enabled: true });
     setEditingServer(null);
     setIsAdding(true);
   };
 
+  /**
+   * Populates the form with an existing server's data for editing.
+   *
+   * @param {SupersetServerConfig} server - The server to edit.
+   */
   const handleEditServer = (server: SupersetServerConfig) => {
     setFormData({
       id: server.id,
@@ -67,6 +117,11 @@ function SettingsPage() {
     setIsAdding(false);
   };
 
+  /**
+   * Deletes a server from the configuration after user confirmation.
+   *
+   * @param {string} id - The ID of the server to delete.
+   */
   const handleDeleteServer = (id: string) => {
     if (!confirm(`Delete server "${id}"?`)) return;
     const updated = { ...config, supersetServers: config.supersetServers.filter(s => s.id !== id) };
@@ -75,6 +130,12 @@ function SettingsPage() {
     toast.success('Server deleted');
   };
 
+  /**
+   * Saves the current form data as a new or updated server.
+   *
+   * Validates required fields (id, name, host) before saving.
+   * Shows toast notification on success.
+   */
   const handleSaveServer = () => {
     if (!formData.id || !formData.name || !formData.host) {
       toast.error('Please fill in all required fields');
@@ -111,11 +172,19 @@ function SettingsPage() {
     toast.success(isAdding ? 'Server added' : 'Server updated');
   };
 
+  /**
+   * Cancels the add/edit form and resets form state.
+   */
   const handleCancel = () => {
     setIsAdding(false);
     setEditingServer(null);
   };
 
+  /**
+   * Toggles the enabled status of a server.
+   *
+   * @param {string} id - The ID of the server to toggle.
+   */
   const toggleServer = (id: string) => {
     const updated = {
       ...config,

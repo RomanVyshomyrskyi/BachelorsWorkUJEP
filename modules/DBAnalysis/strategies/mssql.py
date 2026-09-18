@@ -265,3 +265,134 @@ class MSSQLStrategy(DatabaseStrategy):
             logger.error(f"Database error: {e}")
             # Do not expose driver-level error details to the caller for security
             raise RuntimeError("A database error occurred while executing the query.")
+
+    def execute_ddl(self, query: str) -> dict:
+        """
+        Execute a non-SELECT statement (CREATE, INSERT, UPDATE, etc.).
+
+        Executes a DDL or DML statement that does not return rows.
+        Automatically commits the transaction upon success.
+
+        Args:
+            query: The SQL statement to execute (validated before calling).
+
+        Returns:
+            Dictionary with:
+            - success: True
+            - message: Human-readable description of the result
+            - affected_rows: Number of rows affected (0 for DDL)
+
+        Raises:
+            ConnectionError: If not currently connected to the database.
+            ValueError: If the query contains semicolons (multi-statement).
+            RuntimeError: If a pyodbc error occurs during execution.
+        """
+        if not self.connection:
+            raise ConnectionError("Not connected to the database.")
+
+        cleaned = self._validate_dml_query(
+            query,
+            allowed_ops=frozenset(['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'ALTER', 'DROP', 'TRUNCATE', 'REPLACE']),
+            always_forbidden=frozenset([])
+        )
+
+        if ';' in cleaned:
+            raise ValueError("Security violation: Multi-statement queries are not allowed on MSSQL")
+
+        logger.info(f"Executing DDL/DML ({len(cleaned)} chars)")
+
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(cleaned)
+                self.connection.commit()
+
+                affected = cursor.rowcount
+                message = f"{affected} row(s) affected" if affected > 0 else "Statement executed successfully"
+
+                logger.info(f"DDL/DML executed: {message}")
+                return {
+                    "success": True,
+                    "message": message,
+                    "affected_rows": affected,
+                }
+
+        except pyodbc.Error as e:
+            logger.error(f"Database error: {e}")
+            raise RuntimeError(f"Database error: {e}")
+
+    def get_tables_list(self, schema: str = None) -> list[dict]:
+        if not self.connection:
+            raise ConnectionError("Not connected to the database.")
+        with self.connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    t.TABLE_NAME,
+                    t.TABLE_SCHEMA,
+                    p.rows AS table_rows,
+                    c.column_count
+                FROM INFORMATION_SCHEMA.TABLES t
+                JOIN (
+                    SELECT TABLE_SCHEMA, TABLE_NAME, COUNT(*) AS column_count
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    GROUP BY TABLE_SCHEMA, TABLE_NAME
+                ) c ON t.TABLE_NAME = c.TABLE_NAME AND t.TABLE_SCHEMA = c.TABLE_SCHEMA
+                JOIN sys.sysindexes p ON t.TABLE_NAME = OBJECT_NAME(p.id) AND p.indid IN (0, 1)
+                WHERE t.TABLE_TYPE = 'BASE TABLE'
+                ORDER BY t.TABLE_NAME;
+            """)
+            rows = cursor.fetchall()
+        return [
+            {"name": r[0], "schema": r[1], "table_rows": int(r[2]) if r[2] else 0, "column_count": r[3]}
+            for r in rows
+        ]
+
+    def get_table_columns(self, table_name: str, schema: str = None) -> list[dict]:
+        if not self.connection:
+            raise ConnectionError("Not connected to the database.")
+        with self.connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    c.COLUMN_NAME,
+                    c.DATA_TYPE,
+                    c.IS_NULLABLE,
+                    CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS is_primary_key,
+                    CAST(c.CHARACTER_MAXIMUM_LENGTH AS INT) AS max_length
+                FROM INFORMATION_SCHEMA.COLUMNS c
+                LEFT JOIN (
+                    SELECT KU.TABLE_SCHEMA, KU.TABLE_NAME, KU.COLUMN_NAME
+                    FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+                    JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE KU
+                        ON tc.CONSTRAINT_NAME = KU.CONSTRAINT_NAME
+                        AND tc.CONSTRAINT_SCHEMA = KU.CONSTRAINT_SCHEMA
+                    WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+                ) pk ON c.TABLE_NAME = pk.TABLE_NAME AND c.COLUMN_NAME = pk.COLUMN_NAME AND c.TABLE_SCHEMA = pk.TABLE_SCHEMA
+                WHERE c.TABLE_NAME = ?
+                ORDER BY c.ORDINAL_POSITION;
+            """, (table_name,))
+            rows = cursor.fetchall()
+        return [
+            {
+                "name": r[0],
+                "type": r[1],
+                "nullable": r[2] == 'YES',
+                "is_primary_key": bool(r[3]),
+                "max_length": int(r[4]) if r[4] else None,
+            }
+            for r in rows
+        ]
+
+    def batch_insert(self, table_name: str, columns: list[str], rows: list[list], schema: str = None) -> int:
+        if not self.connection:
+            raise ConnectionError("Not connected to the database.")
+        col_names = ", ".join(f"[{c}]" for c in columns)
+        placeholders = ", ".join(["?"] * len(columns))
+        sql = f"INSERT INTO [{table_name}] ({col_names}) VALUES ({placeholders})"
+        logger.info(f"Executing batch insert into {table_name}: {len(rows)} rows")
+        with self.connection.cursor() as cursor:
+            processed = []
+            for row in rows:
+                processed.append(tuple(None if (v is None or v == '') else v for v in row))
+            cursor.executemany(sql, processed)
+            self.connection.commit()
+            logger.info(f"Batch insert completed: {cursor.rowcount} rows inserted")
+            return cursor.rowcount

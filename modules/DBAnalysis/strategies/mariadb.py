@@ -105,6 +105,56 @@ class MariaDBStrategy(DatabaseStrategy):
         # Clear the connection reference to prevent use-after-close
         self.connection = None
 
+    def execute_ddl(self, query: str) -> dict:
+        """
+        Execute a non-SELECT statement (CREATE, INSERT, UPDATE, etc.).
+
+        Executes a DDL or DML statement that does not return rows.
+        Automatically commits the transaction upon success.
+
+        Args:
+            query: The SQL statement to execute (validated before calling).
+
+        Returns:
+            Dictionary with:
+            - success: True
+            - message: Human-readable description of the result
+            - affected_rows: Number of rows affected (0 for DDL)
+
+        Raises:
+            ConnectionError: If not currently connected to the database.
+            RuntimeError: If a MariaDB/MySQL error occurs during execution.
+        """
+        if not self.connection:
+            raise ConnectionError("Not connected to the database.")
+
+        cleaned = self._validate_dml_query(
+            query,
+            allowed_ops=frozenset(['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'ALTER', 'DROP', 'TRUNCATE', 'REPLACE']),
+            always_forbidden=frozenset([])
+        )
+
+        logger.info(f"Executing DDL/DML ({len(cleaned)} chars)")
+
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(cleaned)
+                self.connection.commit()
+
+                affected = cursor.rowcount
+                message = f"{affected} row(s) affected" if affected > 0 else "Statement executed successfully"
+
+                logger.info(f"DDL/DML executed: {message}")
+                return {
+                    "success": True,
+                    "message": message,
+                    "affected_rows": affected,
+                }
+
+        except mysql.connector.Error as e:
+            logger.error(f"Database error: {e.errno} - {e.msg}")
+            raise RuntimeError(f"Database error: {e.msg}")
+
     def get_schema_representation(self) -> str:
         """
         Extract the MariaDB/MySQL database schema as a formatted string.
@@ -238,3 +288,79 @@ class MariaDBStrategy(DatabaseStrategy):
             # Log the driver-level error details and raise a sanitized RuntimeError
             logger.error(f"Database error: {e.errno} - {e.msg}")
             raise RuntimeError("A database error occurred while executing the query.")
+
+    def get_tables_list(self, schema: str = None) -> list[dict]:
+        if not self.connection:
+            raise ConnectionError("Not connected to the database.")
+        db_name = self.connection_details['dbname']
+        with self.connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    t.table_name,
+                    t.table_schema,
+                    t.table_rows,
+                    c.column_count
+                FROM information_schema.tables t
+                JOIN (
+                    SELECT table_schema, table_name, COUNT(*) AS column_count
+                    FROM information_schema.columns
+                    GROUP BY table_schema, table_name
+                ) c ON t.table_name = c.table_name AND t.table_schema = c.table_schema
+                WHERE t.table_type = 'BASE TABLE' AND t.table_schema = %s
+                ORDER BY t.table_name;
+            """, (db_name,))
+            rows = cursor.fetchall()
+        return [
+            {"name": r[0], "schema": r[1], "table_rows": int(r[2]) if r[2] else 0, "column_count": r[3]}
+            for r in rows
+        ]
+
+    def get_table_columns(self, table_name: str, schema: str = None) -> list[dict]:
+        if not self.connection:
+            raise ConnectionError("Not connected to the database.")
+        db_name = self.connection_details['dbname']
+        with self.connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    c.column_name,
+                    c.data_type,
+                    c.is_nullable,
+                    CASE WHEN pk.column_name IS NOT NULL THEN 1 ELSE 0 END AS is_primary_key,
+                    CASE WHEN c.character_maximum_length IS NOT NULL THEN c.character_maximum_length ELSE NULL END AS max_length
+                FROM information_schema.columns c
+                LEFT JOIN (
+                    SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME
+                    FROM information_schema.key_column_usage
+                    WHERE CONSTRAINT_NAME = 'PRIMARY'
+                ) pk ON c.table_name = pk.table_name AND c.column_name = pk.column_name AND c.table_schema = pk.table_schema
+                WHERE c.table_name = %s AND c.table_schema = %s
+                ORDER BY c.ordinal_position;
+            """, (table_name, db_name))
+            rows = cursor.fetchall()
+        return [
+            {
+                "name": r[0],
+                "type": r[1],
+                "nullable": r[2] == 'YES',
+                "is_primary_key": bool(r[3]),
+                "max_length": r[4],
+            }
+            for r in rows
+        ]
+
+    def batch_insert(self, table_name: str, columns: list[str], rows: list[list], schema: str = None) -> int:
+        if not self.connection:
+            raise ConnectionError("Not connected to the database.")
+        db_name = self.connection_details['dbname']
+        col_names = ", ".join(f"`{c}`" for c in columns)
+        placeholders = ", ".join(["%s"] * len(columns))
+        sql = f"INSERT INTO `{db_name}`.`{table_name}` ({col_names}) VALUES ({placeholders})"
+        logger.info(f"Executing batch insert into {db_name}.{table_name}: {len(rows)} rows")
+        with self.connection.cursor() as cursor:
+            processed = []
+            for row in rows:
+                processed.append(tuple(None if (v is None or v == '') else v for v in row))
+            cursor.executemany(sql, processed)
+            self.connection.commit()
+            logger.info(f"Batch insert completed: {cursor.rowcount} rows inserted")
+            return cursor.rowcount

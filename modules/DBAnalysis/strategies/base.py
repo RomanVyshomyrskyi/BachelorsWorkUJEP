@@ -296,6 +296,104 @@ class DatabaseStrategy(ABC):
             return rows[:max_rows]
         return rows
 
+    @staticmethod
+    def _get_first_keyword(query: str) -> str:
+        """
+        Extract the first significant SQL keyword from a query.
+
+        Strips comments and whitespace, then returns the first word that
+        matches a SQL statement keyword.
+
+        Args:
+            query: Raw SQL query string.
+
+        Returns:
+            First keyword string (e.g., 'SELECT', 'INSERT', 'UPDATE', 'CREATE') or 'UNKNOWN'.
+        """
+        import re
+        cleaned = query.strip()
+
+        cleaned = re.sub(r'--.*$', '', cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
+        cleaned = cleaned.strip()
+
+        if not cleaned:
+            return 'UNKNOWN'
+
+        first_word = cleaned.split()[0].upper()
+        return first_word
+
+    @staticmethod
+    def _validate_dml_query(query: str, allowed_ops: frozenset, always_forbidden: frozenset) -> str:
+        """
+        Validate a DDL/DML query against allowed and forbidden operations.
+
+        This method provides fine-grained control over which SQL operations
+        are allowed. DELETE is always explicitly forbidden as a security
+        requirement.
+
+        Security Layers:
+            Layer 1 - Always Forbidden Check:
+                Scans the entire query text for ALWAYS_FORBIDDEN keywords.
+                If any are found, raises ValueError immediately.
+
+            Layer 2 - Statement Type Check:
+                Extracts the first SQL keyword and verifies it's in the
+                allowed_ops set. This ensures only the intended operation
+                type is permitted.
+
+        Args:
+            query: Raw SQL query string to validate.
+            allowed_ops: Frozenset of allowed first keywords
+                (e.g., frozenset(['CREATE', 'ALTER']) or frozenset(['INSERT'])).
+            always_forbidden: Frozenset of keywords that are NEVER allowed
+                (must include DELETE for all tools).
+
+        Returns:
+            The cleaned query string if validation passes.
+
+        Raises:
+            ValueError: If the query contains forbidden operations or the
+                        first keyword is not in allowed_ops.
+
+        Examples:
+            >>> DatabaseStrategy._validate_dml_query(
+            ...     "CREATE TABLE users (id INT)",
+            ...     allowed_ops=frozenset(['CREATE', 'ALTER']),
+            ...     always_forbidden=frozenset(['DELETE', 'DROP'])
+            ... )
+            'CREATE TABLE users (id INT)'
+
+            >>> DatabaseStrategy._validate_dml_query(
+            ...     "DELETE FROM users",
+            ...     allowed_ops=frozenset(['CREATE', 'ALTER']),
+            ...     always_forbidden=frozenset(['DELETE', 'DROP'])
+            ... )
+            ValueError: Security violation: 'DELETE' is FORBIDDEN
+        """
+        if not query or not query.strip():
+            raise ValueError("Security violation: Empty query")
+
+        upper = query.upper()
+
+        for keyword in always_forbidden:
+            if keyword in upper:
+                raise ValueError(
+                    f"Security violation: '{keyword}' is FORBIDDEN. "
+                    f"This operation is not allowed by this MCP tool."
+                )
+
+        first_keyword = DatabaseStrategy._get_first_keyword(query)
+
+        if first_keyword not in allowed_ops:
+            raise ValueError(
+                f"Security violation: Only {sorted(allowed_ops)} operations allowed. "
+                f"Detected operation: '{first_keyword}'"
+            )
+
+        logger.info(f"DML validation passed (allowed: {sorted(allowed_ops)}, query: {len(query)} chars)")
+        return query
+
     @abstractmethod
     def execute_query(self, query: str, max_rows: int = MAX_ROWS) -> list[dict]:
         """
@@ -340,6 +438,43 @@ class DatabaseStrategy(ABC):
         # Establish the database connection before entering the with block body
         self.connect()
         return self
+
+    @abstractmethod
+    def get_tables_list(self, schema: str = None) -> list[dict]:
+        """
+        Get a list of tables in the database with metadata.
+
+        Returns:
+            A list of dicts with keys: name, schema, table_rows, column_count.
+        """
+        pass
+
+    @abstractmethod
+    def get_table_columns(self, table_name: str, schema: str = None) -> list[dict]:
+        """
+        Get column metadata for a specific table.
+
+        Returns:
+            A list of dicts with keys: name, type, nullable, is_primary_key, max_length.
+        """
+        pass
+
+    def batch_insert(self, table_name: str, columns: list[str], rows: list[list], schema: str = None) -> int:
+        """
+        Batch insert rows into a table using parameterized queries.
+
+        Converts empty strings to NULL. Returns number of rows inserted.
+
+        Args:
+            table_name: Target table name.
+            columns: Column names in order matching row data.
+            rows: List of row value lists.
+            schema: Optional schema name (PostgreSQL).
+
+        Returns:
+            Number of rows successfully inserted.
+        """
+        pass
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """

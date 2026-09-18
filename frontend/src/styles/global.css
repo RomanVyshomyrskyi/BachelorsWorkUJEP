@@ -506,7 +506,26 @@ body {
 }
 
 .divider {
-  height: 1px;
-  background: var(--border);
-  margin: 1.5rem 0;
-}
+   height: 1px;
+   background: var(--border);
+   margin: 1.5rem 0;
+ }
+
+ .wizard-progress {
+   padding: 0.5rem 0;
+ }
+
+ .drop-zone {
+   transition: all 0.2s ease;
+ }
+
+ .drop-zone:hover {
+   background: rgba(52, 152, 219, 0.05);
+ }
+
+ .error-message {
+   padding: 0.75rem 1rem;
+   background: rgba(231, 76, 60, 0.05);
+   border-radius: 8px;
+   border: 1px solid rgba(231, 76, 60, 0.2);
+ }

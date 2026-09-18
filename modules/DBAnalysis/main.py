@@ -17,6 +17,8 @@ from modules.registry import ModuleRegistry
 from .tools.analysis import register_analysis_tools
 from .tools.data import register_data_tools
 from .tools.visualization import register_visualization_tools
+from .tools.dml import register_dml_tools
+from .tools.data_import import register_import_tools
 from .strategies.factory import get_db_strategy
 from .utils.rules_loader import get_normalization_rules
 from .db_manager import DbManager
@@ -74,6 +76,8 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     register_analysis_tools(mcp, db_manager)
     register_data_tools(mcp, db_manager)
     register_visualization_tools(mcp, db_manager)
+    register_dml_tools(mcp, db_manager)
+    register_import_tools(mcp, db_manager)
 
     # Expose core module functions via the registry if provided
     if registry is not None:

@@ -9,6 +9,7 @@ import { Toaster } from 'react-hot-toast';
 import Navbar from './components/Navbar';
 import DashboardPage from './pages/DashboardPage';
 import SettingsPage from './pages/SettingsPage';
+import DataImport from './components/DataImport';
 
 /**
  * Root application component.
@@ -40,6 +41,7 @@ function App() {
           <Routes>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/data-import" element={<DataImport />} />
           </Routes>
         </main>
       </div>

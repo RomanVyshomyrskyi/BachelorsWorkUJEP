@@ -38,6 +38,9 @@ function Navbar() {
         <Link to="/" className={`nav-link ${location.pathname === '/' ? 'active' : ''}`}>
           Dashboard
         </Link>
+        <Link to="/data-import" className={`nav-link ${location.pathname === '/data-import' ? 'active' : ''}`}>
+          Data Import
+        </Link>
         <Link to="/settings" className={`nav-link ${location.pathname === '/settings' ? 'active' : ''}`}>
           Settings
         </Link>

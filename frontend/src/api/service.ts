@@ -10,6 +10,13 @@ import type {
   ImportCheckResult,
   DashboardItem,
   AppConfig,
+  DbConnection,
+  DbTable,
+  DbColumn,
+  BatchInsertResult,
+  SupersetServer,
+  SupersetDb,
+  SupersetSchema,
 } from '../types';
 
 /**
@@ -126,9 +133,13 @@ const callTool = async (toolName: string, params: Record<string, any>, usePost =
   }
 
   const text = await response.text();
+  console.log(`[callTool] ${toolName} response (first 200 chars):`, text.substring(0, 200));
   try {
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    console.log(`[callTool] ${toolName} parsed type:`, typeof parsed);
+    return parsed;
   } catch {
+    console.log(`[callTool] ${toolName} parse failed, returning as text`);
     return { result: text };
   }
 };
@@ -361,6 +372,176 @@ export const api = {
    * api.saveConfig(config);
    */
   saveConfig: (config: AppConfig): void => {
-    localStorage.setItem('app_config', JSON.stringify(config));
-  },
+     localStorage.setItem('app_config', JSON.stringify(config));
+   },
+
+   /**
+    * Lists all configured database connections from databases.json.
+    *
+    * @returns {Promise<DbConnection[]>} A promise resolving to an array of database connections.
+    */
+   listDatabaseConnections: async (): Promise<DbConnection[]> => {
+     const data = await callTool('list_db_connections', {});
+     return Array.isArray(data) ? data : [];
+   },
+
+   /**
+    * Lists all tables in the specified database.
+    *
+    * @param {string} dbId - Database ID from databases.json.
+    * @param {string|null} [schema=null] - Optional schema name (PostgreSQL).
+    * @returns {Promise<DbTable[]>} A promise resolving to an array of table objects.
+    */
+   listDatabaseTables: async (dbId: string, schema?: string): Promise<DbTable[]> => {
+     const data = await callTool('list_database_tables', { db_id: dbId, schema: schema || undefined });
+     return Array.isArray(data) ? data : [];
+   },
+
+   /**
+    * Gets column metadata for a table in the specified database.
+    *
+    * @param {string} dbId - Database ID from databases.json.
+    * @param {string} tableName - Table name.
+    * @param {string|null} [schema=null] - Optional schema name (PostgreSQL).
+    * @returns {Promise<DbColumn[]>} A promise resolving to an array of column definitions.
+    */
+   getTableColumns: async (dbId: string, tableName: string, schema?: string): Promise<DbColumn[]> => {
+     const data = await callTool('get_table_columns', { db_id: dbId, table_name: tableName, schema: schema || undefined });
+     return Array.isArray(data) ? data : [];
+   },
+
+   /**
+    * Inserts rows into a database table with column mapping.
+    *
+    * @param {string} dbId - Database ID from databases.json.
+    * @param {string} tableName - Target table name.
+    * @param {string[]} columns - Column names in order matching row data.
+    * @param {any[][]} rows - Row data as arrays of values.
+    * @param {number} [batchSize=50] - Rows per INSERT batch (recommended max: 200).
+    * @param {string|null} [schema=null] - Optional schema name (PostgreSQL).
+    * @returns {Promise<BatchInsertResult>} A promise resolving to the insert result.
+    */
+  batchInsertRows: async (
+      dbId: string,
+      tableName: string,
+      columns: string[],
+      rows: any[][],
+      batchSize: number = 50,
+      schema?: string,
+    ): Promise<BatchInsertResult> => {
+      const data = await callTool('batch_insert_rows', {
+        db_id: dbId,
+        table_name: tableName,
+        columns,
+        rows,
+        batch_size: batchSize,
+        schema: schema || undefined,
+      }, true);
+      return parseDoubleEncoded(data) as BatchInsertResult;
+    },
+
+    supersetBatchInsertRows: async (
+      serverId: string,
+      databaseId: number,
+      tableName: string,
+      columns: string[],
+      dataRows: Record<string, any>[],
+      batchSize: number = 50,
+      schema?: string,
+    ): Promise<BatchInsertResult> => {
+      const data = await callTool('superset_batch_insert_rows', {
+        server_id: serverId,
+        database_id: databaseId,
+        table_name: tableName,
+        columns: JSON.stringify(columns),
+        data_rows: JSON.stringify(dataRows),
+        batch_size: batchSize,
+        schema: schema || undefined,
+      }, true);
+      return parseDoubleEncoded(data) as BatchInsertResult;
+    },
+
+    /**
+     * Lists all configured Superset servers.
+     *
+     * @returns {Promise<SupersetServer[]>} A promise resolving to an array of Superset servers.
+     */
+    listSupersetServers: async (): Promise<SupersetServer[]> => {
+      const data = await callTool('list_superset_servers', {});
+      let parsedData: any = data;
+      if (typeof data === 'string') {
+        try {
+          parsedData = JSON.parse(data);
+        } catch {
+          return [];
+        }
+      }
+      if (parsedData && parsedData.result && Array.isArray(parsedData.result)) {
+        return parsedData.result;
+      }
+      return [];
+    },
+
+    /**
+     * Lists all databases from a Superset server.
+     *
+     * @param {string} serverId - The Superset server ID.
+     * @returns {Promise<SupersetDb[]>} A promise resolving to an array of databases.
+     */
+    listSupersetDatabases: async (serverId: string): Promise<SupersetDb[]> => {
+      const data = await callTool('list_databases', { server_id: serverId });
+      let parsedData: any = data;
+      if (typeof data === 'string') {
+        try {
+          parsedData = JSON.parse(data);
+        } catch {
+          return [];
+        }
+      }
+      if (parsedData && parsedData.result && Array.isArray(parsedData.result)) {
+        return parsedData.result;
+      }
+      return [];
+    },
+
+    /**
+     * Gets the database schema from a Superset database.
+     *
+     * @param {string} serverId - The Superset server ID.
+     * @param {number} databaseId - The database ID in Superset.
+     * @param {string|null} [schemaName=null] - Optional schema name.
+     * @returns {Promise<SupersetSchema>} A promise resolving to the schema data.
+     */
+    getSupersetDatabaseSchema: async (
+      serverId: string,
+      databaseId: number,
+      schemaName?: string,
+    ): Promise<SupersetSchema> => {
+      console.log('[API] Calling superset_get_database_schema with:', { serverId, databaseId, schemaName });
+      const data = await callTool('superset_get_database_schema', {
+        server_id: serverId,
+        database_id: databaseId,
+        schema_name: schemaName || undefined,
+      });
+      console.log('[API] Raw callTool response:', typeof data, JSON.stringify(data).substring(0, 200));
+      let parsedData: any = data;
+      if (typeof data === 'string') {
+        try {
+          parsedData = JSON.parse(data);
+          console.log('[API] After JSON.parse, parsedData type:', typeof parsedData, 'keys:', Object.keys(parsedData).slice(0, 5));
+        } catch {
+          return { database_id: databaseId, database_name: '', engine: '', tables: [] };
+        }
+      }
+      if (parsedData && parsedData.result) {
+        console.log('[API] Returning parsedData.result');
+        return parsedData.result;
+      }
+      if (parsedData && parsedData.database_id) {
+        console.log('[API] Returning parsedData directly with database_id:', parsedData.database_id, 'tables:', parsedData.tables?.length);
+        return parsedData;
+      }
+      console.log('[API] Fallback - returning empty schema');
+      return { database_id: databaseId, database_name: '', engine: '', tables: [] };
+    },
 };

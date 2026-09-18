@@ -29,6 +29,8 @@ from modules.SupersetModule.tools import dashboards
 from modules.SupersetModule.tools import datasets
 from modules.SupersetModule.tools import databases
 from modules.SupersetModule.tools import sqllab
+from modules.SupersetModule.tools.sql_lab import dml as sqllab_dml
+from modules.SupersetModule.tools.sql_lab import dml_status as sqllab_dml_status
 from modules.SupersetModule.tools import transfer
 from modules.SupersetModule.tools import explore
 from modules.SupersetModule.tools import system
@@ -185,6 +187,28 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
         """Retrieves the results of a previously executed SQL Lab query."""
         return await sqllab.sqllab_get_query_results(manager, server_id, client_id)
 
+    # --- SQL Lab DML Tools ---
+
+    @mcp.tool(name="superset_execute_sql_query")
+    async def tool_execute_sql_query(server_id: str, database_id: int, sql_query: str, schema: Optional[str] = None) -> str:
+        """Execute SELECT/WITH/SHOW queries via Superset SQL Lab. DELETE is FORBIDDEN."""
+        return await sqllab_dml.execute_sql_query(manager, server_id, database_id, sql_query, schema)
+
+    @mcp.tool(name="superset_execute_sql_insert")
+    async def tool_execute_sql_insert(server_id: str, database_id: int, sql_query: str, schema: Optional[str] = None) -> str:
+        """Execute INSERT statements via Superset SQL Lab. DELETE and UPDATE are FORBIDDEN."""
+        return await sqllab_dml.execute_sql_insert(manager, server_id, database_id, sql_query, schema)
+
+    @mcp.tool(name="superset_execute_sql_update")
+    async def tool_execute_sql_update(server_id: str, database_id: int, sql_query: str, schema: Optional[str] = None) -> str:
+        """Execute UPDATE statements via Superset SQL Lab. DELETE and INSERT are FORBIDDEN."""
+        return await sqllab_dml.execute_sql_update(manager, server_id, database_id, sql_query, schema)
+
+    @mcp.tool(name="superset_check_database_dml_status")
+    async def tool_check_database_dml_status(server_id: str, database_id: int) -> str:
+        """Check if a Superset database has DML operations enabled. Detects settings automatically."""
+        return await sqllab_dml_status.check_database_dml_status(manager, server_id, database_id)
+
     # --- Transfer Tools ---
 
     @mcp.tool(name="transfer_dashboard")
@@ -196,6 +220,23 @@ def register(mcp: FastMCP, registry: Optional[ModuleRegistry] = None):
     async def tool_get_database_schema(server_id: str, database_id: int, schema_name: Optional[str] = None) -> str:
         """Retrieves schema (tables/columns) via information_schema SQL Lab queries."""
         return await datasets.get_database_schema(manager, server_id, database_id, schema_name)
+
+    @mcp.tool(name="superset_batch_insert_rows")
+    async def tool_superset_batch_insert_rows(
+        server_id: str,
+        database_id: int,
+        table_name: str,
+        columns: str,
+        data_rows: str,
+        batch_size: int = 50,
+        schema: Optional[str] = None,
+    ) -> str:
+        """Insert rows into a Superset-connected database table via SQL Lab. Converts data rows to INSERT statements."""
+        import json as _json
+        cols = _json.loads(columns) if isinstance(columns, str) else columns
+        rows = _json.loads(data_rows) if isinstance(data_rows, str) else data_rows
+        from modules.SupersetModule.tools.dataset.batch_insert import tool_superset_batch_insert_rows as _insert
+        return await _insert(manager, server_id, database_id, table_name, cols, rows, batch_size, schema)
 
     # --- Dashboard Tools ---
 

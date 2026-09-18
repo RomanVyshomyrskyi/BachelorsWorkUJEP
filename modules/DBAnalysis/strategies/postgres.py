@@ -134,6 +134,68 @@ class PostgresStrategy(DatabaseStrategy):
         # Clear the connection reference to prevent use-after-close
         self.connection = None
 
+    def execute_ddl(self, query: str) -> dict:
+        """
+        Execute a non-SELECT statement (CREATE, INSERT, UPDATE, etc.).
+
+        Executes a DDL or DML statement that does not return rows.
+        Automatically commits the transaction upon success.
+
+        Args:
+            query: The SQL statement to execute (validated before calling).
+
+        Returns:
+            Dictionary with:
+            - success: True
+            - message: Human-readable description of the result
+            - affected_rows: Number of rows affected (0 for DDL)
+
+        Raises:
+            ConnectionError: If not currently connected to the database.
+            RuntimeError: If a PostgreSQL error occurs during execution.
+        """
+        if not self.connection:
+            raise ConnectionError("Not connected to the database.")
+
+        cleaned = self._validate_dml_query(
+            query,
+            allowed_ops=frozenset(['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'ALTER', 'DROP', 'TRUNCATE', 'REPLACE']),
+            always_forbidden=frozenset([])
+        )
+
+        logger.info(f"Executing DDL/DML ({len(cleaned)} chars)")
+
+        old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+
+        try:
+            signal.alarm(30)
+
+            with self.connection.cursor() as cursor:
+                cursor.execute(cleaned)
+                self.connection.commit()
+
+                signal.alarm(0)
+                affected = cursor.rowcount
+                message = f"{affected} row(s) affected" if affected > 0 else "Statement executed successfully"
+
+                logger.info(f"DDL/DML executed: {message}")
+                return {
+                    "success": True,
+                    "message": message,
+                    "affected_rows": affected,
+                }
+
+        except _TimeoutError:
+            logger.error("DDL/DML execution timed out after 30 seconds")
+            raise TimeoutError("DDL/DML execution timed out. The operation may be too slow.")
+        except psycopg2.Error as e:
+            signal.alarm(0)
+            logger.error(f"Database error: {e.pgcode} - {e.diag.message_primary}")
+            raise RuntimeError(f"Database error: {e.diag.message_primary}")
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
+
     def get_schema_representation(self) -> str:
         """
         Extract the PostgreSQL database schema as a formatted string.
@@ -287,4 +349,95 @@ class PostgresStrategy(DatabaseStrategy):
             # Always cancel the alarm regardless of how we exit (success or error)
             signal.alarm(0)
             # Restore the original SIGALRM handler that was active before this query
+            signal.signal(signal.SIGALRM, old_handler)
+
+    def get_tables_list(self, schema: str = None) -> list[dict]:
+        if not self.connection:
+            raise ConnectionError("Not connected to the database.")
+        target_schema = schema or 'public'
+        with self.connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    t.table_name,
+                    t.table_schema,
+                    COALESCE(s.n_live_tup, 0)::bigint AS table_rows,
+                    c.column_count
+                FROM information_schema.tables t
+                JOIN information_schema.columns c ON t.table_name = c.table_name AND t.table_schema = c.table_schema
+                LEFT JOIN pg_stat_user_tables s ON s.relname = t.table_name
+                WHERE t.table_schema = %s AND t.table_type = 'BASE TABLE'
+                GROUP BY t.table_name, t.table_schema, s.n_live_tup, c.column_count
+                ORDER BY t.table_name;
+            """, (target_schema,))
+            rows = cursor.fetchall()
+        return [
+            {"name": r[0], "schema": r[1], "table_rows": r[2], "column_count": r[3]}
+            for r in rows
+        ]
+
+    def get_table_columns(self, table_name: str, schema: str = None) -> list[dict]:
+        if not self.connection:
+            raise ConnectionError("Not connected to the database.")
+        target_schema = schema or 'public'
+        with self.connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    c.column_name,
+                    c.data_type,
+                    c.is_nullable,
+                    CASE WHEN ccu.column_name IS NOT NULL THEN true ELSE false END AS is_primary_key,
+                    CASE WHEN c.character_maximum_length IS NOT NULL THEN c.character_maximum_length ELSE NULL END AS max_length
+                FROM information_schema.columns c
+                LEFT JOIN (
+                    SELECT tc.table_schema, tc.table_name, kcu.column_name
+                    FROM information_schema.table_constraints tc
+                    JOIN information_schema.key_column_usage kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                        AND tc.table_schema = kcu.table_schema
+                    WHERE tc.constraint_type = 'PRIMARY KEY'
+                ) ccu ON c.table_name = ccu.table_name AND c.column_name = ccu.column_name AND c.table_schema = ccu.table_schema
+                WHERE c.table_name = %s AND c.table_schema = %s
+                ORDER BY c.ordinal_position;
+            """, (table_name, target_schema))
+            rows = cursor.fetchall()
+        return [
+            {
+                "name": r[0],
+                "type": r[1],
+                "nullable": r[2] == 'YES',
+                "is_primary_key": r[3],
+                "max_length": r[4],
+            }
+            for r in rows
+        ]
+
+    def batch_insert(self, table_name: str, columns: list[str], rows: list[list], schema: str = None) -> int:
+        if not self.connection:
+            raise ConnectionError("Not connected to the database.")
+        target_schema = schema or 'public'
+        col_names = ", ".join(f'"{c}"' for c in columns)
+        placeholders = ", ".join(["%s"] * len(columns))
+        sql = f"INSERT INTO \"{target_schema}\".\"{table_name}\" ({col_names}) VALUES ({placeholders})"
+        logger.info(f"Executing batch insert into {target_schema}.{table_name}: {len(rows)} rows")
+        old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+        try:
+            signal.alarm(30)
+            with self.connection.cursor() as cursor:
+                processed = []
+                for row in rows:
+                    processed.append(tuple(None if (v is None or v == '') else v for v in row))
+                cursor.executemany(sql, processed)
+                self.connection.commit()
+                signal.alarm(0)
+                logger.info(f"Batch insert completed: {cursor.rowcount} rows inserted")
+                return cursor.rowcount
+        except _TimeoutError:
+            logger.error("Batch insert timed out")
+            raise TimeoutError("Batch insert timed out after 30 seconds")
+        except psycopg2.Error as e:
+            signal.alarm(0)
+            logger.error(f"Batch insert error: {e.diag.message_primary}")
+            raise RuntimeError(f"Database error: {e.diag.message_primary}")
+        finally:
+            signal.alarm(0)
             signal.signal(signal.SIGALRM, old_handler)

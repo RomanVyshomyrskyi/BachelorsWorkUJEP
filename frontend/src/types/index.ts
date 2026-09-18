@@ -307,3 +307,167 @@ export interface AppConfig {
   backend: BackendServerConfig;
   supersetServers: SupersetServerConfig[];
 }
+
+/**
+ * Superset server configuration.
+ *
+ * @interface SupersetServer
+ * @property {string} id - Server ID.
+ * @property {string} name - Human-readable name.
+ * @property {string} host - Superset host.
+ * @property {number} port - Superset port.
+ */
+export interface SupersetServer {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  enabled: boolean;
+}
+
+/**
+ * Superset database connection.
+ *
+ * @interface SupersetDb
+ * @property {number} id - Database ID in Superset.
+ * @property {string} database_name - Database name.
+ * @property {string} backend - Database engine (postgresql, mysql, mssql, etc.).
+ * @property {string} sqlalchemy_uri - SQLAlchemy connection URI.
+ */
+export interface SupersetDb {
+  id: number;
+  database_name: string;
+  backend: string;
+  sqlalchemy_uri?: string;
+}
+
+/**
+ * Schema from Superset database.
+ *
+ * @interface SupersetSchema
+ * @property {number} database_id - Database ID.
+ * @property {string} database_name - Database name.
+ * @property {string} engine - Database engine.
+ * @property {{ table_name: string; columns: any[] }}[] tables - Tables with columns.
+ */
+export interface SupersetSchema {
+  database_id: number;
+  database_name: string;
+  engine: string;
+  tables: {
+    table_name: string;
+    columns: any[];
+  }[];
+}
+
+/**
+ * Target database connection (direct from databases.json).
+ *
+ * @interface DbConnection
+ * @property {string} id - Database ID from config.
+ * @property {string} name - Human-readable identifier.
+ * @property {string} db_type - Database type (postgres, mariadb, mysql, mssql).
+ * @property {string} host - Database host address.
+ * @property {number} port - Database port number.
+ * @property {string} dbname - Database name.
+ */
+export interface DbConnection {
+  id: string;
+  name: string;
+  db_type: string;
+  host: string;
+  port: number;
+  dbname: string;
+}
+
+/**
+ * A table in a database with metadata.
+ *
+ * @interface DbTable
+ * @property {string} name - Table name.
+ * @property {string} schema - Schema name.
+ * @property {number} table_rows - Estimated row count.
+ * @property {number} column_count - Number of columns.
+ */
+export interface DbTable {
+  name: string;
+  schema: string;
+  table_rows: number;
+  column_count: number;
+}
+
+/**
+ * Column metadata for a table.
+ *
+ * @interface DbColumn
+ * @property {string} name - Column name.
+ * @property {string} type - SQL data type.
+ * @property {boolean} nullable - Whether the column allows NULL.
+ * @property {boolean} is_primary_key - Whether this is a primary key column.
+ * @property {number|null} max_length - Max length for string types.
+ */
+export interface DbColumn {
+  name: string;
+  type: string;
+  nullable: boolean;
+  is_primary_key: boolean;
+  max_length: number | null;
+}
+
+/**
+ * Column mapping entry from file column to DB column.
+ *
+ * @interface ColumnMapping
+ * @property {string} fileColumn - Name of the column in the uploaded file.
+ * @property {string} dbColumn - Target database column name (or "__skip__" to skip).
+ */
+export interface ColumnMapping {
+  fileColumn: string;
+  dbColumn: string;
+}
+
+/**
+ * Result of a batch insert operation.
+ *
+ * @interface BatchInsertResult
+ * @property {boolean} success - Whether at least some rows were inserted.
+ * @property {number} total_rows - Total rows attempted.
+ * @property {number} inserted_rows - Successfully inserted rows.
+ * @property {number} failed_rows - Rows that failed to insert.
+ * @property {{ batch_number: number; start_row: number; end_row: number; rows: number; success: boolean; error: string | null }}[] batches - Per-batch summary.
+ * @property {string[]|null} errors - Error messages for failed batches.
+ */
+export interface BatchInsertResult {
+  success: boolean;
+  total_rows: number;
+  inserted_rows: number;
+  failed_rows: number;
+  batches: {
+    batch_number: number;
+    start_row: number;
+    end_row: number;
+    rows: number;
+    success: boolean;
+    error: string | null;
+  }[];
+  errors: string[] | null;
+}
+
+/**
+ * Data from a parsed CSV/Excel file.
+ *
+ * @interface FileData
+ * @property {string[]} headers - Column headers from the file.
+ * @property {any[][]} rows - Row data as arrays of values.
+ */
+export interface FileData {
+  headers: string[];
+  rows: any[][];
+}
+
+/**
+ * Step in the data import wizard.
+ *
+ * @type {number}
+ */
+export type ImportWizardStep = 1 | 2 | 3 | 4 | 5 | 6;

@@ -4,21 +4,21 @@ from modules.SupersetModule.manager import ConnectionManager
 from modules.SupersetModule.api_client import authenticate, execute_request
 
 async def list_servers(manager: ConnectionManager) -> str:
-    """Lists all configured Superset servers with their base URLs and auth methods.
-        Reads the internal context store and returns a formatted list of all
-        configured servers. If no servers are loaded, triggers a hot-reload
-        from the servers.json config file and provides debug information.
+    """Lists all configured Superset servers as a JSON array.
+        Reads the internal context store and returns a JSON array of server
+        objects with id, name, host, port, and enabled fields.
+        If no servers are loaded, triggers a hot-reload from servers.json.
 
     Args:
         manager: The ConnectionManager instance holding server configurations.
 
     Returns:
-        A string listing all configured servers with their IDs, base URLs,
-        and authentication methods. Returns debug info if no servers are found.
+        JSON string containing an array of server objects:
+        [{"id": "main", "name": "main", "host": "localhost", "port": 8088, "enabled": true}, ...]
 
     Examples:
         result = await list_servers(manager)
-        # Returns a formatted list of all configured Superset server connections
+        # Returns '[{"id": "main", "name": "main", "host": "localhost", "port": 8088, "enabled": true}]'
     """
     # Reload config if empty (hot-reload fix)
     if not manager._contexts:
@@ -26,8 +26,29 @@ async def list_servers(manager: ConnectionManager) -> str:
 
     servers = []
     for sid, ctx in manager._contexts.items():
-        servers.append(f"- {sid}: {ctx.config.base_url} (Auth: {ctx.config.auth_method})")
-    
+        base_url = ctx.config.base_url
+        # Parse host and port from base_url (e.g., "http://localhost:8088/api")
+        host = "localhost"
+        port = 8088
+        if "://" in base_url:
+            host_part = base_url.split("://")[1]
+            if ":" in host_part:
+                host, port_str = host_part.split(":", 1)
+                try:
+                    port = int(port_str)
+                except ValueError:
+                    port = 8088
+            else:
+                host = host_part
+        
+        servers.append({
+            "id": sid,
+            "name": sid,
+            "host": host,
+            "port": port,
+            "enabled": True,
+        })
+
     if not servers:
         # Deep Debugging
         debug_info = []
@@ -46,9 +67,9 @@ async def list_servers(manager: ConnectionManager) -> str:
         else:
             debug_info.append("File does NOT exist.")
         
-        return f"No servers configured. Debug Info:\n" + "\n".join(debug_info)
+        return json.dumps({"result": [], "debug_info": debug_info})
         
-    return "Configured Superset Servers:\n" + "\n".join(servers)
+    return json.dumps({"result": servers})
 
 async def reauthenticate(manager: ConnectionManager, server_id: str) -> str:
     """Forces re-authentication with a Superset server by clearing cached tokens.

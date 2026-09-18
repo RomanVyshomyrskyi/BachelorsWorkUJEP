@@ -115,14 +115,17 @@ async def get_database_schema(
         log.info(f"Executing table query for {server_id}/{database_id}")
         table_query_res = await sqllab_execute_query(manager, server_id, database_id, table_query, schema=schema_name)
         table_query_json = json.loads(table_query_res)
-        table_client_id = table_query_json.get("result", {}).get("query", {}).get("client_id")
-        if not table_client_id:
-            return log.collect(DatasetError("Failed to execute table query", details=table_query_res).to_json())
-
-        await asyncio.sleep(2)
-        table_results_res = await sqllab_get_query_results(manager, server_id, table_client_id)
-        table_results_json = json.loads(table_results_res)
-        table_names = [row["table_name"] for row in table_results_json.get("data", [])] if "data" in table_results_json else []
+        # Superset API returns data directly in execute response
+        table_data = table_query_json.get("data")
+        if not table_data:
+            # Fallback: try to get client_id and fetch results
+            table_client_id = table_query_json.get("client_id") or table_query_json.get("query", {}).get("id")
+            if table_client_id:
+                await asyncio.sleep(2)
+                table_results_res = await sqllab_get_query_results(manager, server_id, table_client_id)
+                table_results_json = json.loads(table_results_res)
+                table_data = table_results_json.get("data") or table_results_json.get("result", {}).get("data", [])
+        table_names = [row["table_name"] for row in table_data] if table_data else []
 
         if not table_names:
             return f"No tables found in database ID {database_id}."
@@ -201,12 +204,15 @@ async def _fetch_table_columns(manager, server_id, database_id, column_query_tem
     log.info(f"Executing column query for {table_name}")
     column_query_res = await sqllab_execute_query(manager, server_id, database_id, current_column_query, schema=schema_name)
     column_query_json = json.loads(column_query_res)
-    column_client_id = column_query_json.get("result", {}).get("query", {}).get("client_id")
-
-    if column_client_id:
-        await asyncio.sleep(2)
-        column_results_res = await sqllab_get_query_results(manager, server_id, column_client_id)
-        column_results_json = json.loads(column_results_res)
-        columns = column_results_json.get("data", [])
+    # Superset API returns data directly in execute response
+    columns = column_query_json.get("data") or []
+    if not columns:
+        # Fallback: try to get client_id and fetch results
+        column_client_id = column_query_json.get("client_id") or column_query_json.get("query", {}).get("id")
+        if column_client_id:
+            await asyncio.sleep(2)
+            column_results_res = await sqllab_get_query_results(manager, server_id, column_client_id)
+            column_results_json = json.loads(column_results_res)
+            columns = column_results_json.get("data") or column_results_json.get("result", {}).get("data", [])
 
     return columns
